@@ -1,0 +1,73 @@
+services:
+  # Laravel Backend (PHP-FPM)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: voice_backend
+    volumes:
+      - ./backend:/var/www/html
+    environment:
+      - DB_HOST=db
+      - REDIS_HOST=redis
+    depends_on:
+      - db
+      - redis
+    networks:
+      - voice-network
+
+  # React Frontend (Vite)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: voice_frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    networks:
+      - voice-network
+
+  # Python AI Engine (FastAPI)
+  ai-engine:
+    build:
+      context: ./ai-engine
+      dockerfile: Dockerfile
+    container_name: voice_ai
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ai-engine:/app
+      - ai_models:/root/.cache/huggingface
+    environment:
+      - COQUI_TOS_AGREED=1
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    networks:
+      - voice-network
+
+  # Infrastructure
+  db:
+    image: mysql:8.0
+    container_name: voice_db
+    environment:
+      MYSQL_DATABASE: voice_saas
+      MYSQL_ROOT_PASSWORD: password
+    networks:
+      - voice-network
+
+  redis:
+    image: redis:alpine
+    container_name: voice_redis
+    networks:
+      - voice-network
+
+networks:
+  voice-network:
+    driver: bridge
+
+volumes:
+  ai_models:
