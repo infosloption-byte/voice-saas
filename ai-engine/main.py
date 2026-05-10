@@ -6,6 +6,7 @@ from TTS.api import TTS
 import os
 import subprocess
 import uuid
+import tempfile
 
 os.environ["COQUI_TOS_AGREED"] = "1"
 
@@ -27,9 +28,17 @@ models = {
 VOICES_DIR = "voice_profiles"
 os.makedirs(VOICES_DIR, exist_ok=True)
 
+# Use system temp dir — works correctly in Docker and bare-metal alike
+TMP_DIR = tempfile.gettempdir()
+
+
+def tmp_path(prefix: str, suffix: str = "") -> str:
+    """Return a unique temp file path that is guaranteed to be writable."""
+    return os.path.join(TMP_DIR, f"{prefix}_{uuid.uuid4().hex}{suffix}")
+
 
 def convert_to_wav(input_path: str, output_path: str) -> bool:
-    """Convert any audio format to 16kHz mono WAV using ffmpeg."""
+    """Convert any audio format to 22050 Hz mono WAV using ffmpeg."""
     try:
         result = subprocess.run(
             [
@@ -82,16 +91,18 @@ async def transcribe(file: UploadFile = File(...)):
     if not models["stt"]:
         raise HTTPException(status_code=503, detail="Transcription model still loading...")
 
-    raw_path = f"/tmp/stt_raw_{uuid.uuid4().hex}"
-    wav_path = f"/tmp/stt_{uuid.uuid4().hex}.wav"
+    raw_path = tmp_path("stt_raw")
+    wav_path = tmp_path("stt", ".wav")
 
     try:
         with open(raw_path, "wb") as b:
             b.write(await file.read())
 
-        # Convert to WAV regardless of input format
         if not convert_to_wav(raw_path, wav_path):
-            raise HTTPException(status_code=400, detail="Could not convert audio. Ensure ffmpeg is installed.")
+            raise HTTPException(
+                status_code=400,
+                detail="Could not convert audio. Ensure ffmpeg is installed."
+            )
 
         result = models["stt"].transcribe(wav_path)
         return {"text": result["text"]}
@@ -111,10 +122,8 @@ async def save_voice_profile(
     file: UploadFile = File(...),
     profile_id: str = Form(...)
 ):
-    """
-    Save a voice recording as a named profile for later cloning.
-    """
-    raw_path = f"/tmp/voice_raw_{uuid.uuid4().hex}"
+    """Save a voice recording as a named profile for later cloning."""
+    raw_path = tmp_path("voice_raw")
     wav_path = os.path.join(VOICES_DIR, f"{profile_id}.wav")
 
     try:
@@ -124,10 +133,14 @@ async def save_voice_profile(
         if not convert_to_wav(raw_path, wav_path):
             raise HTTPException(status_code=400, detail="Could not convert audio.")
 
-        # Check duration - XTTS needs at least 3 seconds
+        # Check duration — XTTS needs at least 3 seconds
         result = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", wav_path],
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                wav_path
+            ],
             capture_output=True, text=True
         )
         duration = float(result.stdout.strip()) if result.stdout.strip() else 0
@@ -163,17 +176,18 @@ async def synthesize(
     text: str = Form(...),
     profile_id: str = Form(...)
 ):
-    """
-    Generate speech from text using a saved voice profile.
-    """
+    """Generate speech from text using a saved voice profile."""
     if not models["tts"]:
         raise HTTPException(status_code=503, detail="TTS model still loading...")
 
     ref_wav = os.path.join(VOICES_DIR, f"{profile_id}.wav")
     if not os.path.exists(ref_wav):
-        raise HTTPException(status_code=404, detail=f"Voice profile '{profile_id}' not found.")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Voice profile '{profile_id}' not found."
+        )
 
-    out_path = f"/tmp/synth_{uuid.uuid4().hex}.wav"
+    out_path = tmp_path("synth", ".wav")
 
     try:
         models["tts"].tts_to_file(
@@ -182,8 +196,11 @@ async def synthesize(
             language="en",
             file_path=out_path
         )
-        return FileResponse(out_path, media_type="audio/wav",
-                            headers={"Content-Disposition": "attachment; filename=synthesized.wav"})
+        return FileResponse(
+            out_path,
+            media_type="audio/wav",
+            headers={"Content-Disposition": "attachment; filename=synthesized.wav"}
+        )
     except Exception as e:
         print(f"Synthesis Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Synthesis failed: {str(e)}")
@@ -198,16 +215,19 @@ async def clone(
     if not models["tts"]:
         raise HTTPException(status_code=503, detail="Cloning model still loading...")
 
-    raw_path = f"/tmp/ref_raw_{uuid.uuid4().hex}"
-    ref_path = f"/tmp/ref_{uuid.uuid4().hex}.wav"
-    out_path = f"/tmp/clone_{uuid.uuid4().hex}.wav"
+    raw_path = tmp_path("ref_raw")
+    ref_path = tmp_path("ref", ".wav")
+    out_path = tmp_path("clone", ".wav")
 
     try:
         with open(raw_path, "wb") as b:
             b.write(await file.read())
 
         if not convert_to_wav(raw_path, ref_path):
-            raise HTTPException(status_code=400, detail="Could not convert reference audio.")
+            raise HTTPException(
+                status_code=400,
+                detail="Could not convert reference audio."
+            )
 
         models["tts"].tts_to_file(
             text=text,
