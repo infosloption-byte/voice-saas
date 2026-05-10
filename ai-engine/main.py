@@ -4,44 +4,66 @@ from fastapi.responses import FileResponse
 import whisper
 from TTS.api import TTS
 import os
-import torch
+import subprocess
+import uuid
 
-# This MUST be set before the TTS model is initialized to bypass the 
-# interactive license agreement in Docker
 os.environ["COQUI_TOS_AGREED"] = "1"
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Global model containers
 models = {
     "stt": None,
     "tts": None
 }
 
+VOICES_DIR = "voice_profiles"
+os.makedirs(VOICES_DIR, exist_ok=True)
+
+
+def convert_to_wav(input_path: str, output_path: str) -> bool:
+    """Convert any audio format to 16kHz mono WAV using ffmpeg."""
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", input_path,
+                "-ar", "22050",
+                "-ac", "1",
+                "-f", "wav",
+                output_path
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        return result.returncode == 0
+    except Exception as e:
+        print(f"FFmpeg conversion error: {e}")
+        return False
+
+
 @app.on_event("startup")
 async def load_all_models():
     print("--- Initializing AI Suite ---")
-    
     try:
-        # Load Whisper (Transcription)
         print("Loading Whisper (STT)...")
         models["stt"] = whisper.load_model("base", device="cpu")
-        
-        # Load XTTS v2 (Cloning/Synthesis)
-        print("Loading XTTS v2 (Cloning)... This may take a while.")
+
+        print("Loading XTTS v2 (TTS/Cloning)...")
         models["tts"] = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to("cpu")
-        
+
         print("--- All Models Ready ---")
     except Exception as e:
         print(f"Error during model loading: {str(e)}")
+
 
 @app.get("/")
 async def status():
@@ -53,57 +75,152 @@ async def status():
         }
     }
 
+
 # --- FEATURE 1: TRANSCRIPTION ---
 @app.post("/transcribe")
 async def transcribe(file: UploadFile = File(...)):
     if not models["stt"]:
         raise HTTPException(status_code=503, detail="Transcription model still loading...")
 
-    temp_path = f"stt_{file.filename}"
+    raw_path = f"/tmp/stt_raw_{uuid.uuid4().hex}"
+    wav_path = f"/tmp/stt_{uuid.uuid4().hex}.wav"
+
     try:
-        with open(temp_path, "wb") as b:
+        with open(raw_path, "wb") as b:
             b.write(await file.read())
-        
-        result = models["stt"].transcribe(temp_path)
+
+        # Convert to WAV regardless of input format
+        if not convert_to_wav(raw_path, wav_path):
+            raise HTTPException(status_code=400, detail="Could not convert audio. Ensure ffmpeg is installed.")
+
+        result = models["stt"].transcribe(wav_path)
         return {"text": result["text"]}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        for p in [raw_path, wav_path]:
+            if os.path.exists(p):
+                os.remove(p)
 
-# --- FEATURE 2: VOICE CLONING ---
+
+# --- FEATURE 2: SAVE VOICE PROFILE ---
+@app.post("/voice-profile/save")
+async def save_voice_profile(
+    file: UploadFile = File(...),
+    profile_id: str = Form(...)
+):
+    """
+    Save a voice recording as a named profile for later cloning.
+    """
+    raw_path = f"/tmp/voice_raw_{uuid.uuid4().hex}"
+    wav_path = os.path.join(VOICES_DIR, f"{profile_id}.wav")
+
+    try:
+        with open(raw_path, "wb") as b:
+            b.write(await file.read())
+
+        if not convert_to_wav(raw_path, wav_path):
+            raise HTTPException(status_code=400, detail="Could not convert audio.")
+
+        # Check duration - XTTS needs at least 3 seconds
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", wav_path],
+            capture_output=True, text=True
+        )
+        duration = float(result.stdout.strip()) if result.stdout.strip() else 0
+
+        return {
+            "success": True,
+            "profile_id": profile_id,
+            "duration_seconds": round(duration, 2),
+            "message": "Voice profile saved successfully."
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if os.path.exists(raw_path):
+            os.remove(raw_path)
+
+
+# --- FEATURE 3: LIST VOICE PROFILES ---
+@app.get("/voice-profile/list")
+async def list_voice_profiles():
+    profiles = []
+    for f in os.listdir(VOICES_DIR):
+        if f.endswith(".wav"):
+            profiles.append({"profile_id": f[:-4], "filename": f})
+    return {"profiles": profiles}
+
+
+# --- FEATURE 4: SYNTHESIZE WITH CLONED VOICE ---
+@app.post("/synthesize")
+async def synthesize(
+    text: str = Form(...),
+    profile_id: str = Form(...)
+):
+    """
+    Generate speech from text using a saved voice profile.
+    """
+    if not models["tts"]:
+        raise HTTPException(status_code=503, detail="TTS model still loading...")
+
+    ref_wav = os.path.join(VOICES_DIR, f"{profile_id}.wav")
+    if not os.path.exists(ref_wav):
+        raise HTTPException(status_code=404, detail=f"Voice profile '{profile_id}' not found.")
+
+    out_path = f"/tmp/synth_{uuid.uuid4().hex}.wav"
+
+    try:
+        models["tts"].tts_to_file(
+            text=text,
+            speaker_wav=ref_wav,
+            language="en",
+            file_path=out_path
+        )
+        return FileResponse(out_path, media_type="audio/wav",
+                            headers={"Content-Disposition": "attachment; filename=synthesized.wav"})
+    except Exception as e:
+        print(f"Synthesis Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Synthesis failed: {str(e)}")
+
+
+# --- LEGACY: CLONE-VOICE (one-shot, kept for compatibility) ---
 @app.post("/clone-voice")
 async def clone(
-    text: str = Form(...), 
+    text: str = Form(...),
     file: UploadFile = File(...)
 ):
     if not models["tts"]:
         raise HTTPException(status_code=503, detail="Cloning model still loading...")
 
-    ref_path = f"ref_{file.filename}"
-    out_path = "cloned_output.wav"
-    
+    raw_path = f"/tmp/ref_raw_{uuid.uuid4().hex}"
+    ref_path = f"/tmp/ref_{uuid.uuid4().hex}.wav"
+    out_path = f"/tmp/clone_{uuid.uuid4().hex}.wav"
+
     try:
-        # 1. Save reference audio
-        with open(ref_path, "wb") as b:
+        with open(raw_path, "wb") as b:
             b.write(await file.read())
 
-        # 2. Synthesize new text using the recorded reference voice
+        if not convert_to_wav(raw_path, ref_path):
+            raise HTTPException(status_code=400, detail="Could not convert reference audio.")
+
         models["tts"].tts_to_file(
             text=text,
             speaker_wav=ref_path,
             language="en",
             file_path=out_path
         )
-
         return FileResponse(out_path, media_type="audio/wav")
-    
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Synthesis Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Cloning failed: {str(e)}")
-    
     finally:
-        # Clean up the reference file immediately to save space[cite: 1]
-        if os.path.exists(ref_path):
-            os.remove(ref_path)
+        for p in [raw_path, ref_path]:
+            if os.path.exists(p):
+                os.remove(p)
