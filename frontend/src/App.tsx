@@ -4,7 +4,8 @@ import './App.css'
 const API = 'http://localhost:8000'
 
 // ── Types ──────────────────────────────────────────────────────────
-type Page = 'dashboard' | 'projects' | 'workspace' | 'profiles' | 'assembly'
+type Page = 'dashboard' | 'projects' | 'workspace' | 'profiles'
+type WorkspaceTab = 'scripts' | 'assembly'
 
 interface Project {
   id: string
@@ -33,7 +34,10 @@ interface VoiceProfile {
 // ── History reducer for undo/redo ──────────────────────────────────
 interface HistoryState { past: string[]; present: string; future: string[] }
 
-function historyReducer(state: HistoryState, action: { type: 'SET' | 'UNDO' | 'REDO'; value?: string }): HistoryState {
+function historyReducer(
+  state: HistoryState,
+  action: { type: 'SET' | 'UNDO' | 'REDO'; value?: string }
+): HistoryState {
   switch (action.type) {
     case 'SET': {
       if (action.value === state.present) return state
@@ -65,52 +69,26 @@ function useAudioRecorder() {
 
   const start = useCallback(async (noiseSuppression = true, noiseGain = 0.8) => {
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        noiseSuppression,
-        echoCancellation: true,
-        autoGainControl: true,
-        sampleRate: 44100,
-        channelCount: 1,
-      }
+      audio: { noiseSuppression, echoCancellation: true, autoGainControl: true, sampleRate: 44100, channelCount: 1 }
     })
-
-    // Web Audio API noise gate
     const ctx = new AudioContext()
     ctxRef.current = ctx
     const source = ctx.createMediaStreamSource(stream)
     const dest = ctx.createMediaStreamDestination()
-
-    // High-pass filter to remove low-freq rumble
     const hpf = ctx.createBiquadFilter()
-    hpf.type = 'highpass'
-    hpf.frequency.value = 80
-
-    // Dynamic compressor to even out volume
+    hpf.type = 'highpass'; hpf.frequency.value = 80
     const comp = ctx.createDynamicsCompressor()
-    comp.threshold.value = -24
-    comp.knee.value = 30
-    comp.ratio.value = 12
-    comp.attack.value = 0.003
-    comp.release.value = 0.25
-
-    // Gain for noise floor control
-    const gain = ctx.createGain()
-    gain.gain.value = noiseGain
-
+    comp.threshold.value = -24; comp.knee.value = 30; comp.ratio.value = 12
+    comp.attack.value = 0.003; comp.release.value = 0.25
+    const gain = ctx.createGain(); gain.gain.value = noiseGain
     source.connect(hpf).connect(comp).connect(gain).connect(dest)
-
     streamRef.current = stream
-
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus'
-      : 'audio/webm'
-
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm'
     recRef.current = new MediaRecorder(dest.stream, { mimeType })
     chunksRef.current = []
     recRef.current.ondataavailable = e => chunksRef.current.push(e.data)
     recRef.current.start(100)
-    setRecording(true)
-    setSeconds(0)
+    setRecording(true); setSeconds(0)
     timerRef.current = setInterval(() => setSeconds(s => s + 1), 1000)
   }, [])
 
@@ -136,7 +114,7 @@ function useAudioRecorder() {
 function WaveVisualiser({ active }: { active: boolean }) {
   return (
     <div className="wave-vis" aria-hidden>
-      {Array.from({ length: 36 }).map((_, i) => (
+      {Array.from({ length: 28 }).map((_, i) => (
         <span key={i} className={`bar ${active ? 'bar--live' : ''}`} style={{ '--i': i } as React.CSSProperties} />
       ))}
     </div>
@@ -154,8 +132,7 @@ function MicBtn({ recording, onClick, disabled, label }: {
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         {recording
           ? <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none" />
-          : <><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></>
-        }
+          : <><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="22" /><line x1="8" y1="22" x2="16" y2="22" /></>}
       </svg>
       <span className="mic-btn__label">{label}</span>
     </button>
@@ -166,30 +143,33 @@ function fmt(s: number) {
   return `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
 }
 
-function uid() {
-  return Math.random().toString(36).slice(2, 10)
-}
+function uid() { return Math.random().toString(36).slice(2, 10) }
 
-// ── Sidebar icons ───────────────────────────────────────────────────
+// ── Icons ───────────────────────────────────────────────────────────
 const icons = {
-  dashboard: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="2" y="2" width="7" height="7" rx="1.5"/><rect x="11" y="2" width="7" height="7" rx="1.5"/><rect x="2" y="11" width="7" height="7" rx="1.5"/><rect x="11" y="11" width="7" height="7" rx="1.5"/></svg>,
-  projects:  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M3 7a2 2 0 0 1 2-2h2l2 2h6a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>,
-  profiles:  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M10 2a3 3 0 0 1 3 3v4a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M16 9v1a6 6 0 0 1-12 0V9"/><line x1="10" y1="16" x2="10" y2="19"/><line x1="7" y1="19" x2="13" y2="19"/></svg>,
-  assembly:  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="2" y="8" width="4" height="4" rx="1"/><rect x="8" y="8" width="4" height="4" rx="1"/><rect x="14" y="8" width="4" height="4" rx="1"/><path d="M4 8V6a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v2"/><path d="M10 12v3"/></svg>,
-  plus:      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8"><line x1="10" y1="4" x2="10" y2="16"/><line x1="4" y1="10" x2="16" y2="10"/></svg>,
-  trash:     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 6h12M8 6V4h4v2M7 6v10a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1V6"/></svg>,
-  edit:      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M11.5 5.5l3 3M4 14l1-4 8-8 3 3-8 8-4 1z"/></svg>,
-  play:      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M7 5l9 5-9 5V5z"/></svg>,
-  download:  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M10 3v10m-4-4 4 4 4-4"/><path d="M4 17h12"/></svg>,
-  undo:      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 9H14a4 4 0 0 1 0 8H10"/><path d="M4 9l3-3M4 9l3 3"/></svg>,
-  redo:      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M16 9H6a4 4 0 0 0 0 8h4"/><path d="M16 9l-3-3m3 3l-3 3"/></svg>,
-  merge:     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 6h4l8 8h4"/><path d="M4 14h4L10 10"/></svg>,
-  drag:      <svg viewBox="0 0 20 20" fill="currentColor"><circle cx="8" cy="6" r="1.2"/><circle cx="12" cy="6" r="1.2"/><circle cx="8" cy="10" r="1.2"/><circle cx="12" cy="10" r="1.2"/><circle cx="8" cy="14" r="1.2"/><circle cx="12" cy="14" r="1.2"/></svg>,
+  dashboard: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="2" y="2" width="7" height="7" rx="1.5" /><rect x="11" y="2" width="7" height="7" rx="1.5" /><rect x="2" y="11" width="7" height="7" rx="1.5" /><rect x="11" y="11" width="7" height="7" rx="1.5" /></svg>,
+  projects: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M3 7a2 2 0 0 1 2-2h2l2 2h6a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" /></svg>,
+  profiles: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M10 2a3 3 0 0 1 3 3v4a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" /><path d="M16 9v1a6 6 0 0 1-12 0V9" /><line x1="10" y1="16" x2="10" y2="19" /><line x1="7" y1="19" x2="13" y2="19" /></svg>,
+  assembly: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="2" y="8" width="4" height="4" rx="1" /><rect x="8" y="8" width="4" height="4" rx="1" /><rect x="14" y="8" width="4" height="4" rx="1" /><path d="M4 8V6a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v2" /><path d="M10 12v3" /></svg>,
+  scripts: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 6h12M4 10h8M4 14h5" /></svg>,
+  plus: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8"><line x1="10" y1="4" x2="10" y2="16" /><line x1="4" y1="10" x2="16" y2="10" /></svg>,
+  trash: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 6h12M8 6V4h4v2M7 6v10a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1V6" /></svg>,
+  edit: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M11.5 5.5l3 3M4 14l1-4 8-8 3 3-8 8-4 1z" /></svg>,
+  play: <svg viewBox="0 0 20 20" fill="currentColor"><path d="M7 5l9 5-9 5V5z" /></svg>,
+  download: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M10 3v10m-4-4 4 4 4-4" /><path d="M4 17h12" /></svg>,
+  undo: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 9H14a4 4 0 0 1 0 8H10" /><path d="M4 9l3-3M4 9l3 3" /></svg>,
+  redo: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M16 9H6a4 4 0 0 0 0 8h4" /><path d="M16 9l-3-3m3 3l-3 3" /></svg>,
+  merge: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 6h4l8 8h4" /><path d="M4 14h4L10 10" /></svg>,
+  drag: <svg viewBox="0 0 20 20" fill="currentColor"><circle cx="8" cy="6" r="1.2" /><circle cx="12" cy="6" r="1.2" /><circle cx="8" cy="10" r="1.2" /><circle cx="12" cy="10" r="1.2" /><circle cx="8" cy="14" r="1.2" /><circle cx="12" cy="14" r="1.2" /></svg>,
+  back: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 4l-6 6 6 6" /></svg>,
+  menu: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><line x1="3" y1="6" x2="17" y2="6" /><line x1="3" y1="10" x2="17" y2="10" /><line x1="3" y1="14" x2="17" y2="14" /></svg>,
+  close: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><line x1="5" y1="5" x2="15" y2="15" /><line x1="15" y1="5" x2="5" y2="15" /></svg>,
 }
 
 // ── Main App ────────────────────────────────────────────────────────
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard')
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('scripts')
   const [engineStatus, setEngineStatus] = useState<'checking' | 'online' | 'offline'>('checking')
   const [projects, setProjects] = useState<Project[]>(() => {
     try { return JSON.parse(localStorage.getItem('vo_projects') || '[]') } catch { return [] }
@@ -201,31 +181,31 @@ export default function App() {
   const [assemblySelection, setAssemblySelection] = useState<Set<string>>(new Set())
   const [mergedUrl, setMergedUrl] = useState<string | null>(null)
   const [merging, setMerging] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const activeProject = projects.find(p => p.id === activeProjectId) ?? null
-  const activeScript = activeProject?.scripts.find(s => s.id === activeScriptId) ?? null
 
-  // Persist projects
   useEffect(() => {
     localStorage.setItem('vo_projects', JSON.stringify(projects))
   }, [projects])
 
-  // Engine health
   useEffect(() => {
     fetch(`${API}/`).then(r => r.json()).then(() => setEngineStatus('online')).catch(() => setEngineStatus('offline'))
   }, [])
 
-  // Load voice profiles
   const loadProfiles = useCallback(() => {
     fetch(`${API}/voice-profile/list`).then(r => r.json()).then(d => setVoiceProfiles(d.profiles || [])).catch(() => {})
   }, [])
   useEffect(() => { loadProfiles() }, [])
 
-  // ── Project CRUD ─────────────────────────────────────────────────
+  // Close sidebar on page change (mobile)
+  useEffect(() => { setSidebarOpen(false) }, [page, activeProjectId])
+
   function addProject(name: string, emoji: string, description: string) {
     const p: Project = { id: uid(), name, emoji, description, createdAt: new Date().toISOString(), scripts: [] }
     setProjects(prev => [p, ...prev])
     setActiveProjectId(p.id)
+    setWorkspaceTab('scripts')
     setPage('workspace')
   }
 
@@ -238,10 +218,10 @@ export default function App() {
     setProjects(prev => prev.map(p => p.id === id ? { ...p, ...update } : p))
   }
 
-  // ── Script CRUD ──────────────────────────────────────────────────
   function addScript(projectId: string) {
     const s: Script = { id: uid(), title: 'Untitled Script', content: '', audioUrl: null, profileId: null, duration: null }
-    updateProject(projectId, { scripts: [...(projects.find(p => p.id === projectId)?.scripts ?? []), s] })
+    const proj = projects.find(p => p.id === projectId)
+    updateProject(projectId, { scripts: [...(proj?.scripts ?? []), s] })
     setActiveScriptId(s.id)
   }
 
@@ -260,15 +240,16 @@ export default function App() {
     setActiveScriptId(null)
   }
 
-  // ── Open workspace ────────────────────────────────────────────────
   function openProject(id: string) {
     setActiveProjectId(id)
     const proj = projects.find(p => p.id === id)
     setActiveScriptId(proj?.scripts[0]?.id ?? null)
+    setWorkspaceTab('scripts')
+    setMergedUrl(null)
+    setAssemblySelection(new Set())
     setPage('workspace')
   }
 
-  // ── Merge audio (client-side via Web Audio) ───────────────────────
   async function mergeSelected() {
     const scripts = activeProject?.scripts.filter(s => assemblySelection.has(s.id) && s.audioUrl) ?? []
     if (!scripts.length) return
@@ -289,7 +270,6 @@ export default function App() {
         merged.copyToChannel(buf.getChannelData(0), 0, offset)
         offset += buf.length
       }
-      // Encode to WAV
       const wav = audioBufferToWav(merged)
       const blob = new Blob([wav], { type: 'audio/wav' })
       setMergedUrl(URL.createObjectURL(blob))
@@ -300,7 +280,6 @@ export default function App() {
     }
   }
 
-  // Minimal WAV encoder
   function audioBufferToWav(buf: AudioBuffer) {
     const numCh = 1, sr = buf.sampleRate, bps = 16
     const data = buf.getChannelData(0)
@@ -319,44 +298,34 @@ export default function App() {
     return arrayBuf
   }
 
-  // ── Topbar breadcrumb ─────────────────────────────────────────────
-  function topbarContent() {
-    if (page === 'workspace' && activeProject) {
-      return (
-        <>
-          <button className="btn btn--ghost btn--sm" onClick={() => setPage('projects')}>Projects</button>
-          <span className="topbar__sep">›</span>
-          <span className="topbar__title">{activeProject.emoji} {activeProject.name}</span>
-        </>
-      )
-    }
-    const labels: Record<Page, string> = {
-      dashboard: 'Dashboard', projects: 'Projects', workspace: 'Workspace',
-      profiles: 'Voice Profiles', assembly: 'Audio Assembly'
-    }
-    return <span className="topbar__title">{labels[page]}</span>
-  }
+  const navItems: { key: Page; label: string; icon: React.ReactNode }[] = [
+    { key: 'dashboard', label: 'Dashboard', icon: icons.dashboard },
+    { key: 'projects', label: 'Projects', icon: icons.projects },
+    { key: 'profiles', label: 'Voice Profiles', icon: icons.profiles },
+  ]
 
-  // ── Render pages ──────────────────────────────────────────────────
   return (
     <div className="shell">
+      {/* Mobile overlay */}
+      {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
+
       {/* Sidebar */}
-      <aside className="sidebar">
+      <aside className={`sidebar ${sidebarOpen ? 'sidebar--open' : ''}`}>
         <div className="sidebar__logo">
           <div className="logo-mark">V</div>
           <span className="logo-name">VoiceStudio</span>
           <span className="logo-badge">AI</span>
+          <button className="sidebar__close btn btn--ghost btn--sm" onClick={() => setSidebarOpen(false)}>{icons.close}</button>
         </div>
 
         <nav className="sidebar__nav">
           <div className="nav-section">
             <div className="nav-section__label">Main</div>
-            {(['dashboard', 'projects', 'profiles', 'assembly'] as Page[]).map(p => (
-              <button key={p} className={`nav-item ${page === p ? 'nav-item--active' : ''}`} onClick={() => setPage(p)}>
-                {icons[p as keyof typeof icons]}
-                {p.charAt(0).toUpperCase() + p.slice(1)}
-                {p === 'projects' && projects.length > 0 && <span className="nav-item__count">{projects.length}</span>}
-                {p === 'profiles' && voiceProfiles.length > 0 && <span className="nav-item__count">{voiceProfiles.length}</span>}
+            {navItems.map(({ key, label, icon }) => (
+              <button key={key} className={`nav-item ${page === key ? 'nav-item--active' : ''}`} onClick={() => setPage(key)}>
+                {icon}{label}
+                {key === 'projects' && projects.length > 0 && <span className="nav-item__count">{projects.length}</span>}
+                {key === 'profiles' && voiceProfiles.length > 0 && <span className="nav-item__count">{voiceProfiles.length}</span>}
               </button>
             ))}
           </div>
@@ -367,8 +336,7 @@ export default function App() {
               {projects.slice(0, 5).map(p => (
                 <button key={p.id}
                   className={`nav-item ${activeProjectId === p.id && page === 'workspace' ? 'nav-item--active' : ''}`}
-                  onClick={() => openProject(p.id)}
-                >
+                  onClick={() => openProject(p.id)}>
                   <span style={{ fontSize: 15 }}>{p.emoji}</span>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                 </button>
@@ -387,30 +355,49 @@ export default function App() {
 
       {/* Page */}
       <div className="page">
+        {/* Topbar */}
         <div className="topbar">
-          {topbarContent()}
+          <button className="btn btn--ghost btn--sm topbar__hamburger" onClick={() => setSidebarOpen(true)}>{icons.menu}</button>
+
+          {page === 'workspace' && activeProject ? (
+            <>
+              <button className="btn btn--ghost btn--sm" onClick={() => setPage('projects')}>{icons.back}<span className="topbar__back-label">Projects</span></button>
+              <span className="topbar__sep">›</span>
+              <span className="topbar__title topbar__title--project">{activeProject.emoji} {activeProject.name}</span>
+            </>
+          ) : (
+            <span className="topbar__title">
+              {page === 'dashboard' ? 'Dashboard' : page === 'projects' ? 'Projects' : 'Voice Profiles'}
+            </span>
+          )}
+
           <div className="topbar__spacer" />
+
           {page === 'projects' && (
-            <button className="btn btn--primary" onClick={() => setShowNewProject(true)}>
-              {icons.plus} New Project
+            <button className="btn btn--primary btn--sm" onClick={() => setShowNewProject(true)}>
+              {icons.plus}<span className="btn__label"> New Project</span>
             </button>
           )}
           {page === 'workspace' && activeProject && (
-            <>
-              <button className="btn" onClick={() => { addScript(activeProject.id) }}>
-                {icons.plus} New Script
-              </button>
-              <button className="btn" onClick={() => { setPage('assembly') }}>
-                {icons.merge} Assembly
-              </button>
-            </>
-          )}
-          {page === 'profiles' && (
-            <button className="btn btn--primary" onClick={() => setPage('profiles')}>
-              {icons.plus} New Profile
+            <button className="btn btn--sm" onClick={() => addScript(activeProject.id)}>
+              {icons.plus}<span className="btn__label"> Script</span>
             </button>
           )}
         </div>
+
+        {/* Workspace tabs */}
+        {page === 'workspace' && activeProject && (
+          <div className="workspace-tabs">
+            <button className={`workspace-tab ${workspaceTab === 'scripts' ? 'workspace-tab--active' : ''}`} onClick={() => setWorkspaceTab('scripts')}>
+              {icons.scripts} Scripts
+              <span className="workspace-tab__count">{activeProject.scripts.length}</span>
+            </button>
+            <button className={`workspace-tab ${workspaceTab === 'assembly' ? 'workspace-tab--active' : ''}`} onClick={() => setWorkspaceTab('assembly')}>
+              {icons.assembly} Assembly
+              <span className="workspace-tab__count">{activeProject.scripts.filter(s => s.audioUrl).length}</span>
+            </button>
+          </div>
+        )}
 
         <div className="content">
           {page === 'dashboard' && (
@@ -419,7 +406,7 @@ export default function App() {
           {page === 'projects' && (
             <ProjectsPage projects={projects} onOpen={openProject} onDelete={deleteProject} onNew={() => setShowNewProject(true)} />
           )}
-          {page === 'workspace' && activeProject && (
+          {page === 'workspace' && activeProject && workspaceTab === 'scripts' && (
             <WorkspacePage
               project={activeProject}
               activeScriptId={activeScriptId}
@@ -430,10 +417,7 @@ export default function App() {
               voiceProfiles={voiceProfiles}
             />
           )}
-          {page === 'profiles' && (
-            <ProfilesPage profiles={voiceProfiles} onRefresh={loadProfiles} />
-          )}
-          {page === 'assembly' && activeProject && (
+          {page === 'workspace' && activeProject && workspaceTab === 'assembly' && (
             <AssemblyPage
               project={activeProject}
               selection={assemblySelection}
@@ -443,17 +427,19 @@ export default function App() {
               onMerge={mergeSelected}
             />
           )}
+          {page === 'profiles' && (
+            <ProfilesPage profiles={voiceProfiles} onRefresh={loadProfiles} />
+          )}
           {page === 'workspace' && !activeProject && (
             <div className="empty-state">
               {icons.projects}
-              <p>No project selected. Go to Projects to open one.</p>
+              <p>No project selected.</p>
               <button className="btn btn--primary" onClick={() => setPage('projects')}>Go to Projects</button>
             </div>
           )}
         </div>
       </div>
 
-      {/* New project modal */}
       {showNewProject && (
         <NewProjectModal onClose={() => setShowNewProject(false)} onCreate={addProject} />
       )}
@@ -468,7 +454,6 @@ function DashboardPage({ projects, voiceProfiles, onOpenProject, onGoProjects, o
 }) {
   const totalScripts = projects.reduce((a, p) => a + p.scripts.length, 0)
   const totalVoiceovers = projects.reduce((a, p) => a + p.scripts.filter(s => s.audioUrl).length, 0)
-  const recent = projects.slice(0, 3)
 
   return (
     <div>
@@ -476,47 +461,48 @@ function DashboardPage({ projects, voiceProfiles, onOpenProject, onGoProjects, o
         <div className="stat-card">
           <div className="stat-card__label">{icons.projects} Projects</div>
           <div className="stat-card__value">{projects.length}</div>
-          <div className="stat-card__sub">Total workspaces</div>
+          <div className="stat-card__sub">Workspaces</div>
         </div>
         <div className="stat-card">
-          <div className="stat-card__label">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 4h12M2 8h8M2 12h5"/></svg>
-            Scripts
-          </div>
+          <div className="stat-card__label">{icons.scripts} Scripts</div>
           <div className="stat-card__value">{totalScripts}</div>
           <div className="stat-card__sub">Across all projects</div>
         </div>
         <div className="stat-card">
           <div className="stat-card__label">{icons.play} Voiceovers</div>
           <div className="stat-card__value">{totalVoiceovers}</div>
-          <div className="stat-card__sub">Generated audio files</div>
+          <div className="stat-card__sub">Generated audio</div>
         </div>
         <div className="stat-card">
-          <div className="stat-card__label">{icons.profiles} Voice Profiles</div>
+          <div className="stat-card__label">{icons.profiles} Profiles</div>
           <div className="stat-card__value">{voiceProfiles.length}</div>
-          <div className="stat-card__sub">Cloned voice models</div>
+          <div className="stat-card__sub">Voice models</div>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+      <div className="dash-grid">
         <div>
           <div className="section-head">
             <div><h2>Recent Projects</h2></div>
             <button className="btn btn--ghost btn--sm" onClick={onGoProjects}>View all</button>
           </div>
-          {recent.length === 0
+          {projects.length === 0
             ? <div className="empty-state" style={{ padding: '30px 0' }}>
-                {icons.projects}<p>No projects yet</p>
-                <button className="btn btn--primary btn--sm" onClick={onGoProjects}>Create first project</button>
-              </div>
-            : recent.map(p => (
+              {icons.projects}<p>No projects yet</p>
+              <button className="btn btn--primary btn--sm" onClick={onGoProjects}>Create first project</button>
+            </div>
+            : projects.slice(0, 4).map(p => (
               <div key={p.id} className="project-card" onClick={() => onOpenProject(p.id)} style={{ marginBottom: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div className="project-card__icon">{p.emoji}</div>
-                  <div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="project-card__name">{p.name}</div>
-                    <div className="project-card__meta">{p.scripts.length} scripts · {p.scripts.filter(s => s.audioUrl).length} voiceovers</div>
+                    <div className="project-card__meta">
+                      <span>{p.scripts.length} scripts</span>
+                      <span>{p.scripts.filter(s => s.audioUrl).length} voiceovers</span>
+                    </div>
                   </div>
+                  {p.scripts.some(s => s.audioUrl) && <span className="tag tag--ok">Audio</span>}
                 </div>
               </div>
             ))
@@ -530,19 +516,21 @@ function DashboardPage({ projects, voiceProfiles, onOpenProject, onGoProjects, o
           </div>
           {voiceProfiles.length === 0
             ? <div className="empty-state" style={{ padding: '30px 0' }}>
-                {icons.profiles}<p>No voice profiles yet</p>
-                <button className="btn btn--primary btn--sm" onClick={onGoProfiles}>Record a voice</button>
-              </div>
+              {icons.profiles}<p>No voice profiles yet</p>
+              <button className="btn btn--primary btn--sm" onClick={onGoProfiles}>Record a voice</button>
+            </div>
             : voiceProfiles.slice(0, 4).map(vp => (
-              <div key={vp.profile_id} className="project-card" style={{ marginBottom: 10, flexDirection: 'row', alignItems: 'center' }}>
-                <div className="profile-avatar" style={{ width: 36, height: 36, fontSize: 14 }}>
-                  {vp.profile_id[0].toUpperCase()}
+              <div key={vp.profile_id} className="project-card" style={{ marginBottom: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div className="profile-avatar" style={{ width: 36, height: 36, fontSize: 14 }}>
+                    {vp.profile_id[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 500, fontSize: 14 }}>{vp.profile_id}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Voice profile ready</div>
+                  </div>
+                  <span className="tag tag--ok" style={{ marginLeft: 'auto' }}>Ready</span>
                 </div>
-                <div style={{ marginLeft: 10 }}>
-                  <div style={{ fontWeight: 500, fontSize: 14 }}>{vp.profile_id}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Voice profile ready</div>
-                </div>
-                <span className="tag tag--ok" style={{ marginLeft: 'auto' }}>Ready</span>
               </div>
             ))
           }
@@ -560,7 +548,7 @@ function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
   return (
     <div>
       <div className="section-head" style={{ marginBottom: 20 }}>
-        <div><h2>All Projects</h2><p>Manage your YouTube voiceover workspaces</p></div>
+        <div><h2>All Projects</h2><p>Manage your voiceover workspaces</p></div>
       </div>
       <div className="project-grid">
         <div className="project-card project-card--new" onClick={onNew}>
@@ -602,9 +590,10 @@ function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript
   const [histState, dispatch] = useReducer(historyReducer, { past: [], present: activeScript?.content ?? '', future: [] })
   const [synthesizing, setSynthesizing] = useState(false)
   const [synthErr, setSynthErr] = useState('')
+  const [showScriptList, setShowScriptList] = useState(true)
   const prevScriptId = useRef<string | null>(null)
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
 
-  // Sync history state when switching scripts
   useEffect(() => {
     if (activeScriptId !== prevScriptId.current) {
       dispatch({ type: 'SET', value: activeScript?.content ?? '' })
@@ -612,14 +601,12 @@ function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript
     }
   }, [activeScriptId, activeScript?.content])
 
-  // Debounced save
   useEffect(() => {
     if (!activeScript) return
     const t = setTimeout(() => { onUpdateScript(activeScript.id, { content: histState.present }) }, 400)
     return () => clearTimeout(t)
   }, [histState.present])
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); dispatch({ type: 'UNDO' }) }
@@ -629,10 +616,16 @@ function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
+  // On mobile, when script selected, hide list and show editor
+  function handleSelectScript(id: string) {
+    setActiveScriptId(id)
+    if (isMobile) setShowScriptList(false)
+  }
+
   async function generateVoiceover() {
     if (!activeScript || !activeScript.content.trim()) { setSynthErr('Write some script content first.'); return }
     const pid = activeScript.profileId || voiceProfiles[0]?.profile_id
-    if (!pid) { setSynthErr('No voice profile selected. Create one in Voice Profiles.'); return }
+    if (!pid) { setSynthErr('No voice profile selected.'); return }
     setSynthesizing(true); setSynthErr('')
     const fd = new FormData()
     fd.append('text', activeScript.content.trim())
@@ -651,20 +644,22 @@ function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript
 
   return (
     <div className="workspace">
-      {/* Script list */}
-      <div className="script-panel">
+      {/* Script list panel */}
+      <div className={`script-panel ${!showScriptList ? 'script-panel--hidden' : ''}`}>
         <div className="script-panel__head">
-          <h3>Scripts ({project.scripts.length})</h3>
-          <button className="btn btn--sm" onClick={onAddScript}>{icons.plus}</button>
+          <h3>Scripts <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>({project.scripts.length})</span></h3>
+          <button className="btn btn--sm btn--primary" onClick={onAddScript}>{icons.plus}</button>
         </div>
         <div className="script-list">
           {project.scripts.length === 0
-            ? <div className="empty-state" style={{ padding: '24px 0' }}>
-                {icons.edit}<p style={{ fontSize: 13 }}>No scripts yet</p>
-                <button className="btn btn--sm btn--primary" onClick={onAddScript}>Add Script</button>
-              </div>
+            ? <div className="empty-state" style={{ padding: '24px 12px' }}>
+              {icons.edit}<p style={{ fontSize: 13 }}>No scripts yet</p>
+              <button className="btn btn--sm btn--primary" onClick={onAddScript}>Add Script</button>
+            </div>
             : project.scripts.map((s, i) => (
-              <div key={s.id} className={`script-item ${s.id === activeScriptId ? 'script-item--active' : ''}`} onClick={() => setActiveScriptId(s.id)}>
+              <div key={s.id}
+                className={`script-item ${s.id === activeScriptId ? 'script-item--active' : ''}`}
+                onClick={() => handleSelectScript(s.id)}>
                 <div className="script-item__num">{i + 1}</div>
                 <div className="script-item__body">
                   <div className="script-item__title">{s.title}</div>
@@ -677,25 +672,25 @@ function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript
         </div>
       </div>
 
-      {/* Editor */}
-      <div className="editor-panel">
+      {/* Editor panel */}
+      <div className={`editor-panel ${showScriptList && !activeScript ? 'editor-panel--hidden-mobile' : ''}`}>
         {!activeScript
           ? <div className="empty-state">{icons.edit}<p>Select a script or create a new one</p></div>
           : <>
             <div className="editor-toolbar">
+              {/* Mobile back button */}
+              <button className="btn btn--ghost btn--sm editor-back" onClick={() => setShowScriptList(true)}>{icons.back}</button>
               <input
-                className="text-input"
-                style={{ maxWidth: 220, flex: 'none' }}
+                className="text-input editor-title"
                 value={activeScript.title}
                 onChange={e => onUpdateScript(activeScript.id, { title: e.target.value })}
                 placeholder="Script title"
               />
               <div className="undo-redo">
-                <button className="btn btn--sm btn--ghost" onClick={() => dispatch({ type: 'UNDO' })} disabled={!histState.past.length} title="Undo (Ctrl+Z)">{icons.undo}</button>
-                <button className="btn btn--sm btn--ghost" onClick={() => dispatch({ type: 'REDO' })} disabled={!histState.future.length} title="Redo (Ctrl+Y)">{icons.redo}</button>
+                <button className="btn btn--sm btn--ghost" onClick={() => dispatch({ type: 'UNDO' })} disabled={!histState.past.length} title="Undo">{icons.undo}</button>
+                <button className="btn btn--sm btn--ghost" onClick={() => dispatch({ type: 'REDO' })} disabled={!histState.future.length} title="Redo">{icons.redo}</button>
               </div>
-              <div style={{ flex: 1 }} />
-              <button className="btn btn--sm btn--danger" onClick={() => onDeleteScript(activeScript.id)}>{icons.trash}</button>
+              <button className="btn btn--sm btn--danger" onClick={() => { onDeleteScript(activeScript.id); setShowScriptList(true) }}>{icons.trash}</button>
             </div>
 
             <div className="editor-body">
@@ -707,38 +702,112 @@ function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript
               />
             </div>
 
-            <div className="editor-footer">
-              <span className="word-count">{wordCount} words · ~{Math.ceil(wordCount / 130)} min read</span>
-              <div style={{ flex: 1 }} />
+            {synthErr && <div className="msg msg--err" style={{ margin: '0 16px 0' }}>{synthErr}</div>}
 
+            {activeScript.audioUrl && (
+              <div className="vo-audio-row">
+                <span className="vo-ready-label">✓ Ready</span>
+                <audio src={activeScript.audioUrl} controls />
+                <a href={activeScript.audioUrl} download={`${activeScript.title}.wav`} className="btn btn--sm">{icons.download}</a>
+              </div>
+            )}
+
+            <div className="editor-footer">
+              <span className="word-count">{wordCount} words · ~{Math.ceil(wordCount / 130)}m</span>
+              <div style={{ flex: 1 }} />
               {voiceProfiles.length > 0 && (
                 <select
                   className="profile-select"
-                  style={{ maxWidth: 160 }}
                   value={activeScript.profileId ?? voiceProfiles[0]?.profile_id ?? ''}
                   onChange={e => onUpdateScript(activeScript.id, { profileId: e.target.value })}
                 >
                   {voiceProfiles.map(vp => <option key={vp.profile_id} value={vp.profile_id}>{vp.profile_id}</option>)}
                 </select>
               )}
-
-              <button className="btn btn--primary" onClick={generateVoiceover} disabled={synthesizing || !histState.present.trim()}>
-                {synthesizing ? <><span className="spinner" /> Generating…</> : <>{icons.play} Generate Voiceover</>}
+              <button className="btn btn--primary btn--sm" onClick={generateVoiceover} disabled={synthesizing || !histState.present.trim()}>
+                {synthesizing ? <><span className="spinner" /> Generating…</> : <>{icons.play} Generate</>}
               </button>
             </div>
-
-            {synthErr && <div className="msg msg--err" style={{ margin: '0 16px 12px' }}>{synthErr}</div>}
-
-            {activeScript.audioUrl && (
-              <div className="vo-audio-row" style={{ margin: '0 16px 16px' }}>
-                <span style={{ fontSize: 12, color: 'var(--ok)', whiteSpace: 'nowrap' }}>✓ Voiceover ready</span>
-                <audio src={activeScript.audioUrl} controls className="vo-audio-row" style={{ flex: 1, height: 32 }} />
-                <a href={activeScript.audioUrl} download={`${activeScript.title}.wav`} className="btn btn--sm">{icons.download}</a>
-              </div>
-            )}
           </>
         }
       </div>
+    </div>
+  )
+}
+
+// ── Assembly page (now inside workspace) ────────────────────────────
+function AssemblyPage({ project, selection, setSelection, mergedUrl, merging, onMerge }: {
+  project: Project; selection: Set<string>; setSelection: (s: Set<string>) => void
+  mergedUrl: string | null; merging: boolean; onMerge: () => void
+}) {
+  const withAudio = project.scripts.filter(s => s.audioUrl)
+
+  function toggle(id: string) {
+    const next = new Set(selection)
+    next.has(id) ? next.delete(id) : next.add(id)
+    setSelection(next)
+  }
+
+  return (
+    <div className="assembly">
+      <div className="section-head">
+        <div>
+          <h2>Audio Assembly</h2>
+          <p>Select voiceovers to merge into one final file</p>
+        </div>
+        {withAudio.length > 0 && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn--sm btn--ghost" onClick={() => setSelection(new Set(withAudio.map(s => s.id)))}>All</button>
+            <button className="btn btn--sm btn--ghost" onClick={() => setSelection(new Set())}>Clear</button>
+          </div>
+        )}
+      </div>
+
+      {withAudio.length === 0
+        ? <div className="empty-state">
+          {icons.merge}
+          <p>No voiceovers yet. Generate audio in the Scripts tab first.</p>
+        </div>
+        : <>
+          <div className="assembly-list">
+            {project.scripts.map((s, i) => (
+              <div key={s.id} className="assembly-item" style={{ opacity: s.audioUrl ? 1 : 0.35 }}>
+                <div className="assembly-item__drag">{icons.drag}</div>
+                <input type="checkbox" className="assembly-check" checked={selection.has(s.id)} disabled={!s.audioUrl} onChange={() => toggle(s.id)} />
+                <div className="assembly-item__index">{i + 1}</div>
+                <div className="assembly-item__name">{s.title}</div>
+                <div className="assembly-item__right">
+                  {s.audioUrl
+                    ? <audio src={s.audioUrl} controls />
+                    : <span className="tag tag--warn">No audio</span>
+                  }
+                  <span className="assembly-item__dur">
+                    {s.content ? `~${Math.ceil(s.content.split(/\s+/).length / 130)}m` : '—'}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="assembly-actions">
+            <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{selection.size} of {withAudio.length} selected</span>
+            <div style={{ flex: 1 }} />
+            <button className="btn btn--primary" onClick={onMerge} disabled={selection.size < 2 || merging}>
+              {merging ? <><span className="spinner" /> Merging…</> : <>{icons.merge} Merge Selected</>}
+            </button>
+          </div>
+
+          {mergedUrl && (
+            <div className="merged-result">
+              <div className="merged-result__label">✓ Final Audio Ready</div>
+              <audio src={mergedUrl} controls />
+              <a href={mergedUrl} download={`${project.name.replace(/\s+/g, '-')}-final.wav`} className="btn btn--sm">
+                {icons.download} Download WAV
+              </a>
+            </div>
+          )}
+        </>
+      }
     </div>
   )
 }
@@ -774,8 +843,7 @@ function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRef
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 28, alignItems: 'start' }}>
-        {/* Recording studio */}
+      <div className="profiles-layout">
         <div>
           <div className="section-head"><div><h2>Record New Profile</h2><p>Capture your voice with noise reduction</p></div></div>
           <div className="record-studio">
@@ -783,9 +851,9 @@ function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRef
             {recorder.recording && <div className="timer">{fmt(recorder.seconds)}</div>}
 
             <div className="record-script">
-              <div className="record-script__label">Read this script aloud</div>
+              <div className="record-script__label">Read this aloud</div>
               <p className="record-script__text">
-                "The quick brown fox jumps over the lazy dog. She sells seashells by the seashore. How much wood would a woodchuck chuck if a woodchuck could chuck wood."
+                "The quick brown fox jumps over the lazy dog. She sells seashells by the seashore. How much wood would a woodchuck chuck?"
               </p>
             </div>
 
@@ -795,15 +863,9 @@ function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRef
                 Browser noise suppression
               </label>
               <div className="noise-row">
-                <label>Gain / clarity</label>
-                <input type="range" min="0.1" max="2" step="0.05" value={gainVal}
-                  onChange={e => setGainVal(Number(e.target.value))} disabled={recorder.recording} />
+                <label>Gain</label>
+                <input type="range" min="0.1" max="2" step="0.05" value={gainVal} onChange={e => setGainVal(Number(e.target.value))} disabled={recorder.recording} />
                 <span>{gainVal.toFixed(2)}</span>
-              </div>
-              <div className="noise-row">
-                <label>High-pass filter</label>
-                <input type="range" min="60" max="200" step="10" defaultValue="80" disabled />
-                <span>80Hz</span>
               </div>
             </div>
 
@@ -822,117 +884,28 @@ function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRef
             />
 
             {msg && <div className={`msg ${msg.startsWith('✓') ? 'msg--ok' : 'msg--err'}`}>{msg}</div>}
-
-            <p style={{ fontSize: 12, color: 'var(--text-3)', textAlign: 'center', lineHeight: 1.6 }}>
-              Tip: Record 15–30 seconds in a quiet room.<br />The AI engine processes and cleans the audio server-side.
-            </p>
           </div>
         </div>
 
-        {/* Profiles list */}
         <div>
           <div className="section-head"><div><h2>Saved Profiles</h2><p>{profiles.length} voice model{profiles.length !== 1 ? 's' : ''} ready</p></div></div>
-          <div className="profiles-grid" style={{ gridTemplateColumns: '1fr' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {profiles.length === 0
               ? <div className="empty-state">{icons.profiles}<p>Record your first voice profile</p></div>
               : profiles.map(vp => (
                 <div key={vp.profile_id} className="profile-card">
-                  <div className="profile-card__head">
-                    <div className="profile-avatar">{vp.profile_id[0].toUpperCase()}</div>
-                    <div>
-                      <div className="profile-card__name">{vp.profile_id}</div>
-                      <div className="profile-card__meta">Voice profile · Ready to use</div>
-                    </div>
-                    <span className="tag tag--ok" style={{ marginLeft: 'auto' }}>Active</span>
+                  <div className="profile-avatar">{vp.profile_id[0].toUpperCase()}</div>
+                  <div style={{ flex: 1 }}>
+                    <div className="profile-card__name">{vp.profile_id}</div>
+                    <div className="profile-card__meta">Voice profile · Ready</div>
                   </div>
+                  <span className="tag tag--ok">Active</span>
                 </div>
               ))
             }
           </div>
         </div>
       </div>
-    </div>
-  )
-}
-
-// ── Assembly page ───────────────────────────────────────────────────
-function AssemblyPage({ project, selection, setSelection, mergedUrl, merging, onMerge }: {
-  project: Project; selection: Set<string>; setSelection: (s: Set<string>) => void
-  mergedUrl: string | null; merging: boolean; onMerge: () => void
-}) {
-  const withAudio = project.scripts.filter(s => s.audioUrl)
-
-  function toggle(id: string) {
-    const next = new Set(selection)
-    next.has(id) ? next.delete(id) : next.add(id)
-    setSelection(next)
-  }
-
-  function selectAll() { setSelection(new Set(withAudio.map(s => s.id))) }
-  function clearAll() { setSelection(new Set()) }
-
-  return (
-    <div className="assembly">
-      <div className="section-head">
-        <div>
-          <h2>Audio Assembly — {project.emoji} {project.name}</h2>
-          <p>Select voiceovers to merge into one final audio file</p>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn--sm btn--ghost" onClick={selectAll}>Select all</button>
-          <button className="btn btn--sm btn--ghost" onClick={clearAll}>Clear</button>
-        </div>
-      </div>
-
-      {withAudio.length === 0
-        ? <div className="empty-state">
-            {icons.merge}
-            <p>No voiceovers yet. Go to the workspace to generate audio for your scripts.</p>
-          </div>
-        : <>
-          <div className="assembly-list">
-            {project.scripts.map((s, i) => (
-              <div key={s.id} className={`assembly-item ${!s.audioUrl ? 'assembly-item--disabled' : ''}`}
-                style={{ opacity: s.audioUrl ? 1 : 0.35 }}>
-                <div className="assembly-item__drag">{icons.drag}</div>
-                <div className="assembly-item__check">
-                  <input type="checkbox" checked={selection.has(s.id)} disabled={!s.audioUrl}
-                    onChange={() => toggle(s.id)} />
-                </div>
-                <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text-3)', flexShrink: 0 }}>{i + 1}</div>
-                <div className="assembly-item__name">{s.title}</div>
-                {s.audioUrl && <audio src={s.audioUrl} controls style={{ height: 28, width: 200, accentColor: 'var(--accent)' }} />}
-                {!s.audioUrl && <span className="tag tag--warn">No audio</span>}
-                <div className="assembly-item__dur">
-                  {s.content ? `~${Math.ceil(s.content.split(/\s+/).length / 130)}m` : '—'}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="assembly-actions">
-            <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
-              {selection.size} of {withAudio.length} files selected
-            </div>
-            <div style={{ flex: 1 }} />
-            <button className="btn btn--primary" onClick={onMerge} disabled={selection.size < 2 || merging}>
-              {merging ? <><span className="spinner" /> Merging…</> : <>{icons.merge} Merge Selected</>}
-            </button>
-          </div>
-
-          {mergedUrl && (
-            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--ok)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                ✓ Final Audio Ready
-              </div>
-              <audio src={mergedUrl} controls style={{ width: '100%', accentColor: 'var(--accent)' }} />
-              <a href={mergedUrl} download={`${project.name.replace(/\s+/g, '-')}-final.wav`} className="btn" style={{ alignSelf: 'flex-start' }}>
-                {icons.download} Download Final WAV
-              </a>
-            </div>
-          )}
-        </>
-      }
     </div>
   )
 }
@@ -966,11 +939,12 @@ function NewProjectModal({ onClose, onCreate }: { onClose: () => void; onCreate:
           </div>
           <div className="field">
             <label>Project name</label>
-            <input className="full-input" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. My YouTube Series Episode 5" autoFocus onKeyDown={e => e.key === 'Enter' && submit()} />
+            <input className="full-input" value={name} onChange={e => setName(e.target.value)}
+              placeholder="e.g. My YouTube Episode 5" autoFocus onKeyDown={e => e.key === 'Enter' && submit()} />
           </div>
           <div className="field">
             <label>Description (optional)</label>
-            <input className="full-input" value={desc} onChange={e => setDesc(e.target.value)} placeholder="What is this project about?" />
+            <input className="full-input" value={desc} onChange={e => setDesc(e.target.value)} placeholder="What is this about?" />
           </div>
         </div>
         <div className="modal__actions">
