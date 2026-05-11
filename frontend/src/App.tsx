@@ -58,18 +58,45 @@ interface Project {
 
 interface Script {
   id: string; title: string; content: string
-  hasAudio: boolean   // persisted flag (actual URL loaded from IndexedDB)
+  hasAudio: boolean
   profileId: string | null; language: string; duration: number | null
+}
+
+// New: timeline placement
+interface TimelineClip {
+  id: string
+  scriptId: string
+  start: number    // seconds from timeline origin
+  dur: number      // duration in seconds
+  title: string
+  ci: number       // color index
 }
 
 interface VoiceProfile {
   profile_id: string; filename: string; duration?: number
 }
 
+// ── Timeline colour palette (warm accent family) ───────────────────
+const CLIP_COLORS = [
+  '#c96442', '#4278c9', '#3db564', '#c94278', '#c9a442', '#7842c9',
+]
+const CLIP_LIGHTS = [
+  'rgba(201,100,66,0.10)', 'rgba(66,120,201,0.10)', 'rgba(61,181,100,0.10)',
+  'rgba(201,66,120,0.10)', 'rgba(201,164,66,0.10)', 'rgba(120,66,201,0.10)',
+]
+
+function waveBar(scriptId: string, i: number): number {
+  const seed = (scriptId.charCodeAt(0) ?? 65) * 17 + i * 13
+  return 0.2 + Math.abs(Math.sin(seed * 0.7)) * 0.5 + Math.abs(Math.sin(seed * 0.3)) * 0.2
+}
+
 // ── History reducer ────────────────────────────────────────────────
 interface HistoryState { past: string[]; present: string; future: string[] }
 
-function historyReducer(state: HistoryState, action: { type: 'SET' | 'UNDO' | 'REDO'; value?: string }): HistoryState {
+function historyReducer(
+  state: HistoryState,
+  action: { type: 'SET' | 'UNDO' | 'REDO'; value?: string }
+): HistoryState {
   switch (action.type) {
     case 'SET':
       if (action.value === state.present) return state
@@ -162,36 +189,41 @@ function uid() { return Math.random().toString(36).slice(2, 10) }
 
 const LANGUAGES = [
   { code: 'en', label: 'English' }, { code: 'es', label: 'Spanish' },
-  { code: 'fr', label: 'French' },  { code: 'de', label: 'German' },
+  { code: 'fr', label: 'French' }, { code: 'de', label: 'German' },
   { code: 'it', label: 'Italian' }, { code: 'pt', label: 'Portuguese' },
-  { code: 'pl', label: 'Polish' },  { code: 'tr', label: 'Turkish' },
+  { code: 'pl', label: 'Polish' }, { code: 'tr', label: 'Turkish' },
   { code: 'ru', label: 'Russian' }, { code: 'nl', label: 'Dutch' },
-  { code: 'cs', label: 'Czech' },   { code: 'ar', label: 'Arabic' },
+  { code: 'cs', label: 'Czech' }, { code: 'ar', label: 'Arabic' },
   { code: 'zh', label: 'Chinese' }, { code: 'ja', label: 'Japanese' },
-  { code: 'ko', label: 'Korean' },  { code: 'hi', label: 'Hindi' },
+  { code: 'ko', label: 'Korean' }, { code: 'hi', label: 'Hindi' },
 ]
 
 const icons = {
   dashboard: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="2" y="2" width="7" height="7" rx="1.5" /><rect x="11" y="2" width="7" height="7" rx="1.5" /><rect x="2" y="11" width="7" height="7" rx="1.5" /><rect x="11" y="11" width="7" height="7" rx="1.5" /></svg>,
-  projects:  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M3 7a2 2 0 0 1 2-2h2l2 2h6a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" /></svg>,
-  profiles:  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M10 2a3 3 0 0 1 3 3v4a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" /><path d="M16 9v1a6 6 0 0 1-12 0V9" /><line x1="10" y1="16" x2="10" y2="19" /><line x1="7" y1="19" x2="13" y2="19" /></svg>,
-  assembly:  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="2" y="8" width="4" height="4" rx="1" /><rect x="8" y="8" width="4" height="4" rx="1" /><rect x="14" y="8" width="4" height="4" rx="1" /><path d="M4 8V6a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v2" /><path d="M10 12v3" /></svg>,
-  scripts:   <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 6h12M4 10h8M4 14h5" /></svg>,
-  plus:      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8"><line x1="10" y1="4" x2="10" y2="16" /><line x1="4" y1="10" x2="16" y2="10" /></svg>,
-  trash:     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 6h12M8 6V4h4v2M7 6v10a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1V6" /></svg>,
-  edit:      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M11.5 5.5l3 3M4 14l1-4 8-8 3 3-8 8-4 1z" /></svg>,
-  play:      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M7 5l9 5-9 5V5z" /></svg>,
-  download:  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M10 3v10m-4-4 4 4 4-4" /><path d="M4 17h12" /></svg>,
-  undo:      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 9H14a4 4 0 0 1 0 8H10" /><path d="M4 9l3-3M4 9l3 3" /></svg>,
-  redo:      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M16 9H6a4 4 0 0 0 0 8h4" /><path d="M16 9l-3-3m3 3l-3 3" /></svg>,
-  merge:     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 6h4l8 8h4" /><path d="M4 14h4L10 10" /></svg>,
-  drag:      <svg viewBox="0 0 20 20" fill="currentColor"><circle cx="8" cy="6" r="1.2" /><circle cx="12" cy="6" r="1.2" /><circle cx="8" cy="10" r="1.2" /><circle cx="12" cy="10" r="1.2" /><circle cx="8" cy="14" r="1.2" /><circle cx="12" cy="14" r="1.2" /></svg>,
-  back:      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 4l-6 6 6 6" /></svg>,
-  menu:      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><line x1="3" y1="6" x2="17" y2="6" /><line x1="3" y1="10" x2="17" y2="10" /><line x1="3" y1="14" x2="17" y2="14" /></svg>,
-  close:     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><line x1="5" y1="5" x2="15" y2="15" /><line x1="15" y1="5" x2="5" y2="15" /></svg>,
-  speaker:   <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M3 8h3l4-4v12l-4-4H3V8z" /><path d="M14 7a4 4 0 0 1 0 6" /></svg>,
-  check:     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 10l5 5 7-8" /></svg>,
-  globe:     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="10" cy="10" r="8" /><path d="M2 10h16M10 2a12 12 0 0 1 0 16A12 12 0 0 1 10 2z" /></svg>,
+  projects: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M3 7a2 2 0 0 1 2-2h2l2 2h6a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" /></svg>,
+  profiles: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M10 2a3 3 0 0 1 3 3v4a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" /><path d="M16 9v1a6 6 0 0 1-12 0V9" /><line x1="10" y1="16" x2="10" y2="19" /><line x1="7" y1="19" x2="13" y2="19" /></svg>,
+  assembly: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="2" y="8" width="4" height="4" rx="1" /><rect x="8" y="8" width="4" height="4" rx="1" /><rect x="14" y="8" width="4" height="4" rx="1" /><path d="M4 8V6a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v2" /><path d="M10 12v3" /></svg>,
+  scripts: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 6h12M4 10h8M4 14h5" /></svg>,
+  plus: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8"><line x1="10" y1="4" x2="10" y2="16" /><line x1="4" y1="10" x2="16" y2="10" /></svg>,
+  trash: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 6h12M8 6V4h4v2M7 6v10a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1V6" /></svg>,
+  edit: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M11.5 5.5l3 3M4 14l1-4 8-8 3 3-8 8-4 1z" /></svg>,
+  play: <svg viewBox="0 0 20 20" fill="currentColor"><path d="M7 5l9 5-9 5V5z" /></svg>,
+  pause: <svg viewBox="0 0 20 20" fill="currentColor"><rect x="5" y="4" width="3" height="12" rx="1" /><rect x="12" y="4" width="3" height="12" rx="1" /></svg>,
+  stop: <svg viewBox="0 0 20 20" fill="currentColor"><rect x="4" y="4" width="12" height="12" rx="2" /></svg>,
+  rewind: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 5v10" strokeLinecap="round" /><path d="M18 5l-8 5 8 5V5z" /></svg>,
+  download: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M10 3v10m-4-4 4 4 4-4" /><path d="M4 17h12" /></svg>,
+  undo: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 9H14a4 4 0 0 1 0 8H10" /><path d="M4 9l3-3M4 9l3 3" /></svg>,
+  redo: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M16 9H6a4 4 0 0 0 0 8h4" /><path d="M16 9l-3-3m3 3l-3 3" /></svg>,
+  merge: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 6h4l8 8h4" /><path d="M4 14h4L10 10" /></svg>,
+  drag: <svg viewBox="0 0 20 20" fill="currentColor"><circle cx="8" cy="6" r="1.2" /><circle cx="12" cy="6" r="1.2" /><circle cx="8" cy="10" r="1.2" /><circle cx="12" cy="10" r="1.2" /><circle cx="8" cy="14" r="1.2" /><circle cx="12" cy="14" r="1.2" /></svg>,
+  back: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 4l-6 6 6 6" /></svg>,
+  menu: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><line x1="3" y1="6" x2="17" y2="6" /><line x1="3" y1="10" x2="17" y2="10" /><line x1="3" y1="14" x2="17" y2="14" /></svg>,
+  close: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><line x1="5" y1="5" x2="15" y2="15" /><line x1="15" y1="5" x2="5" y2="15" /></svg>,
+  speaker: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M3 8h3l4-4v12l-4-4H3V8z" /><path d="M14 7a4 4 0 0 1 0 6" /></svg>,
+  check: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 10l5 5 7-8" /></svg>,
+  globe: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="10" cy="10" r="8" /><path d="M2 10h16M10 2a12 12 0 0 1 0 16A12 12 0 0 1 10 2z" /></svg>,
+  zoomIn: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="9" cy="9" r="6" /><path d="M15 15l3 3M7 9h4M9 7v4" /></svg>,
+  zoomOut: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="9" cy="9" r="6" /><path d="M15 15l3 3M7 9h4" /></svg>,
 }
 
 // ── App ─────────────────────────────────────────────────────────────
@@ -206,7 +238,6 @@ export default function App() {
   const [activeScriptId, setActiveScriptId] = useState<string | null>(null)
   const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfile[]>([])
   const [showNewProject, setShowNewProject] = useState(false)
-  const [assemblySelection, setAssemblySelection] = useState<Set<string>>(new Set())
   const [mergedUrl, setMergedUrl] = useState<string | null>(null)
   const [merging, setMerging] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -232,7 +263,6 @@ export default function App() {
   }
 
   function deleteProject(id: string) {
-    // Clean up IndexedDB audio for all scripts
     const proj = projects.find(p => p.id === id)
     proj?.scripts.forEach(s => { if (s.hasAudio) deleteAudioBlob(`audio_${s.id}`) })
     setProjects(prev => prev.filter(p => p.id !== id))
@@ -273,18 +303,18 @@ export default function App() {
     const proj = projects.find(p => p.id === id)
     setActiveScriptId(proj?.scripts[0]?.id ?? null)
     setWorkspaceTab('scripts'); setMergedUrl(null)
-    setAssemblySelection(new Set()); setPage('workspace')
+    setPage('workspace')
   }
 
-  async function mergeSelected() {
-    const scripts = activeProject?.scripts.filter(s => assemblySelection.has(s.id) && s.hasAudio) ?? []
-    if (!scripts.length) return
+  // Merge accepts ordered script IDs from the timeline
+  async function mergeSelected(orderedScriptIds: string[]) {
+    if (!orderedScriptIds.length) return
     setMerging(true)
     try {
       const ctx = new AudioContext()
       const buffers: AudioBuffer[] = []
-      for (const s of scripts) {
-        const url = await loadAudioBlob(`audio_${s.id}`)
+      for (const sid of orderedScriptIds) {
+        const url = await loadAudioBlob(`audio_${sid}`)
         if (!url) continue
         const arr = await (await fetch(url)).arrayBuffer()
         buffers.push(await ctx.decodeAudioData(arr))
@@ -296,7 +326,7 @@ export default function App() {
       for (const buf of buffers) { merged.copyToChannel(buf.getChannelData(0), 0, offset); offset += buf.length }
       const wav = audioBufferToWav(merged)
       setMergedUrl(URL.createObjectURL(new Blob([wav], { type: 'audio/wav' })))
-    } catch { alert('Merge failed. Ensure selected scripts have audio.') }
+    } catch { alert('Merge failed. Ensure all timeline clips have audio.') }
     finally { setMerging(false) }
   }
 
@@ -304,21 +334,21 @@ export default function App() {
     const data = buf.getChannelData(0), sr = buf.sampleRate
     const ab = new ArrayBuffer(44 + data.length * 2), v = new DataView(ab)
     const ws = (off: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)) }
-    ws(0,'RIFF'); v.setUint32(4,36+data.length*2,true); ws(8,'WAVE'); ws(12,'fmt ')
-    v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true)
-    v.setUint32(24,sr,true); v.setUint32(28,sr*2,true); v.setUint16(32,2,true)
-    v.setUint16(34,16,true); ws(36,'data'); v.setUint32(40,data.length*2,true)
+    ws(0, 'RIFF'); v.setUint32(4, 36 + data.length * 2, true); ws(8, 'WAVE'); ws(12, 'fmt ')
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true)
+    v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true)
+    v.setUint16(34, 16, true); ws(36, 'data'); v.setUint32(40, data.length * 2, true)
     for (let i = 0; i < data.length; i++) {
-      const s = Math.max(-1,Math.min(1,data[i]))
-      v.setInt16(44+i*2,s<0?s*0x8000:s*0x7FFF,true)
+      const s = Math.max(-1, Math.min(1, data[i]))
+      v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true)
     }
     return ab
   }
 
   const navItems = [
     { key: 'dashboard' as Page, label: 'Dashboard', icon: icons.dashboard },
-    { key: 'projects'  as Page, label: 'Projects',  icon: icons.projects },
-    { key: 'profiles'  as Page, label: 'Voice Profiles', icon: icons.profiles },
+    { key: 'projects' as Page, label: 'Projects', icon: icons.projects },
+    { key: 'profiles' as Page, label: 'Voice Profiles', icon: icons.profiles },
   ]
 
   return (
@@ -393,7 +423,7 @@ export default function App() {
           </div>
         )}
 
-        <div className="content">
+        <div className={workspaceTab === 'assembly' && page === 'workspace' ? '' : 'content'}>
           {page === 'dashboard' && <DashboardPage projects={projects} voiceProfiles={voiceProfiles} onOpenProject={openProject} onGoProjects={() => setPage('projects')} onGoProfiles={() => setPage('profiles')} />}
           {page === 'projects' && <ProjectsPage projects={projects} onOpen={openProject} onDelete={deleteProject} onNew={() => setShowNewProject(true)} />}
           {page === 'workspace' && activeProject && workspaceTab === 'scripts' && (
@@ -409,9 +439,13 @@ export default function App() {
             />
           )}
           {page === 'workspace' && activeProject && workspaceTab === 'assembly' && (
-            <AssemblyPage project={activeProject} selection={assemblySelection} setSelection={setAssemblySelection}
-              mergedUrl={mergedUrl} merging={merging} onMerge={mergeSelected}
-              onReorder={(scripts) => reorderScripts(activeProject.id, scripts)} />
+            <AssemblyPage
+              project={activeProject}
+              mergedUrl={mergedUrl}
+              merging={merging}
+              onMerge={mergeSelected}
+              onReorder={(scripts) => reorderScripts(activeProject.id, scripts)}
+            />
           )}
           {page === 'profiles' && <ProfilesPage profiles={voiceProfiles} onRefresh={loadProfiles} />}
           {page === 'workspace' && !activeProject && (
@@ -536,7 +570,6 @@ function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript
   const prevScriptId = useRef<string | null>(null)
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
 
-  // Load audio from IndexedDB when script changes
   useEffect(() => {
     if (activeScriptId !== prevScriptId.current) {
       dispatch({ type: 'SET', value: activeScript?.content ?? '' })
@@ -549,7 +582,6 @@ function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript
     }
   }, [activeScriptId, activeScript?.content, activeScript?.hasAudio])
 
-  // Auto-save with indicator
   useEffect(() => {
     if (!activeScript) return
     if (histState.present === activeScript.content) { setSaveState('saved'); return }
@@ -575,9 +607,7 @@ function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript
     if (isMobile) setShowScriptList(false)
   }
 
-  // Drag-and-drop reorder
   const dragIdx = useRef<number | null>(null)
-
   function onDragStart(i: number) { dragIdx.current = i }
   function onDragOver(e: React.DragEvent, i: number) {
     e.preventDefault()
@@ -603,11 +633,21 @@ function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript
       const res = await fetch(`${API}/synthesize`, { method: 'POST', body: fd })
       if (!res.ok) { const e = await res.json(); setSynthErr(e.detail || 'Synthesis failed'); return }
       const blob = await res.blob()
-      // Persist to IndexedDB
+      // Extract actual duration from the audio buffer
+      let duration: number | null = null
+      try {
+        const tempUrl = URL.createObjectURL(blob)
+        const audioCtx = new AudioContext()
+        const arr = await (await fetch(tempUrl)).arrayBuffer()
+        const buf = await audioCtx.decodeAudioData(arr)
+        duration = Math.round(buf.duration * 10) / 10
+        await audioCtx.close()
+        URL.revokeObjectURL(tempUrl)
+      } catch { /* duration stays null */ }
       await saveAudioBlob(`audio_${activeScript.id}`, blob)
       const url = URL.createObjectURL(blob)
       setAudioUrl(url)
-      onUpdateScript(activeScript.id, { hasAudio: true, profileId: pid, language: activeScript.language || 'en' })
+      onUpdateScript(activeScript.id, { hasAudio: true, profileId: pid, language: activeScript.language || 'en', duration })
     } catch { setSynthErr('Connection error. Is the AI engine running?') }
     finally { setSynthesizing(false) }
   }
@@ -637,7 +677,10 @@ function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript
                 <div className="script-item__num">{i + 1}</div>
                 <div className="script-item__body">
                   <div className="script-item__title">{s.title}</div>
-                  <div className="script-item__meta">{s.content ? `${s.content.trim().split(/\s+/).length} words` : 'Empty'}</div>
+                  <div className="script-item__meta">
+                    {s.content ? `${s.content.trim().split(/\s+/).length} words` : 'Empty'}
+                    {s.duration ? ` · ${fmt(s.duration)}` : ''}
+                  </div>
                 </div>
                 <span className={`script-item__status ${s.hasAudio ? 'script-item__status--done' : s.content ? 'script-item__status--pending' : 'script-item__status--none'}`} />
               </div>
@@ -662,8 +705,7 @@ function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript
                 <button className="btn btn--sm btn--ghost" onClick={() => dispatch({ type: 'UNDO' })} disabled={!histState.past.length} title="Undo">{icons.undo}</button>
                 <button className="btn btn--sm btn--ghost" onClick={() => dispatch({ type: 'REDO' })} disabled={!histState.future.length} title="Redo">{icons.redo}</button>
               </div>
-              {/* Save indicator */}
-              <span className="save-indicator" data-state={saveState}>
+              <span style={{ fontSize: 11, color: saveState === 'saved' ? 'var(--ok)' : 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 3 }}>
                 {saveState === 'saving' ? <span className="spinner" /> : saveState === 'saved' ? icons.check : null}
                 {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : ''}
               </span>
@@ -692,7 +734,6 @@ function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript
             <div className="editor-footer">
               <span className="word-count">{wordCount} words · ~{Math.ceil(wordCount / 130)}m</span>
               <div style={{ flex: 1 }} />
-              {/* Language selector */}
               <select
                 className="profile-select"
                 value={activeScript.language || 'en'}
@@ -701,7 +742,6 @@ function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript
               >
                 {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
               </select>
-              {/* Voice profile selector */}
               {voiceProfiles.length > 0 && (
                 <select
                   className="profile-select"
@@ -722,16 +762,31 @@ function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript
   )
 }
 
-// ── Assembly ───────────────────────────────────────────────────────
-function AssemblyPage({ project, selection, setSelection, mergedUrl, merging, onMerge, onReorder }: {
-  project: Project; selection: Set<string>; setSelection: (s: Set<string>) => void
-  mergedUrl: string | null; merging: boolean; onMerge: () => void; onReorder: (s: Script[]) => void
+// ── Assembly Timeline ──────────────────────────────────────────────
+function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }: {
+  project: Project
+  mergedUrl: string | null
+  merging: boolean
+  onMerge: (orderedScriptIds: string[]) => void
+  onReorder: (scripts: Script[]) => void
 }) {
   const withAudio = project.scripts.filter(s => s.hasAudio)
-  const [audioUrls, setAudioUrls] = useState<Record<string, string>>({})
-  const dragIdx = useRef<number | null>(null)
 
-  // Load all audio URLs from IndexedDB
+  const [zoom, setZoom] = useState(80)        // pixels per second
+  const [playhead, setPlayhead] = useState(0) // seconds
+  const [playing, setPlaying] = useState(false)
+  const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([])
+  const [dragAssetId, setDragAssetId] = useState<string | null>(null)
+  const [dragClipId, setDragClipId] = useState<string | null>(null)
+  const [dragOffsetSec, setDragOffsetSec] = useState(0)
+  const [audioUrls, setAudioUrls] = useState<Record<string, string>>({})
+  const [colorCursor, setColorCursor] = useState(0)
+  const [dropActive, setDropActive] = useState(false)
+
+  const timelineRef = useRef<HTMLDivElement>(null)
+  const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Load audio URLs from IndexedDB
   useEffect(() => {
     withAudio.forEach(async s => {
       if (!audioUrls[s.id]) {
@@ -741,75 +796,493 @@ function AssemblyPage({ project, selection, setSelection, mergedUrl, merging, on
     })
   }, [project.scripts])
 
-  function toggle(id: string) {
-    const next = new Set(selection); next.has(id) ? next.delete(id) : next.add(id); setSelection(next)
+  // Stop playback when leaving
+  useEffect(() => () => { if (playIntervalRef.current) clearInterval(playIntervalRef.current) }, [])
+
+  const totalDur = timelineClips.length
+    ? Math.max(...timelineClips.map(c => c.start + c.dur)) + 5
+    : 30
+
+  // Playback ticker
+  useEffect(() => {
+    if (playing) {
+      playIntervalRef.current = setInterval(() => {
+        setPlayhead(p => {
+          if (p >= totalDur) { setPlaying(false); return 0 }
+          return Math.round((p + 0.1) * 10) / 10
+        })
+      }, 100)
+    } else {
+      if (playIntervalRef.current) clearInterval(playIntervalRef.current)
+    }
+    return () => { if (playIntervalRef.current) clearInterval(playIntervalRef.current) }
+  }, [playing, totalDur])
+
+  function fmtTime(s: number) {
+    const m = Math.floor(s / 60), sc = Math.floor(s % 60)
+    return `${m}:${String(sc).padStart(2, '0')}`
   }
 
-  function onDragStart(i: number) { dragIdx.current = i }
-  function onDragOver(e: React.DragEvent, i: number) {
-    e.preventDefault()
-    if (dragIdx.current === null || dragIdx.current === i) return
-    const next = [...project.scripts]
-    const [moved] = next.splice(dragIdx.current, 1)
-    next.splice(i, 0, moved); dragIdx.current = i; onReorder(next)
+  function getSecFromEvent(e: React.MouseEvent | React.DragEvent): number {
+    if (!timelineRef.current) return 0
+    const rect = timelineRef.current.getBoundingClientRect()
+    const x = e.clientX - rect.left + timelineRef.current.scrollLeft
+    return Math.max(0, Math.round((x / zoom) * 10) / 10)
   }
+
+  function addToTimeline(script: Script, startSec: number) {
+    const ci = colorCursor % CLIP_COLORS.length
+    setColorCursor(c => c + 1)
+    setTimelineClips(prev => [...prev, {
+      id: 'tc_' + uid(),
+      scriptId: script.id,
+      start: startSec,
+      dur: script.duration ?? Math.max(5, Math.ceil((script.content.trim().split(/\s+/).length || 50) / 2.5)),
+      title: script.title,
+      ci,
+    }])
+  }
+
+  function removeClip(clipId: string) {
+    setTimelineClips(prev => prev.filter(c => c.id !== clipId))
+  }
+
+  function handleMerge() {
+    const ordered = [...timelineClips]
+      .sort((a, b) => a.start - b.start)
+      .map(c => c.scriptId)
+    onMerge(ordered)
+  }
+
+  // ── Drag: asset → timeline ────────────────────────────────────────
+  function onTimelineDragOver(e: React.DragEvent) {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+    setDropActive(true)
+  }
+  function onTimelineDragLeave() { setDropActive(false) }
+  function onTimelineDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setDropActive(false)
+    if (!dragAssetId) return
+    const script = project.scripts.find(s => s.id === dragAssetId)
+    if (!script) return
+    addToTimeline(script, getSecFromEvent(e))
+    setDragAssetId(null)
+  }
+
+  // ── Drag: clip on timeline ────────────────────────────────────────
+  function onClipMouseDown(e: React.MouseEvent, clip: TimelineClip) {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOffsetSec(getSecFromEvent(e) - clip.start)
+    setDragClipId(clip.id)
+  }
+  function onTimelineMouseMove(e: React.MouseEvent) {
+    if (!dragClipId) return
+    const newStart = Math.max(0, Math.round((getSecFromEvent(e) - dragOffsetSec) * 10) / 10)
+    setTimelineClips(prev => prev.map(c => c.id === dragClipId ? { ...c, start: newStart } : c))
+  }
+  function onTimelineMouseUp() { setDragClipId(null) }
+
+  // Timeline ruler ticks
+  const tickInterval = zoom >= 70 ? 5 : zoom >= 40 ? 10 : 30
+  const ticks: number[] = []
+  for (let t = 0; t <= totalDur + tickInterval; t += tickInterval) ticks.push(t)
+  const timelineWidth = Math.max(totalDur * zoom + 200, 800)
+
+  // Styles
+  const S = {
+    shell: {
+      display: 'flex', flexDirection: 'column' as const,
+      height: 'calc(100svh - var(--topbar-h) - var(--tabs-h))',
+      background: 'var(--bg)',
+    } as React.CSSProperties,
+    transport: {
+      display: 'flex', alignItems: 'center', gap: 6,
+      padding: '8px 16px', borderBottom: '1px solid var(--border)',
+      background: 'var(--bg)', flexShrink: 0,
+    } as React.CSSProperties,
+    sep: {
+      width: 1, height: 20, background: 'var(--border-2)', margin: '0 2px', flexShrink: 0,
+    } as React.CSSProperties,
+    body: {
+      display: 'flex', flex: 1, overflow: 'hidden',
+    } as React.CSSProperties,
+    libPanel: {
+      width: 210, flexShrink: 0, background: 'var(--bg-2)',
+      borderRight: '1px solid var(--border)',
+      display: 'flex', flexDirection: 'column' as const, overflow: 'hidden',
+    } as React.CSSProperties,
+    libHeader: {
+      padding: '9px 12px 5px', color: 'var(--text-3)',
+      fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const,
+      letterSpacing: '0.7px', flexShrink: 0,
+    } as React.CSSProperties,
+    libList: {
+      flex: 1, overflowY: 'auto' as const, padding: '4px 8px 8px',
+      display: 'flex', flexDirection: 'column' as const, gap: 4,
+    } as React.CSSProperties,
+    timelineArea: {
+      flex: 1, display: 'flex', flexDirection: 'column' as const, overflow: 'hidden',
+    } as React.CSSProperties,
+    timelineScroll: {
+      flex: 1,
+      overflowX: 'auto' as const,
+      overflowY: 'hidden' as const,
+      cursor: dragClipId ? 'grabbing' : 'default',
+      userSelect: 'none' as const,
+    } as React.CSSProperties,
+    ruler: {
+      height: 30, background: 'var(--bg-3)',
+      borderBottom: '1px solid var(--border-2)',
+      position: 'sticky' as const, top: 0, zIndex: 10,
+      overflow: 'hidden',
+    } as React.CSSProperties,
+    track: {
+      height: 80, background: 'var(--bg-2)',
+      borderTop: '1px solid var(--border)',
+      borderBottom: '1px solid var(--border)',
+      margin: '14px 0',
+      position: 'relative' as const,
+    } as React.CSSProperties,
+    footer: {
+      padding: '7px 14px', borderTop: '1px solid var(--border)',
+      display: 'flex', alignItems: 'center', gap: 8,
+      background: 'var(--bg-2)', flexShrink: 0,
+      flexWrap: 'wrap' as const,
+    } as React.CSSProperties,
+  }
+
+  const transportBtn = (extra: React.CSSProperties = {}) => ({
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    gap: 4, padding: '5px 9px', borderRadius: 6,
+    border: '1px solid var(--border-2)', background: 'var(--surface)',
+    color: 'var(--text-1)', fontSize: 13, fontWeight: 500,
+    fontFamily: 'var(--font)', cursor: 'pointer', flexShrink: 0,
+    ...extra,
+  } as React.CSSProperties)
 
   return (
-    <div className="assembly">
-      <div className="section-head">
-        <div><h2>Audio Assembly</h2><p>Drag to reorder, select to merge</p></div>
-        {withAudio.length > 0 && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn--sm btn--ghost" onClick={() => setSelection(new Set(withAudio.map(s => s.id)))}>All</button>
-            <button className="btn btn--sm btn--ghost" onClick={() => setSelection(new Set())}>Clear</button>
-          </div>
+    <div style={S.shell}>
+
+      {/* ── Transport bar ─────────────────────────────────── */}
+      <div style={S.transport}>
+        <button style={transportBtn()} onClick={() => setPlayhead(0)} title="Rewind">
+          <span style={{ display: 'flex', width: 16, height: 16 }}>{icons.rewind}</span>
+        </button>
+        <button
+          onClick={() => setPlaying(p => !p)}
+          style={transportBtn({ background: 'var(--accent)', color: '#fff', border: 'none', width: 34, height: 34, borderRadius: '50%', padding: 0 })}
+        >
+          <span style={{ display: 'flex', width: 16, height: 16 }}>{playing ? icons.pause : icons.play}</span>
+        </button>
+        <button style={transportBtn()} onClick={() => { setPlaying(false); setPlayhead(0) }} title="Stop">
+          <span style={{ display: 'flex', width: 16, height: 16 }}>{icons.stop}</span>
+        </button>
+
+        <div style={S.sep} />
+
+        <span style={{ fontSize: 11, color: 'var(--text-3)', flexShrink: 0 }}>Zoom</span>
+        <input
+          type="range" min="30" max="200" step="10" value={zoom}
+          onChange={e => setZoom(Number(e.target.value))}
+          style={{ width: 80, accentColor: 'var(--accent)', flexShrink: 0 }}
+        />
+        <span style={{ fontSize: 11, color: 'var(--text-3)', width: 28, flexShrink: 0 }}>{zoom}</span>
+
+        <div style={S.sep} />
+
+        <span style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--accent)', fontWeight: 500, minWidth: 40 }}>
+          {fmtTime(playhead)}
+        </span>
+        <span style={{ color: 'var(--text-3)', fontSize: 11 }}>/ {fmtTime(Math.max(0, totalDur - 5))}</span>
+
+        <div style={{ flex: 1 }} />
+
+        {timelineClips.length > 0 && !mergedUrl && (
+          <span style={{ fontSize: 11, color: 'var(--text-2)' }}>
+            {timelineClips.length} clip{timelineClips.length !== 1 ? 's' : ''} on track
+          </span>
         )}
+        {mergedUrl && (
+          <audio src={mergedUrl} controls style={{ height: 28, width: 180, accentColor: 'var(--accent)' }} />
+        )}
+        {mergedUrl && (
+          <a href={mergedUrl} download={`${project.name.replace(/\s+/g, '-')}-final.wav`} className="btn btn--sm btn--primary">
+            {icons.download} Download
+          </a>
+        )}
+        <button
+          onClick={handleMerge}
+          disabled={timelineClips.length < 1 || merging}
+          style={transportBtn({
+            background: mergedUrl ? 'var(--ok)' : 'var(--accent)',
+            color: '#fff', border: 'none', padding: '6px 14px',
+            opacity: timelineClips.length < 1 || merging ? 0.5 : 1,
+          })}
+        >
+          {merging ? <><span className="spinner" /> Merging…</> : mergedUrl ? <>{icons.check} Re-export</> : <>{icons.merge} Export WAV</>}
+        </button>
       </div>
-      {withAudio.length === 0
-        ? <div className="empty-state">{icons.merge}<p>No voiceovers yet. Generate audio in the Scripts tab first.</p></div>
-        : <>
-          <div className="assembly-list">
-            {project.scripts.map((s, i) => (
-              <div key={s.id}
-                className="assembly-item"
-                style={{ opacity: s.hasAudio ? 1 : 0.35 }}
-                draggable={s.hasAudio}
-                onDragStart={() => onDragStart(i)}
-                onDragOver={e => onDragOver(e, i)}
-                onDragEnd={() => { dragIdx.current = null }}
-              >
-                <div className="assembly-item__drag" style={{ cursor: s.hasAudio ? 'grab' : 'default' }}>{icons.drag}</div>
-                <input type="checkbox" className="assembly-check" checked={selection.has(s.id)} disabled={!s.hasAudio} onChange={() => toggle(s.id)} />
-                <div className="assembly-item__index">{i + 1}</div>
-                <div className="assembly-item__name">{s.title}</div>
-                <div className="assembly-item__right">
-                  {s.hasAudio && audioUrls[s.id]
-                    ? <audio src={audioUrls[s.id]} controls />
-                    : s.hasAudio
-                    ? <span className="spinner" />
-                    : <span className="tag tag--warn">No audio</span>
-                  }
-                  <span className="assembly-item__dur">{s.content ? `~${Math.ceil(s.content.split(/\s+/).length / 130)}m` : '—'}</span>
-                </div>
+
+      {/* ── Main body ─────────────────────────────────────── */}
+      <div style={S.body}>
+
+        {/* Asset library */}
+        <div style={S.libPanel}>
+          <div style={S.libHeader}>Clip Library</div>
+          <div style={S.libList}>
+            {withAudio.length === 0 ? (
+              <div className="empty-state" style={{ padding: '24px 8px', textAlign: 'center' }}>
+                {icons.speaker}
+                <p style={{ fontSize: 12, marginTop: 8 }}>Generate audio in the Scripts tab first.</p>
               </div>
-            ))}
+            ) : withAudio.map((s, i) => {
+              const col = CLIP_COLORS[i % CLIP_COLORS.length]
+              const lt = CLIP_LIGHTS[i % CLIP_LIGHTS.length]
+              return (
+                <div
+                  key={s.id}
+                  draggable
+                  onDragStart={() => setDragAssetId(s.id)}
+                  onDragEnd={() => setDragAssetId(null)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '7px 9px', borderRadius: 8,
+                    border: '1px solid var(--border)',
+                    background: dragAssetId === s.id ? lt : 'var(--surface)',
+                    cursor: 'grab', transition: 'background 0.1s',
+                    opacity: dragAssetId === s.id ? 0.5 : 1,
+                  }}
+                >
+                  {/* Mini waveform icon */}
+                  <div style={{
+                    width: 30, height: 30, borderRadius: 6, flexShrink: 0,
+                    background: lt, border: `1px solid ${col}44`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1.5, height: 16 }}>
+                      {[0, 1, 2, 3, 4].map(j => (
+                        <div key={j} style={{
+                          width: 2.5, borderRadius: 1.5,
+                          height: Math.round(waveBar(s.id, j) * 14) + 'px',
+                          background: col,
+                        }} />
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 500, fontSize: 12, color: 'var(--text-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {s.title}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>
+                      {s.duration ? fmtTime(s.duration) : '—'}
+                      {s.content && ` · ${s.content.trim().split(/\s+/).length}w`}
+                    </div>
+                  </div>
+                  <span style={{ color: 'var(--text-3)', fontSize: 13, flexShrink: 0, cursor: 'grab' }}>{icons.drag}</span>
+                </div>
+              )
+            })}
           </div>
-          <div className="assembly-actions">
-            <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{selection.size} of {withAudio.length} selected</span>
-            <div style={{ flex: 1 }} />
-            <button className="btn btn--primary" onClick={onMerge} disabled={selection.size < 2 || merging}>
-              {merging ? <><span className="spinner" /> Merging…</> : <>{icons.merge} Merge Selected</>}
-            </button>
-          </div>
-          {mergedUrl && (
-            <div className="merged-result">
-              <div className="merged-result__label">✓ Final Audio Ready</div>
-              <audio src={mergedUrl} controls />
-              <a href={mergedUrl} download={`${project.name.replace(/\s+/g, '-')}-final.wav`} className="btn btn--sm">{icons.download} Download WAV</a>
+          {withAudio.length > 0 && (
+            <div style={{ padding: '8px 10px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+              <p style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>
+                Drag clips onto the timeline track to arrange them.
+              </p>
             </div>
           )}
-        </>
-      }
+        </div>
+
+        {/* Timeline */}
+        <div style={S.timelineArea}>
+          <div
+            ref={timelineRef}
+            style={S.timelineScroll}
+            onMouseMove={onTimelineMouseMove}
+            onMouseUp={onTimelineMouseUp}
+            onMouseLeave={onTimelineMouseUp}
+          >
+            <div style={{ width: timelineWidth, position: 'relative', minHeight: '100%' }}>
+
+              {/* Time ruler */}
+              <div style={S.ruler}>
+                {ticks.map(t => (
+                  <div key={t} style={{ position: 'absolute', left: t * zoom, top: 0, bottom: 0 }}>
+                    <span style={{ fontSize: 10, color: 'var(--text-3)', paddingLeft: 3, paddingTop: 3, display: 'block', whiteSpace: 'nowrap', fontFamily: 'var(--mono)' }}>
+                      {fmtTime(t)}
+                    </span>
+                    <div style={{ position: 'absolute', bottom: 0, left: 0, width: 1, height: 8, background: 'var(--border-2)' }} />
+                  </div>
+                ))}
+                {/* Half-way minor ticks */}
+                {ticks.slice(0, -1).map(t => (
+                  <div key={`m${t}`} style={{ position: 'absolute', left: t * zoom + (zoom * tickInterval) / 2, bottom: 0, width: 1, height: 5, background: 'var(--border)' }} />
+                ))}
+                {/* Playhead on ruler */}
+                <div style={{ position: 'absolute', left: playhead * zoom, top: 0, bottom: 0, width: 2, background: 'var(--accent)', zIndex: 20, pointerEvents: 'none' }}>
+                  <div style={{ width: 8, height: 8, background: 'var(--accent)', borderRadius: '50%', transform: 'translateX(-3px)' }} />
+                </div>
+              </div>
+
+              {/* Track lane */}
+              <div
+                style={{
+                  ...S.track,
+                  outline: dropActive ? '2px dashed var(--accent)' : 'none',
+                  outlineOffset: -3,
+                }}
+                onDragOver={onTimelineDragOver}
+                onDragLeave={onTimelineDragLeave}
+                onDrop={onTimelineDrop}
+                onClick={e => {
+                  if (!dragClipId) setPlayhead(getSecFromEvent(e))
+                }}
+              >
+                {/* Background grid lines */}
+                {ticks.map(t => (
+                  <div key={t} style={{ position: 'absolute', left: t * zoom, top: 0, bottom: 0, width: 1, background: 'var(--border-3)' }} />
+                ))}
+
+                {/* Empty hint */}
+                {timelineClips.length === 0 && (
+                  <div style={{
+                    position: 'absolute', inset: 0, display: 'flex',
+                    alignItems: 'center', justifyContent: 'center',
+                    fontSize: 12, color: 'var(--text-3)', pointerEvents: 'none',
+                    letterSpacing: '0.2px',
+                  }}>
+                    {dropActive ? '✦ Drop to place clip' : 'Drag clips from the library onto this track'}
+                  </div>
+                )}
+
+                {/* Clips */}
+                {timelineClips.map(clip => {
+                  const col = CLIP_COLORS[clip.ci % CLIP_COLORS.length]
+                  const lt = CLIP_LIGHTS[clip.ci % CLIP_LIGHTS.length]
+                  const clipW = Math.max(clip.dur * zoom, 50)
+                  const bars = Math.max(Math.floor((clipW - 16) / 7), 4)
+                  const isActive = dragClipId === clip.id
+                  return (
+                    <div
+                      key={clip.id}
+                      onMouseDown={e => onClipMouseDown(e, clip)}
+                      style={{
+                        position: 'absolute',
+                        left: clip.start * zoom,
+                        top: 4, height: 72, width: clipW,
+                        borderRadius: 7,
+                        background: lt,
+                        border: `1.5px solid ${col}66`,
+                        cursor: isActive ? 'grabbing' : 'grab',
+                        overflow: 'hidden',
+                        zIndex: isActive ? 100 : 10,
+                        boxShadow: isActive ? '0 6px 18px rgba(30,22,10,0.14)' : 'none',
+                        transition: isActive ? 'none' : 'box-shadow 0.12s',
+                      }}
+                    >
+                      {/* Header strip */}
+                      <div style={{
+                        position: 'absolute', top: 0, left: 0, right: 0, height: 22,
+                        background: col + '22',
+                        borderBottom: `1px solid ${col}33`,
+                        display: 'flex', alignItems: 'center',
+                        padding: '0 5px', gap: 4,
+                      }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 600, color: col, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                          {clip.title}
+                        </span>
+                        <span style={{ fontSize: 9.5, color: col + 'aa', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>
+                          {fmtTime(clip.dur)}
+                        </span>
+                        <button
+                          onMouseDown={e => e.stopPropagation()}
+                          onClick={e => { e.stopPropagation(); removeClip(clip.id) }}
+                          style={{
+                            width: 14, height: 14, borderRadius: 3,
+                            background: 'rgba(30,22,10,0.12)',
+                            border: 'none', cursor: 'pointer',
+                            color: 'var(--text-2)', fontSize: 10,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            padding: 0, flexShrink: 0, fontFamily: 'inherit',
+                          }}
+                        >×</button>
+                      </div>
+
+                      {/* Waveform bars */}
+                      <div style={{
+                        position: 'absolute', bottom: 6, left: 6, right: 6,
+                        display: 'flex', alignItems: 'flex-end', gap: 1.5, height: 30, overflow: 'hidden',
+                      }}>
+                        {Array.from({ length: bars }).map((_, j) => (
+                          <div key={j} style={{
+                            width: 3.5, borderRadius: 2, flexShrink: 0,
+                            height: Math.round(waveBar(clip.scriptId, j) * 28) + 'px',
+                            background: col + '99',
+                          }} />
+                        ))}
+                      </div>
+
+                      {/* Audio preview mini player (bottom-right, only if narrow enough) */}
+                      {audioUrls[clip.scriptId] && clipW > 160 && (
+                        <audio
+                          src={audioUrls[clip.scriptId]}
+                          style={{
+                            position: 'absolute', bottom: 3, right: 4,
+                            height: 18, width: Math.min(clipW - 50, 120),
+                            accentColor: col,
+                          }}
+                          controls
+                          onMouseDown={e => e.stopPropagation()}
+                        />
+                      )}
+                    </div>
+                  )
+                })}
+
+                {/* Playhead line */}
+                <div style={{
+                  position: 'absolute', left: playhead * zoom, top: 0, bottom: 0,
+                  width: 2, background: 'var(--accent)', zIndex: 50, pointerEvents: 'none',
+                }} />
+              </div>
+
+              {/* Second track row label */}
+              <div style={{ padding: '4px 10px' }}>
+                <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Track 1 · Voiceover
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer status bar */}
+          <div style={S.footer}>
+            {timelineClips.length === 0 ? (
+              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>No clips on timeline yet — drag from the library.</span>
+            ) : (
+              <>
+                {[...timelineClips].sort((a, b) => a.start - b.start).map(clip => {
+                  const col = CLIP_COLORS[clip.ci % CLIP_COLORS.length]
+                  const lt = CLIP_LIGHTS[clip.ci % CLIP_LIGHTS.length]
+                  return (
+                    <span key={clip.id} style={{
+                      fontSize: 11, padding: '2px 8px', borderRadius: 99,
+                      background: lt, color: col,
+                      border: `1px solid ${col}44`,
+                      whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: 120,
+                      textOverflow: 'ellipsis',
+                    }}>
+                      {clip.title.substring(0, 16)}
+                    </span>
+                  )
+                })}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -900,14 +1373,11 @@ function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRef
 
         <div>
           <div className="section-head"><div><h2>Saved Profiles</h2><p>{profiles.length} voice model{profiles.length !== 1 ? 's' : ''} ready</p></div></div>
-
-          {/* Preview text input */}
           {profiles.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <input className="text-input" style={{ width: '100%' }} value={previewText} onChange={e => setPreviewText(e.target.value)} placeholder="Preview text…" />
             </div>
           )}
-
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {profiles.length === 0
               ? <div className="empty-state">{icons.profiles}<p>Record your first voice profile</p></div>
