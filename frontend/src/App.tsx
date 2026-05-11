@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useReducer } from 'react'
 import './App.css'
+import { LandingPage, SignInPage, SignUpPage, SettingsPage } from './AuthAndLandingPages'
 
 const API = 'http://localhost:8000'
 
@@ -56,7 +57,7 @@ async function deleteAudioBlob(key: string): Promise<void> {
 }
 
 // ── Types ──────────────────────────────────────────────────────────
-type Page = 'dashboard' | 'projects' | 'workspace' | 'profiles'
+type Page = 'landing' | 'signin' | 'signup' | 'dashboard' | 'projects' | 'workspace' | 'profiles' | 'settings'
 type WorkspaceTab = 'scripts' | 'assembly'
 type SaveState = 'saved' | 'saving' | 'unsaved'
 
@@ -331,7 +332,7 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
 
 // ── App ─────────────────────────────────────────────────────────────
 export default function App() {
-  const [page, setPage] = useState<Page>('dashboard')
+  const [page, setPage] = useState<Page>('landing')
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('scripts')
   const [engineStatus, setEngineStatus] = useState<'checking' | 'online' | 'offline'>('checking')
   const [darkMode, setDarkMode] = useState(() => {
@@ -494,6 +495,28 @@ export default function App() {
     { key: 'profiles' as Page, label: 'Voice Profiles', icon: icons.profiles },
   ]
 
+  // ── Auth / Landing: render outside the main app shell ──────────────
+  if (page === 'landing') return (
+    <LandingPage
+      onSignIn={() => setPage('signin')}
+      onSignUp={() => setPage('signup')}
+    />
+  )
+  if (page === 'signin') return (
+    <SignInPage
+      onSignIn={() => setPage('dashboard')}
+      onSignUp={() => setPage('signup')}
+      onBack={() => setPage('landing')}
+    />
+  )
+  if (page === 'signup') return (
+    <SignUpPage
+      onSignUp={() => setPage('dashboard')}
+      onSignIn={() => setPage('signin')}
+      onBack={() => setPage('landing')}
+    />
+  )
+  // ── Main app shell (dashboard / projects / workspace / profiles / settings) ────
   return (
     <div className="shell">
       {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
@@ -515,6 +538,12 @@ export default function App() {
                 {key === 'profiles' && voiceProfiles.length > 0 && <span className="nav-item__count">{voiceProfiles.length}</span>}
               </button>
             ))}
+            <button
+              className={`nav-item ${page === 'settings' ? 'nav-item--active' : ''}`}
+              onClick={() => setPage('settings')}
+            >
+              {icons.light} Settings
+            </button>
           </div>
           {projects.length > 0 && (
             <div className="nav-section">
@@ -555,7 +584,7 @@ export default function App() {
             </>
           ) : (
             <span className="topbar__title">
-              {page === 'dashboard' ? 'Dashboard' : page === 'projects' ? 'Projects' : 'Voice Profiles'}
+              {page === 'dashboard' ? 'Dashboard' : page === 'projects' ? 'Projects' : page === 'profiles' ? 'Voice Profiles' : page === 'settings' ? 'Settings' : ''}
             </span>
           )}
           <div className="topbar__spacer" />
@@ -604,6 +633,14 @@ export default function App() {
             />
           )}
           {page === 'profiles' && <ProfilesPage profiles={voiceProfiles} onRefresh={loadProfiles} />}
+          {page === 'settings' && (
+            <SettingsPage
+              darkMode={darkMode}
+              onToggleDark={() => setDarkMode(v => !v)}
+              onSignOut={() => setPage('landing')}
+              user={{ name: 'Alex Smith', email: 'alex@example.com' }}
+            />
+          )}
           {page === 'workspace' && !activeProject && (
             <div className="empty-state">{icons.projects}<p>No project selected.</p><button className="btn btn--primary" onClick={() => setPage('projects')}>Go to Projects</button></div>
           )}
