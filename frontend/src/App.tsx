@@ -782,16 +782,29 @@ function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }: {
   const [audioUrls, setAudioUrls] = useState<Record<string, string>>({})
   const [colorCursor, setColorCursor] = useState(0)
   const [dropActive, setDropActive] = useState(false)
+  const [draggingPlayhead, setDraggingPlayhead] = useState(false)
 
   const timelineRef = useRef<HTMLDivElement>(null)
   const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const audioBuffersRef = useRef<Record<string, AudioBuffer>>({})
+  const scheduledSourcesRef = useRef<AudioBufferSourceNode[]>([])
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const playStartCtxTimeRef = useRef<number>(0)
+  const playheadAtStartRef = useRef<number>(0)
 
   // Load audio URLs from IndexedDB
   useEffect(() => {
     withAudio.forEach(async s => {
       if (!audioUrls[s.id]) {
         const url = await loadAudioBlob(`audio_${s.id}`)
-        if (url) setAudioUrls(prev => ({ ...prev, [s.id]: url }))
+        if (!url) return
+        setAudioUrls(prev => ({ ...prev, [s.id]: url }))
+        try {
+          if (!audioCtxRef.current) audioCtxRef.current = new AudioContext()
+          const arr = await (await fetch(url)).arrayBuffer()
+          audioBuffersRef.current[s.id] = await audioCtxRef.current.decodeAudioData(arr)
+        } catch {}
       }
     })
   }, [project.scripts])
@@ -804,19 +817,49 @@ function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }: {
     : 30
 
   // Playback ticker
-  useEffect(() => {
-    if (playing) {
-      playIntervalRef.current = setInterval(() => {
-        setPlayhead(p => {
-          if (p >= totalDur) { setPlaying(false); return 0 }
-          return Math.round((p + 0.1) * 10) / 10
-        })
-      }, 100)
-    } else {
-      if (playIntervalRef.current) clearInterval(playIntervalRef.current)
-    }
-    return () => { if (playIntervalRef.current) clearInterval(playIntervalRef.current) }
-  }, [playing, totalDur])
+  function stopPlayback() {
+    scheduledSourcesRef.current.forEach(s => { try { s.stop(); s.disconnect() } catch {} })
+    scheduledSourcesRef.current = []
+    if (playIntervalRef.current) clearInterval(playIntervalRef.current)
+    setPlaying(false)
+  }
+
+  function startPlayback(fromPlayhead: number) {
+    stopPlayback()
+    const ctx = audioCtxRef.current || new AudioContext()
+    if (!audioCtxRef.current) audioCtxRef.current = ctx
+    if (ctx.state === 'suspended') ctx.resume()
+
+    const ctxNow = ctx.currentTime
+    playStartCtxTimeRef.current = ctxNow
+    playheadAtStartRef.current = fromPlayhead
+
+    timelineClips.forEach(clip => {
+      const buf = audioBuffersRef.current[clip.scriptId]
+      if (!buf) return
+      const offsetIntoClip = Math.max(0, fromPlayhead - clip.start)
+      if (offsetIntoClip >= clip.dur) return  // clip already passed
+
+      const whenToStart = ctxNow + Math.max(0, clip.start - fromPlayhead)
+      const source = ctx.createBufferSource()
+      source.buffer = buf
+      source.connect(ctx.destination)
+      source.start(whenToStart, offsetIntoClip)
+      source.stop(whenToStart + (clip.dur - offsetIntoClip))
+      scheduledSourcesRef.current.push(source)
+    })
+
+    setPlaying(true)
+    playIntervalRef.current = setInterval(() => {
+      const elapsed = audioCtxRef.current!.currentTime - playStartCtxTimeRef.current
+      const pos = Math.round((playheadAtStartRef.current + elapsed) * 10) / 10
+      if (pos >= totalDur) { stopPlayback(); setPlayhead(0); return }
+      setPlayhead(pos)
+    }, 50)
+  }
+
+  // Cleanup on unmount
+  useEffect(() => () => stopPlayback(), [])
 
   function fmtTime(s: number) {
     const m = Math.floor(s / 60), sc = Math.floor(s % 60)
@@ -879,14 +922,23 @@ function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }: {
     setDragClipId(clip.id)
   }
   function onTimelineMouseMove(e: React.MouseEvent) {
-    if (!dragClipId) return
-    const newStart = Math.max(0, Math.round((getSecFromEvent(e) - dragOffsetSec) * 10) / 10)
-    setTimelineClips(prev => prev.map(c => c.id === dragClipId ? { ...c, start: newStart } : c))
+    if (dragClipId) {
+      const newStart = Math.max(0, Math.round((getSecFromEvent(e) - dragOffsetSec) * 10) / 10)
+      setTimelineClips(prev => prev.map(c => c.id === dragClipId ? { ...c, start: newStart } : c))
+    }
+    if (draggingPlayhead) {
+      const pos = Math.max(0, Math.round(getSecFromEvent(e) * 10) / 10)
+      setPlayhead(pos)
+    }
   }
-  function onTimelineMouseUp() { setDragClipId(null) }
+  function onTimelineMouseUp() {
+    if (draggingPlayhead && playing) startPlayback(playhead)
+    setDragClipId(null)
+    setDraggingPlayhead(false)
+  }
 
   // Timeline ruler ticks
-  const tickInterval = zoom >= 70 ? 5 : zoom >= 40 ? 10 : 30
+  const tickInterval = zoom >= 120 ? 2 : zoom >= 70 ? 5 : zoom >= 40 ? 10 : 30
   const ticks: number[] = []
   for (let t = 0; t <= totalDur + tickInterval; t += tickInterval) ticks.push(t)
   const timelineWidth = Math.max(totalDur * zoom + 200, 800)
@@ -930,7 +982,7 @@ function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }: {
       flex: 1,
       overflowX: 'auto' as const,
       overflowY: 'hidden' as const,
-      cursor: dragClipId ? 'grabbing' : 'default',
+      cursor: dragClipId ? 'grabbing' : draggingPlayhead ? 'ew-resize' : 'default',
       userSelect: 'none' as const,
     } as React.CSSProperties,
     ruler: {
@@ -968,16 +1020,16 @@ function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }: {
 
       {/* ── Transport bar ─────────────────────────────────── */}
       <div style={S.transport}>
-        <button style={transportBtn()} onClick={() => setPlayhead(0)} title="Rewind">
+        <button style={transportBtn()} onClick={() => { stopPlayback(); setPlayhead(0) }} title="Rewind">
           <span style={{ display: 'flex', width: 16, height: 16 }}>{icons.rewind}</span>
         </button>
         <button
-          onClick={() => setPlaying(p => !p)}
+          onClick={() => playing ? stopPlayback() : startPlayback(playhead)}
           style={transportBtn({ background: 'var(--accent)', color: '#fff', border: 'none', width: 34, height: 34, borderRadius: '50%', padding: 0 })}
         >
           <span style={{ display: 'flex', width: 16, height: 16 }}>{playing ? icons.pause : icons.play}</span>
         </button>
-        <button style={transportBtn()} onClick={() => { setPlaying(false); setPlayhead(0) }} title="Stop">
+        <button style={transportBtn()} onClick={() => { stopPlayback(); setPlayhead(0) }} title="Stop">
           <span style={{ display: 'flex', width: 16, height: 16 }}>{icons.stop}</span>
         </button>
 
@@ -1106,8 +1158,18 @@ function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }: {
           >
             <div style={{ width: timelineWidth, position: 'relative', minHeight: '100%' }}>
 
-              {/* Time ruler */}
-              <div style={S.ruler}>
+              {/* Time ruler — click to place, drag playhead to scrub */}
+              <div
+                style={S.ruler}
+                onMouseDown={e => {
+                  if ((e.target as HTMLElement).closest('[data-playhead]')) return
+                  const pos = Math.max(0, Math.round(getSecFromEvent(e) * 10) / 10)
+                  setPlayhead(pos)
+                  setDraggingPlayhead(true)
+                  if (playing) stopPlayback()
+                }}
+              >
+
                 {ticks.map(t => (
                   <div key={t} style={{ position: 'absolute', left: t * zoom, top: 0, bottom: 0 }}>
                     <span style={{ fontSize: 10, color: 'var(--text-3)', paddingLeft: 3, paddingTop: 3, display: 'block', whiteSpace: 'nowrap', fontFamily: 'var(--mono)' }}>
@@ -1117,12 +1179,51 @@ function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }: {
                   </div>
                 ))}
                 {/* Half-way minor ticks */}
-                {ticks.slice(0, -1).map(t => (
-                  <div key={`m${t}`} style={{ position: 'absolute', left: t * zoom + (zoom * tickInterval) / 2, bottom: 0, width: 1, height: 5, background: 'var(--border)' }} />
-                ))}
-                {/* Playhead on ruler */}
-                <div style={{ position: 'absolute', left: playhead * zoom, top: 0, bottom: 0, width: 2, background: 'var(--accent)', zIndex: 20, pointerEvents: 'none' }}>
-                  <div style={{ width: 8, height: 8, background: 'var(--accent)', borderRadius: '50%', transform: 'translateX(-3px)' }} />
+                {ticks.slice(0, -1).flatMap(t => [0.25, 0.5, 0.75].map(frac => (
+                  <div key={`m${t}_${frac}`} style={{
+                    position: 'absolute',
+                    left: t * zoom + frac * zoom * tickInterval,
+                    bottom: 0, width: 1,
+                    height: frac === 0.5 ? 7 : 4,
+                    background: 'var(--border)'
+                  }} />
+                )))}
+                {/* Playhead on ruler — draggable */}
+                <div
+                  data-playhead="true"
+                  style={{ position: 'absolute', left: playhead * zoom, top: 0, bottom: 0, width: 2, background: 'var(--accent)', zIndex: 20 }}
+                >
+                  {/* Drag handle */}
+                  <div
+                    data-playhead="true"
+                    onMouseDown={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setDraggingPlayhead(true)
+                      if (playing) stopPlayback()
+                    }}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      width: 14,
+                      height: 18,
+                      background: 'var(--accent)',
+                      borderRadius: '3px 3px 2px 2px',
+                      cursor: draggingPlayhead ? 'grabbing' : 'ew-resize',
+                      display: 'flex',
+                      alignItems: 'flex-end',
+                      justifyContent: 'center',
+                      paddingBottom: 2,
+                      boxShadow: '0 2px 6px rgba(201,100,66,0.4)',
+                    }}
+                  >
+                    {/* Down-arrow indicator */}
+                    <svg width="6" height="5" viewBox="0 0 6 5" style={{ display: 'block' }}>
+                      <polygon points="0,0 6,0 3,5" fill="rgba(255,255,255,0.7)" />
+                    </svg>
+                  </div>
                 </div>
               </div>
 
@@ -1137,7 +1238,11 @@ function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }: {
                 onDragLeave={onTimelineDragLeave}
                 onDrop={onTimelineDrop}
                 onClick={e => {
-                  if (!dragClipId) setPlayhead(getSecFromEvent(e))
+                  if (!dragClipId) {
+                    const pos = getSecFromEvent(e)
+                    setPlayhead(pos)
+                    if (playing) startPlayback(pos)
+                  }
                 }}
               >
                 {/* Background grid lines */}
@@ -1241,10 +1346,11 @@ function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }: {
                   )
                 })}
 
-                {/* Playhead line */}
+                {/* Playhead line in track */}
                 <div style={{
                   position: 'absolute', left: playhead * zoom, top: 0, bottom: 0,
                   width: 2, background: 'var(--accent)', zIndex: 50, pointerEvents: 'none',
+                  opacity: 0.7,
                 }} />
               </div>
 
