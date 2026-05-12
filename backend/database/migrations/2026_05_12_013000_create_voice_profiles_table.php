@@ -14,10 +14,11 @@ return new class extends Migration
         Schema::create('voice_profiles', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->string('profile_id')->unique();
+            $table->string('profile_id');
             $table->string('name')->nullable();
             $table->string('status')->default('ready');
             $table->timestamps();
+            $table->unique(['user_id', 'profile_id']);
         });
     }
 

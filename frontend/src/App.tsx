@@ -384,20 +384,20 @@ export default function App() {
       const data = await api.get('/user')
       setUser(data)
       await loadProjects()
-      // Only redirect to dashboard if currently on a public page
-      if (['landing', 'signin', 'signup'].includes(page)) {
-        setPage('dashboard')
-      }
+      // Use functional update to always read the LATEST page, avoiding stale closure
+      setPage(current =>
+        ['landing', 'signin', 'signup'].includes(current) ? 'dashboard' : current
+      )
     } catch {
       setUser(null)
       // If on a protected page, send back to landing
-      if (!['landing', 'signin', 'signup'].includes(page)) {
-        setPage('landing')
-      }
+      setPage(current =>
+        !['landing', 'signin', 'signup'].includes(current) ? 'landing' : current
+      )
     } finally {
       setAuthLoading(false)
     }
-  }, [page, loadProjects])
+  }, [loadProjects]) // `page` removed — functional setPage reads latest state directly
 
   const loadProfiles = useCallback(() => {
     api.get('/voice-profiles').then(d => setVoiceProfiles(d || [])).catch(() => { })
@@ -600,6 +600,21 @@ export default function App() {
     { key: 'profiles' as Page, label: 'Voice Profiles', icon: icons.profiles },
   ]
 
+  // ── Auth loading guard — prevents flash of landing page on refresh ──
+  if (authLoading) {
+    return (
+      <div style={{
+        minHeight: '100svh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--bg)',
+      }}>
+        <span className="spinner" style={{ width: 28, height: 28 }} />
+      </div>
+    )
+  }
+
   // ── Auth / Landing: render outside the main app shell ──────────────
   if (page === 'landing') return (
     <LandingPage
@@ -742,8 +757,13 @@ export default function App() {
             <SettingsPage
               darkMode={darkMode}
               onToggleDark={() => setDarkMode(v => !v)}
-              onSignOut={() => setPage('landing')}
-              user={{ name: 'Alex Smith', email: 'alex@example.com' }}
+              onSignOut={async () => {
+                try { await api.post('/logout') } catch { /* ignore */ }
+                setUser(null)
+                setProjects([])
+                setPage('landing')
+              }}
+              user={user ? { name: user.name, email: user.email } : { name: '', email: '' }}
             />
           )}
           {page === 'workspace' && !activeProject && (
@@ -1795,16 +1815,7 @@ function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRef
   const [previewText, setPreviewText] = useState('Hello, this is a preview of my voice profile.')
   const [previewing, setPreviewing] = useState(false)
 
-  async function handleRecord(
-    recorder: ReturnType<typeof useAudioRecorder>,
-    profileName: string,
-    noiseSuppression: boolean,
-    gainVal: number,
-    setSaving: (b: boolean) => void,
-    setMsg: (s: string) => void,
-    setMsgWarn: (s: string) => void,
-    onRefresh: () => void,
-  ) {
+  async function handleRecord() {
     setSaving(true); setMsg(''); setMsgWarn('')
     const blob = await recorder.stop()
 

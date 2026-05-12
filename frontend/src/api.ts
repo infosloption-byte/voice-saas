@@ -1,5 +1,5 @@
 const ENGINE_API_BASE = 'http://127.0.0.1:8000';
-const LARAVEL_API_BASE = 'http://127.0.0.1:8080';
+const LARAVEL_API_BASE = 'http://localhost:8080';;
 
 function getCookie(name: string) {
   const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));

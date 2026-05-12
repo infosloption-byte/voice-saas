@@ -16,10 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->statefulApi();
 
         // Trust the frontend origin for CORS + cookies
-        $middleware->trustHosts(hosts: [
-            'localhost',
-            '127.0.0.1',
-        ]);
+        $middleware->trustHosts(['localhost', '127.0.0.1']);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
