@@ -1,5 +1,5 @@
-const ENGINE_API_BASE = import.meta.env.VITE_ENGINE_URL || 'http://YOUR_EC2_IP:8000';
-const LARAVEL_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://YOUR_EC2_IP:8080';
+const ENGINE_API_BASE = 'http://3.83.53.113:8000';
+const LARAVEL_BASE = 'http://3.83.53.113:8080';
 const LARAVEL_API_BASE = `${LARAVEL_BASE}/api`;    // all API routes live here
 
 function getCookie(name: string): string | null {
