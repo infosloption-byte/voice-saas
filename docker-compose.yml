@@ -1,4 +1,17 @@
 services:
+  #ngnix
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - voice-network
+  
   # Laravel Backend (PHP-FPM)
   backend:
     build:
