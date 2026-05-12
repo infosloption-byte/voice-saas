@@ -2,18 +2,17 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# 1. Install system tools for audio and building
+# System tools for audio processing
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     libsox-dev \
+    sox \
     gcc \
     g++ \
     libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Install all Python dependencies in ONE step.
-# Pin matching versions for torch and torchaudio, and use --extra-index-url
-# so pip can find the CPU wheels while still fetching other packages from PyPI.
+# Python dependencies — pin torch CPU wheels
 RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu \
     torch==2.2.2+cpu \
     torchaudio==2.2.2+cpu \
@@ -22,7 +21,9 @@ RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/wh
     python-multipart \
     openai-whisper \
     tts==0.22.0 \
-    transformers==4.36.2
+    transformers==4.36.2 \
+    soundfile \
+    numpy
 
 COPY . .
 

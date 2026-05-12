@@ -965,25 +965,33 @@ function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript
   async function generateVoiceover(script: Script, text: string): Promise<boolean> {
     const pid = script.profileId || voiceProfiles[0]?.profile_id
     if (!pid || !text.trim()) return false
+
     const fd = new FormData()
     fd.append('text', text.trim())
     fd.append('profile_id', pid)
     fd.append('language', script.language || 'en')
-    // Speed not natively in FastAPI route but we add it for future use
-    if (script.speed && script.speed !== 1.0) fd.append('speed', String(script.speed))
+    fd.append('speed', String(Math.max(0.5, Math.min(2.0, script.speed ?? 1.0))))
+    // XTTS quality knobs — lower temperature = more stable, closer to reference voice
+    fd.append('temperature', '0.65')
+    fd.append('top_k', '50')
+    fd.append('top_p', '0.85')
+    fd.append('gap_ms', '60')   // silence injected between sentence chunks (ms)
+
     try {
       const res = await fetch(`${API}/synthesize`, { method: 'POST', body: fd })
       if (!res.ok) return false
       const blob = await res.blob()
+
       let duration: number | null = null
       let peaks: number[] | undefined
+
       try {
         const tempUrl = URL.createObjectURL(blob)
         const audioCtx = new AudioContext()
         const arr = await (await fetch(tempUrl)).arrayBuffer()
         const buf = await audioCtx.decodeAudioData(arr)
         duration = Math.round(buf.duration * 10) / 10
-        // Compute real waveform peaks
+
         const peakData = buf.getChannelData(0)
         const numBars = 60
         const blockSize = Math.floor(peakData.length / numBars)
@@ -1000,11 +1008,18 @@ function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript
         peaks = rawPeaks.map(p => p / maxP)
         await audioCtx.close()
         URL.revokeObjectURL(tempUrl)
-      } catch { /* ok */ }
+      } catch { /* ok — duration/peaks are optional */ }
+
       await saveAudioBlob(`audio_${script.id}`, blob)
-      onUpdateScript(script.id, { hasAudio: true, profileId: pid, language: script.language || 'en', duration, waveformPeaks: peaks })
+      onUpdateScript(script.id, {
+        hasAudio: true, profileId: pid,
+        language: script.language || 'en',
+        duration, waveformPeaks: peaks,
+      })
       return true
-    } catch { return false }
+    } catch {
+      return false
+    }
   }
 
   async function handleGenerateSingle() {
@@ -1847,23 +1862,36 @@ function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRef
       return
     }
 
-    if (recorder.seconds < 6) {
-      setMsgWarn(`⚠ Recording is only ${recorder.seconds}s. XTTS works best with 6+ seconds.`)
+    const secs = recorder.seconds
+    if (secs < 6) {
+      setMsgWarn(
+        `⚠ Recording is only ${secs}s. XTTS needs 6-30 s of clear speech ` +
+        `for accurate voice cloning. Please re-record.`
+      )
+      // Don't block saving — just warn
+    } else if (secs > 35) {
+      setMsgWarn(
+        `⚠ Recording is ${secs}s — very long references can confuse XTTS. ` +
+        `10-20 s of clean speech is ideal.`
+      )
     }
 
     const fd = new FormData()
-    const audioBlob = new Blob([blob], { type: 'audio/webm' })
-    fd.append('file', audioBlob, 'voice.webm')
+    // Send as WAV if possible, otherwise webm — backend will re-encode
+    const mime = blob.type.includes('wav') ? 'audio/wav' : 'audio/webm'
+    const ext = blob.type.includes('wav') ? 'wav' : 'webm'
+    fd.append('file', new Blob([blob], { type: mime }), `voice.${ext}`)
     fd.append('profile_id', profileName.trim() || 'my-voice')
     fd.append('name', profileName.trim() || 'my-voice')
     fd.append('status', 'ready')
 
     try {
       const data = await api.post('/voice-profiles', fd)
-      setMsg(`✓ Profile "${data.profile_id ?? profileName}" saved`)
+      // Show backend warning if present (e.g. duration too short)
+      if (data?.warning) setMsgWarn(`⚠ ${data.warning}`)
+      setMsg(`✓ Profile "${data.profile_id ?? profileName}" saved — ${data.duration_seconds}s`)
       onRefresh()
     } catch (e: any) {
-      console.error('Voice profile save failed:', e)
       setMsg(`Error: ${e.message ?? 'Save failed. Is the AI engine running?'}`)
     } finally {
       setSaving(false)

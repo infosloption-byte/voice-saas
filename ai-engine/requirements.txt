@@ -1,7 +1,8 @@
 fastapi
 uvicorn
-openai-whisper  
-coqui-tts             
+openai-whisper
+coqui-tts
 python-multipart
 numpy
+soundfile
 torch --index-url https://download.pytorch.org/whl/cpu
