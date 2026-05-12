@@ -481,8 +481,11 @@ export default function App() {
         ? { ...p, scripts: p.scripts.map(s => s.id === scriptId ? { ...s, ...update } : s) }
         : p
     ))
-    // Map camelCase → snake_case for the API
-    const payload: Record<string, any> = {}
+
+    const payload: Record<string, any> = {
+      project_id: projectId,
+      script_id: scriptId,
+    }
     if ('title' in update) payload.title = update.title
     if ('content' in update) payload.content = update.content
     if ('hasAudio' in update) payload.has_audio = update.hasAudio
@@ -491,8 +494,9 @@ export default function App() {
     if ('duration' in update) payload.duration = update.duration
     if ('speed' in update) payload.speed = update.speed
     if ('waveformPeaks' in update) payload.waveform_peaks = update.waveformPeaks
+
     try {
-      await api.put(`/projects/${projectId}/scripts/${scriptId}`, payload)
+      await api.post('/scripts/update', payload)
     } catch (e) {
       console.error('Failed to update script', e)
     }

@@ -12,10 +12,12 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Enable Sanctum stateful API (SPA cookie auth)
+        // ← ADD THIS: ensures CORS headers are on EVERY response,
+        //   including redirects that fire before the api group middleware
+        $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);
+
         $middleware->statefulApi();
 
-        // Trust localhost regardless of port so cookies work in dev
         $middleware->trustHosts([
             'localhost',
             '127.0.0.1',

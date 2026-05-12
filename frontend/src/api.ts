@@ -10,7 +10,7 @@ function getCookie(name: string): string | null {
 // Paths that belong to the Laravel backend (relative, without /api prefix)
 const LARAVEL_PATHS = [
   '/login', '/logout', '/register', '/user',
-  '/projects', '/voice-profiles',
+  '/projects', '/voice-profiles', '/scripts',
 ];
 
 function isLaravelPath(path: string): boolean {

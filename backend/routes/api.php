@@ -21,6 +21,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // Projects
     Route::apiResource('projects', ProjectController::class);
 
+    Route::post('scripts/update', [ScriptController::class, 'flatUpdate']);
+
     // Scripts (nested under projects)
     Route::post(
         'projects/{project}/scripts/reorder',

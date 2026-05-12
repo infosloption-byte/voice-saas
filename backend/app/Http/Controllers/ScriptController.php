@@ -30,6 +30,30 @@ class ScriptController extends Controller
         return response()->json($script);
     }
 
+    public function flatUpdate(Request $request)
+    {
+        $validated = $request->validate([
+            'project_id'     => 'required|string',
+            'script_id'      => 'required|string',
+            'title'          => 'nullable|string',
+            'content'        => 'nullable|string',
+            'has_audio'      => 'boolean',
+            'profile_id'     => 'nullable|string',
+            'language'       => 'string',
+            'duration'       => 'nullable|numeric',
+            'speed'          => 'numeric',
+            'waveform_peaks' => 'nullable|array',
+            'order_index'    => 'integer',
+        ]);
+
+        $project = $request->user()->projects()->findOrFail($validated['project_id']);
+        $script  = $project->scripts()->findOrFail($validated['script_id']);
+
+        $script->update(collect($validated)->except(['project_id', 'script_id'])->toArray());
+
+        return response()->json($script);
+    }
+
     public function update(Request $request, string $projectId, string $id)
     {
         $project = $request->user()->projects()->findOrFail($projectId);
