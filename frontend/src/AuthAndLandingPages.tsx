@@ -401,7 +401,7 @@ function AuthVisualContent() {
 // SIGN IN PAGE
 // ═══════════════════════════════════════════════════════════════════
 interface SignInPageProps {
-  onSignIn?: (email: string, password: string) => void
+  onSignIn?: (email: string, password: string) => Promise<void>
   onSignUp?: () => void
   onBack?: () => void
 }
@@ -417,10 +417,11 @@ export function SignInPage({ onSignIn, onSignUp, onBack }: SignInPageProps) {
     if (!email.trim() || !password) { setError('Please fill in all fields.'); return }
     setError(''); setLoading(true)
     try {
-      await new Promise(r => setTimeout(r, 800)) // Replace with real auth call
-      onSignIn?.(email, password)
-    } catch {
-      setError('Invalid email or password.')
+      if (onSignIn) {
+        await onSignIn(email, password)
+      }
+    } catch (err: any) {
+      setError(typeof err === 'string' ? err : 'Invalid email or password.')
     } finally { setLoading(false) }
   }
 
@@ -442,7 +443,7 @@ export function SignInPage({ onSignIn, onSignUp, onBack }: SignInPageProps) {
         </p>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <form onSubmit={e => { e.preventDefault(); handleSubmit(); }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {/* Email */}
         <div className="field">
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>Email address</label>
@@ -499,7 +500,7 @@ export function SignInPage({ onSignIn, onSignUp, onBack }: SignInPageProps) {
         >
           {loading ? <span className="spinner" /> : 'Sign in to workspace'}
         </button>
-      </div>
+      </form>
 
       <div style={{ marginTop: 24, textAlign: 'center', fontSize: 13, color: 'var(--text-2)' }}>
         Don't have an account?{' '}
@@ -515,7 +516,7 @@ export function SignInPage({ onSignIn, onSignUp, onBack }: SignInPageProps) {
 // SIGN UP PAGE
 // ═══════════════════════════════════════════════════════════════════
 interface SignUpPageProps {
-  onSignUp?: (name: string, email: string, password: string) => void
+  onSignUp?: (name: string, email: string, password: string) => Promise<void>
   onSignIn?: () => void
   onBack?: () => void
 }
@@ -546,10 +547,11 @@ export function SignUpPage({ onSignUp, onSignIn, onBack }: SignUpPageProps) {
     if (!agreed) { setError('Please accept the terms to continue.'); return }
     setError(''); setLoading(true)
     try {
-      await new Promise(r => setTimeout(r, 900)) // Replace with real sign-up call
-      onSignUp?.(name, email, password)
-    } catch {
-      setError('Sign-up failed. Please try again.')
+      if (onSignUp) {
+        await onSignUp(name, email, password)
+      }
+    } catch (err: any) {
+      setError(typeof err === 'string' ? err : 'Sign-up failed. Please try again.')
     } finally { setLoading(false) }
   }
 
@@ -571,7 +573,7 @@ export function SignUpPage({ onSignUp, onSignIn, onBack }: SignUpPageProps) {
         </p>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
+      <form onSubmit={e => { e.preventDefault(); handleSubmit(); }} style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
         {/* Name */}
         <div className="field">
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>Full name</label>
@@ -650,7 +652,7 @@ export function SignUpPage({ onSignUp, onSignIn, onBack }: SignUpPageProps) {
         >
           {loading ? <span className="spinner" /> : 'Create my workspace'}
         </button>
-      </div>
+      </form>
 
       <div style={{ marginTop: 20, textAlign: 'center', fontSize: 13, color: 'var(--text-2)' }}>
         Already have an account?{' '}

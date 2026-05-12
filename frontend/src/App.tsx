@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useReducer } from 'react'
 import './App.css'
 import { LandingPage, SignInPage, SignUpPage, SettingsPage } from './AuthAndLandingPages'
+import { api } from './api'
 
-const API = 'http://localhost:8000'
+const API = 'http://127.0.0.1:8000'
 
 // ── IndexedDB audio persistence ────────────────────────────────────
 const DB_NAME = 'voicestudio', DB_VER = 1, STORE = 'audio'
@@ -340,11 +341,11 @@ export default function App() {
     if (saved !== null) return saved === 'true'
     return window.matchMedia('(prefers-color-scheme: dark)').matches
   })
-  const [projects, setProjects] = useState<Project[]>(() => {
-    try { return JSON.parse(localStorage.getItem('vo_projects') || '[]') } catch { return [] }
-  })
+  const [projects, setProjects] = useState<Project[]>([])
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [activeScriptId, setActiveScriptId] = useState<string | null>(null)
+  const [user, setUser] = useState(null)
+  const [authLoading, setAuthLoading] = useState(true)
   const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfile[]>([])
   const [showNewProject, setShowNewProject] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
@@ -360,58 +361,117 @@ export default function App() {
     localStorage.setItem('vo_dark', String(darkMode))
   }, [darkMode])
 
-  useEffect(() => { localStorage.setItem('vo_projects', JSON.stringify(projects)) }, [projects])
-
   useEffect(() => {
-    fetch(`${API}/`).then(r => r.json()).then(() => setEngineStatus('online')).catch(() => setEngineStatus('offline'))
+    api.get('/').then(() => setEngineStatus('online')).catch(() => setEngineStatus('offline'))
   }, [])
 
+  const loadProjects = useCallback(async () => {
+    try {
+      const data = await api.get('/projects');
+      setProjects(data || []);
+    } catch (e) {
+      console.error('Failed to load projects', e);
+    }
+  }, []);
+
+  const checkUser = useCallback(async () => {
+    try {
+      const data = await api.get('/user')
+      setUser(data)
+      loadProjects();
+      if (page === 'landing' || page === 'signin' || page === 'signup') {
+        setPage('dashboard')
+      }
+    } catch (err) {
+      setUser(null)
+    } finally {
+      setAuthLoading(false)
+    }
+  }, [page, loadProjects])
+
   const loadProfiles = useCallback(() => {
-    fetch(`${API}/voice-profile/list`).then(r => r.json()).then(d => setVoiceProfiles(d.profiles || [])).catch(() => {})
+    api.get('/voice-profiles').then(d => setVoiceProfiles(d || [])).catch(() => {})
   }, [])
   useEffect(() => { loadProfiles() }, [])
   useEffect(() => { setSidebarOpen(false) }, [page, activeProjectId])
 
-  function addProject(name: string, emoji: string, description: string) {
-    const p: Project = { id: uid(), name, emoji, description, createdAt: new Date().toISOString(), scripts: [] }
+  async function addProject(name: string, emoji: string, description: string) {
+    const pId = uid();
+    const p: Project = { id: pId, name, emoji, description, createdAt: new Date().toISOString(), scripts: [] }
     setProjects(prev => [p, ...prev])
     setActiveProjectId(p.id); setWorkspaceTab('scripts'); setPage('workspace')
+    try {
+      await api.post('/projects', { id: pId, name, emoji, description })
+    } catch (e) {
+      console.error('Failed to save project', e)
+    }
   }
 
-  function deleteProject(id: string) {
+  async function deleteProject(id: string) {
     const proj = projects.find(p => p.id === id)
     proj?.scripts.forEach(s => { if (s.hasAudio) deleteAudioBlob(`audio_${s.id}`) })
     setProjects(prev => prev.filter(p => p.id !== id))
     if (activeProjectId === id) { setActiveProjectId(null); setPage('projects') }
+    try {
+      await api.delete(`/projects/${id}`)
+    } catch (e) {
+      console.error('Failed to delete project', e)
+    }
   }
 
-  function updateProject(id: string, update: Partial<Project>) {
+  async function updateProject(id: string, update: Partial<Project>) {
     setProjects(prev => prev.map(p => p.id === id ? { ...p, ...update } : p))
+    try {
+      await api.put(`/projects/${id}`, update)
+    } catch (e) {
+      console.error('Failed to update project', e)
+    }
   }
 
-  function addScript(projectId: string) {
+  async function addScript(projectId: string) {
     const s: Script = { id: uid(), title: 'Untitled Script', content: '', hasAudio: false, profileId: null, language: 'en', duration: null, speed: 1.0 }
     const proj = projects.find(p => p.id === projectId)
-    updateProject(projectId, { scripts: [...(proj?.scripts ?? []), s] })
+    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, scripts: [...p.scripts, s] } : p))
     setActiveScriptId(s.id)
+    try {
+      await api.post(`/projects/${projectId}/scripts`, { ...s, order_index: proj?.scripts.length || 0 })
+    } catch (e) {
+      console.error('Failed to add script', e)
+    }
   }
 
-  function updateScript(projectId: string, scriptId: string, update: Partial<Script>) {
+  async function updateScript(projectId: string, scriptId: string, update: Partial<Script>) {
     setProjects(prev => prev.map(p =>
       p.id === projectId ? { ...p, scripts: p.scripts.map(s => s.id === scriptId ? { ...s, ...update } : s) } : p
     ))
+    try {
+      await api.put(`/projects/${projectId}/scripts/${scriptId}`, update)
+    } catch (e) {
+      console.error('Failed to update script', e)
+    }
   }
 
-  function deleteScript(projectId: string, scriptId: string) {
+  async function deleteScript(projectId: string, scriptId: string) {
     deleteAudioBlob(`audio_${scriptId}`)
     setProjects(prev => prev.map(p =>
       p.id === projectId ? { ...p, scripts: p.scripts.filter(s => s.id !== scriptId) } : p
     ))
     setActiveScriptId(null)
+    try {
+      await api.delete(`/projects/${projectId}/scripts/${scriptId}`)
+    } catch (e) {
+      console.error('Failed to delete script', e)
+    }
   }
 
-  function reorderScripts(projectId: string, scripts: Script[]) {
+  async function reorderScripts(projectId: string, scripts: Script[]) {
     updateProject(projectId, { scripts })
+    try {
+      const payload = scripts.map((s, i) => ({ id: s.id, order_index: i }))
+      await api.post(`/projects/${projectId}/scripts/reorder`, { scripts: payload })
+    } catch (e) {
+      console.error('Failed to reorder scripts', e)
+    }
   }
 
   function openProject(id: string) {
@@ -1702,23 +1762,28 @@ function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRef
       fd.append('file', blob, 'voice.webm')
       fd.append('profile_id', profileName.trim() || 'my-voice')
       try {
-        const res = await fetch(`${API}/voice-profile/save`, { method: 'POST', body: fd })
-        const data = await res.json()
+        const res = await api.request('/voice-profile/save', { method: 'POST', body: fd })
+        const data = res
         if (data.success) {
           setMsg(`✓ Profile "${data.profile_id}" saved (${data.duration_seconds}s)`)
           // Show warning if too short
           if (data.duration_seconds < 6) setMsgWarn(`⚠ Recording is ${data.duration_seconds}s. For best results, aim for 10+ seconds.`)
-          onRefresh()
+          
+          // Save profile to Laravel Database
+          api.post('/voice-profiles', { profile_id: data.profile_id, name: profileName.trim() || 'my-voice', status: 'ready' })
+            .catch(console.error)
+
         } else setMsg('Failed to save.')
-      } catch { setMsg('Connection error.') }
-      finally { setSaving(false) }
-    } else { setMsg(''); setMsgWarn(''); await recorder.start(noiseSuppression, gainVal) }
+      } catch (e) {
+        console.error('Save failed:', e)
+        setMsg('Connection error.')
+      } finally { setSaving(false) }    } else { setMsg(''); setMsgWarn(''); await recorder.start(noiseSuppression, gainVal) }
   }
 
   async function handleDelete(profile_id: string) {
     if (!confirm(`Delete profile "${profile_id}"?`)) return
     try {
-      await fetch(`${API}/voice-profile/delete`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile_id }) })
+      await api.request('/voice-profile/delete', { method: 'DELETE', body: JSON.stringify({ profile_id }) })
       onRefresh()
     } catch { alert('Delete failed.') }
   }
@@ -1728,12 +1793,13 @@ function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRef
     const fd = new FormData()
     fd.append('text', previewText); fd.append('profile_id', profile_id); fd.append('language', 'en')
     try {
-      const res = await fetch(`${API}/synthesize`, { method: 'POST', body: fd })
-      if (!res.ok) { alert('Preview failed'); return }
-      const blob = await res.blob()
+      const blob = await api.request('/synthesize', { method: 'POST', body: fd })
       const audio = new Audio(URL.createObjectURL(blob))
       audio.play()
-    } catch { alert('Connection error.') }
+    } catch (e) { 
+      console.error('Preview failed:', e)
+      alert('Connection error.') 
+    }
     finally { setPreviewing(false); setPreviewId(null) }
   }
 
