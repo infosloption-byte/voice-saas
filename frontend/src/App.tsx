@@ -207,10 +207,12 @@ function useAudioRecorder() {
     timerRef.current = setInterval(() => setSeconds(s => s + 1), 1000)
   }, [])
 
-  const stop = useCallback((): Promise<Blob> => new Promise(resolve => {
-    if (!recRef.current) return resolve(new Blob())
+  const stop = useCallback((): Promise<Blob | null> => new Promise(resolve => {
+    if (!recRef.current) return resolve(null)   // ← null signals "nothing recorded"
     recRef.current.onstop = () => {
-      resolve(new Blob(chunksRef.current, { type: recRef.current?.mimeType || 'audio/webm' }))
+      const mimeType = recRef.current?.mimeType || 'audio/webm'
+      const blob = new Blob(chunksRef.current, { type: mimeType })
+      resolve(blob.size > 0 ? blob : null)
       streamRef.current?.getTracks().forEach(t => t.stop())
       ctxRef.current?.close()
     }
@@ -1822,24 +1824,37 @@ function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRef
   const [previewText, setPreviewText] = useState('Hello, this is a preview of my voice profile.')
   const [previewing, setPreviewing] = useState(false)
 
-  async function handleRecord() {
+  async function handleStart() {
+    setMsg(''); setMsgWarn('')
+    try {
+      await recorder.start(noiseSuppression, gainVal)
+    } catch (e: any) {
+      setMsg(`Error: Could not access microphone. ${e.message ?? ''}`)
+    }
+  }
+
+  async function handleStop() {
     setSaving(true); setMsg(''); setMsgWarn('')
     const blob = await recorder.stop()
+
+    if (!blob || blob.size === 0) {
+      setMsg('Error: No audio captured. Please try again.')
+      setSaving(false)
+      return
+    }
 
     if (recorder.seconds < 6) {
       setMsgWarn(`⚠ Recording is only ${recorder.seconds}s. XTTS works best with 6+ seconds.`)
     }
 
     const fd = new FormData()
-    // Send the audio file + profile metadata to Laravel in ONE request.
-    // Laravel will forward the file to the engine and save DB record.
-    fd.append('file', blob, 'voice.webm')
+    const audioBlob = new Blob([blob], { type: 'audio/webm' })
+    fd.append('file', audioBlob, 'voice.webm')
     fd.append('profile_id', profileName.trim() || 'my-voice')
     fd.append('name', profileName.trim() || 'my-voice')
     fd.append('status', 'ready')
 
     try {
-      // Goes to Laravel /api/voice-profiles (POST) which handles everything
       const data = await api.post('/voice-profiles', fd)
       setMsg(`✓ Profile "${data.profile_id ?? profileName}" saved`)
       onRefresh()
@@ -1928,9 +1943,9 @@ function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRef
             </div>
             <MicBtn
               recording={recorder.recording}
-              onClick={handleRecord}
+              onClick={recorder.recording ? handleStop : handleStart}
               disabled={saving}
-              label={saving ? 'Saving…' : recorder.recording ? 'Stop & Save' : 'Start Recording'}
+              label={saving ? 'Saving…' : recorder.recording ? 'Stop Recording' : 'Start Recording'}
             />
             {msgWarn && <div className="msg msg--warn">{msgWarn}</div>}
             {msg && <div className={`msg ${msg.startsWith('✓') ? 'msg--ok' : 'msg--err'}`}>{msg}</div>}

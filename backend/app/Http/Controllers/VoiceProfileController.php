@@ -27,9 +27,56 @@ class VoiceProfileController extends Controller
             'profile_id' => 'required|string|max:100',
             'name'       => 'nullable|string|max:255',
             'status'     => 'nullable|string|max:50',
-            // When called from the frontend after engine save (no file)
-            // or when forwarding the file directly
-            'file'       => 'nullable|file|mimes:webm,wav,ogg,mp3,m4a|max:51200',
+            // Use a custom closure instead of `mimes` because browsers send
+            // audio/webm;codecs=opus which Laravel's mimes rule doesn't recognise.
+            // The closure checks the actual detected MIME and the client-sent MIME.
+            'file'       => [
+                'nullable',
+                'file',
+                'max:51200',
+                function ($attribute, $value, $fail) {
+                    if (! $value) {
+                        return; // no file is fine — metadata-only update
+                    }
+
+                    $allowed = [
+                        'audio/webm',
+                        'video/webm',   // Chrome sometimes labels webm recordings as video/webm
+                        'audio/ogg',
+                        'application/ogg',
+                        'audio/wav',
+                        'audio/wave',
+                        'audio/x-wav',
+                        'audio/mpeg',
+                        'audio/mp3',
+                        'audio/mp4',
+                        'audio/m4a',
+                        'audio/x-m4a',
+                    ];
+
+                    // getMimeType() reads the actual file bytes (finfo); getClientMimeType() is
+                    // what the browser declared — check both so either can satisfy the rule.
+                    $detectedMime = $value->getMimeType() ?? '';
+                    $clientMime   = $value->getClientMimeType() ?? '';
+
+                    foreach ([$detectedMime, $clientMime] as $mime) {
+                        // Accept anything that starts with audio/
+                        if (str_starts_with($mime, 'audio/')) {
+                            return;
+                        }
+                        // Also accept video/webm (Chrome's label for audio-only webm)
+                        if (in_array($mime, $allowed, true)) {
+                            return;
+                        }
+                    }
+
+                    $fail(
+                        "The file field must be an audio file. " .
+                        "Received: detected={$detectedMime}, client={$clientMime}. " .
+                        "Supported: webm, wav, ogg, mp3, m4a."
+                    );
+                },
+            ],
         ]);
 
         $profileId = $validated['profile_id'];
@@ -39,11 +86,14 @@ class VoiceProfileController extends Controller
             $engineUrl = config('services.ai_engine.url', 'http://127.0.0.1:8000');
 
             try {
+                $file     = $request->file('file');
+                $fileName = $file->getClientOriginalName() ?: 'voice.webm';
+
                 $response = Http::timeout(60)
                     ->attach(
                         'file',
-                        file_get_contents($request->file('file')->getRealPath()),
-                        $request->file('file')->getClientOriginalName()
+                        file_get_contents($file->getRealPath()),
+                        $fileName
                     )
                     ->post("{$engineUrl}/voice-profile/save", [
                         'profile_id' => $profileId,
@@ -94,9 +144,6 @@ class VoiceProfileController extends Controller
             ->voiceProfiles()
             ->where('profile_id', $profileId)
             ->firstOrFail();
-
-        // Optionally tell the engine to remove the WAV file too
-        // (engine doesn't have a delete endpoint by default — skip silently)
 
         $profile->delete();
 
