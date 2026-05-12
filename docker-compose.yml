@@ -25,6 +25,12 @@ services:
       - ./backend:/var/www/html
     environment:
       - DB_HOST=db
+      - DB_PORT=3306
+      - DB_DATABASE=voice_saas
+      - DB_USERNAME=root
+      - DB_PASSWORD=password
+      - REDIS_HOST=redis
+      - AI_ENGINE_URL=http://ai-engine:8000
       - REDIS_HOST=redis
     depends_on:
       - db
