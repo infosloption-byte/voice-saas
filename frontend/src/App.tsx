@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useReducer } from 'react'
 import './App.css'
 import { LandingPage, SignInPage, SignUpPage, SettingsPage } from './AuthAndLandingPages'
-import { api } from './api'
+import { api, mapProject } from './api'
 
 const API = 'http://127.0.0.1:8000'
 
@@ -362,44 +362,56 @@ export default function App() {
   }, [darkMode])
 
   useEffect(() => {
+    // Check if the user is already logged in (runs once on mount)
+    checkUser()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
     api.get('/').then(() => setEngineStatus('online')).catch(() => setEngineStatus('offline'))
   }, [])
 
   const loadProjects = useCallback(async () => {
     try {
-      const data = await api.get('/projects');
-      setProjects(data || []);
+      const data = await api.get('/projects')
+      setProjects((data ?? []).map(mapProject))
     } catch (e) {
-      console.error('Failed to load projects', e);
+      console.error('Failed to load projects', e)
     }
-  }, []);
+  }, [])
 
   const checkUser = useCallback(async () => {
     try {
       const data = await api.get('/user')
       setUser(data)
-      loadProjects();
-      if (page === 'landing' || page === 'signin' || page === 'signup') {
+      await loadProjects()
+      // Only redirect to dashboard if currently on a public page
+      if (['landing', 'signin', 'signup'].includes(page)) {
         setPage('dashboard')
       }
-    } catch (err) {
+    } catch {
       setUser(null)
+      // If on a protected page, send back to landing
+      if (!['landing', 'signin', 'signup'].includes(page)) {
+        setPage('landing')
+      }
     } finally {
       setAuthLoading(false)
     }
   }, [page, loadProjects])
 
   const loadProfiles = useCallback(() => {
-    api.get('/voice-profiles').then(d => setVoiceProfiles(d || [])).catch(() => {})
+    api.get('/voice-profiles').then(d => setVoiceProfiles(d || [])).catch(() => { })
   }, [])
-  useEffect(() => { loadProfiles() }, [])
+  useEffect(() => { if (user) loadProfiles() }, [user])
   useEffect(() => { setSidebarOpen(false) }, [page, activeProjectId])
 
   async function addProject(name: string, emoji: string, description: string) {
-    const pId = uid();
-    const p: Project = { id: pId, name, emoji, description, createdAt: new Date().toISOString(), scripts: [] }
+    const pId = uid()
+    const p = { id: pId, name, emoji, description, createdAt: new Date().toISOString(), scripts: [] }
     setProjects(prev => [p, ...prev])
-    setActiveProjectId(p.id); setWorkspaceTab('scripts'); setPage('workspace')
+    setActiveProjectId(p.id)
+    setWorkspaceTab('scripts')
+    setPage('workspace')
     try {
       await api.post('/projects', { id: pId, name, emoji, description })
     } catch (e) {
@@ -429,12 +441,33 @@ export default function App() {
   }
 
   async function addScript(projectId: string) {
-    const s: Script = { id: uid(), title: 'Untitled Script', content: '', hasAudio: false, profileId: null, language: 'en', duration: null, speed: 1.0 }
     const proj = projects.find(p => p.id === projectId)
-    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, scripts: [...p.scripts, s] } : p))
+    const s = {
+      id: uid(),
+      title: 'Untitled Script',
+      content: '',
+      hasAudio: false,
+      profileId: null,
+      language: 'en',
+      duration: null,
+      speed: 1.0,
+    }
+    setProjects(prev => prev.map(p =>
+      p.id === projectId ? { ...p, scripts: [...p.scripts, s] } : p
+    ))
     setActiveScriptId(s.id)
     try {
-      await api.post(`/projects/${projectId}/scripts`, { ...s, order_index: proj?.scripts.length || 0 })
+      await api.post(`/projects/${projectId}/scripts`, {
+        id: s.id,
+        title: s.title,
+        content: s.content,
+        has_audio: false,
+        profile_id: null,
+        language: s.language,
+        duration: null,
+        speed: s.speed,
+        order_index: proj?.scripts.length ?? 0,
+      })
     } catch (e) {
       console.error('Failed to add script', e)
     }
@@ -442,10 +475,22 @@ export default function App() {
 
   async function updateScript(projectId: string, scriptId: string, update: Partial<Script>) {
     setProjects(prev => prev.map(p =>
-      p.id === projectId ? { ...p, scripts: p.scripts.map(s => s.id === scriptId ? { ...s, ...update } : s) } : p
+      p.id === projectId
+        ? { ...p, scripts: p.scripts.map(s => s.id === scriptId ? { ...s, ...update } : s) }
+        : p
     ))
+    // Map camelCase → snake_case for the API
+    const payload: Record<string, any> = {}
+    if ('title' in update) payload.title = update.title
+    if ('content' in update) payload.content = update.content
+    if ('hasAudio' in update) payload.has_audio = update.hasAudio
+    if ('profileId' in update) payload.profile_id = update.profileId
+    if ('language' in update) payload.language = update.language
+    if ('duration' in update) payload.duration = update.duration
+    if ('speed' in update) payload.speed = update.speed
+    if ('waveformPeaks' in update) payload.waveform_peaks = update.waveformPeaks
     try {
-      await api.put(`/projects/${projectId}/scripts/${scriptId}`, update)
+      await api.put(`/projects/${projectId}/scripts/${scriptId}`, payload)
     } catch (e) {
       console.error('Failed to update script', e)
     }
@@ -1187,7 +1232,7 @@ function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }: {
           if (!audioCtxRef.current) audioCtxRef.current = new AudioContext()
           const arr = await (await fetch(url)).arrayBuffer()
           audioBuffersRef.current[s.id] = await audioCtxRef.current.decodeAudioData(arr)
-        } catch {}
+        } catch { }
       }
     })
   }, [project.scripts])
@@ -1220,7 +1265,7 @@ function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }: {
     : 30
 
   function stopPlayback() {
-    scheduledSourcesRef.current.forEach(s => { try { s.stop(); s.disconnect() } catch {} })
+    scheduledSourcesRef.current.forEach(s => { try { s.stop(); s.disconnect() } catch { } })
     scheduledSourcesRef.current = []
     if (playIntervalRef.current) clearInterval(playIntervalRef.current)
     setPlaying(false)
@@ -1750,64 +1795,82 @@ function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRef
   const [previewText, setPreviewText] = useState('Hello, this is a preview of my voice profile.')
   const [previewing, setPreviewing] = useState(false)
 
-  async function handleRecord() {
-    if (recorder.recording) {
-      setSaving(true); setMsg(''); setMsgWarn('')
-      const blob = await recorder.stop()
-      // NEW: Duration check
-      if (recorder.seconds < 6) {
-        setMsgWarn(`⚠ Recording is only ${recorder.seconds}s. XTTS works best with 6+ seconds. Consider re-recording.`)
-      }
-      const fd = new FormData()
-      fd.append('file', blob, 'voice.webm')
-      fd.append('profile_id', profileName.trim() || 'my-voice')
-      try {
-        const res = await api.request('/voice-profile/save', { method: 'POST', body: fd })
-        const data = res
-        if (data.success) {
-          setMsg(`✓ Profile "${data.profile_id}" saved (${data.duration_seconds}s)`)
-          // Show warning if too short
-          if (data.duration_seconds < 6) setMsgWarn(`⚠ Recording is ${data.duration_seconds}s. For best results, aim for 10+ seconds.`)
-          
-          // Save profile to Laravel Database
-          api.post('/voice-profiles', { profile_id: data.profile_id, name: profileName.trim() || 'my-voice', status: 'ready' })
-            .catch(console.error)
+  async function handleRecord(
+    recorder: ReturnType<typeof useAudioRecorder>,
+    profileName: string,
+    noiseSuppression: boolean,
+    gainVal: number,
+    setSaving: (b: boolean) => void,
+    setMsg: (s: string) => void,
+    setMsgWarn: (s: string) => void,
+    onRefresh: () => void,
+  ) {
+    setSaving(true); setMsg(''); setMsgWarn('')
+    const blob = await recorder.stop()
 
-        } else setMsg('Failed to save.')
-      } catch (e) {
-        console.error('Save failed:', e)
-        setMsg('Connection error.')
-      } finally { setSaving(false) }    } else { setMsg(''); setMsgWarn(''); await recorder.start(noiseSuppression, gainVal) }
+    if (recorder.seconds < 6) {
+      setMsgWarn(`⚠ Recording is only ${recorder.seconds}s. XTTS works best with 6+ seconds.`)
+    }
+
+    const fd = new FormData()
+    // Send the audio file + profile metadata to Laravel in ONE request.
+    // Laravel will forward the file to the engine and save DB record.
+    fd.append('file', blob, 'voice.webm')
+    fd.append('profile_id', profileName.trim() || 'my-voice')
+    fd.append('name', profileName.trim() || 'my-voice')
+    fd.append('status', 'ready')
+
+    try {
+      // Goes to Laravel /api/voice-profiles (POST) which handles everything
+      const data = await api.post('/voice-profiles', fd)
+      setMsg(`✓ Profile "${data.profile_id ?? profileName}" saved`)
+      onRefresh()
+    } catch (e: any) {
+      console.error('Voice profile save failed:', e)
+      setMsg(`Error: ${e.message ?? 'Save failed. Is the AI engine running?'}`)
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function handleDelete(profile_id: string) {
     if (!confirm(`Delete profile "${profile_id}"?`)) return
     try {
-      await api.request('/voice-profile/delete', { method: 'DELETE', body: JSON.stringify({ profile_id }) })
+      // DELETE /api/voice-profiles/{profile_id}
+      await api.delete(`/voice-profiles/${profile_id}`)
       onRefresh()
-    } catch { alert('Delete failed.') }
+    } catch (e: any) {
+      alert('Delete failed: ' + (e?.message ?? 'Unknown error'))
+    }
   }
 
   async function handlePreview(profile_id: string) {
+    if (!previewText.trim()) { alert('Enter some preview text first.'); return }
     setPreviewing(true); setPreviewId(profile_id)
     const fd = new FormData()
-    fd.append('text', previewText); fd.append('profile_id', profile_id); fd.append('language', 'en')
+    fd.append('text', previewText)
+    fd.append('profile_id', profile_id)
+    fd.append('language', 'en')
     try {
-      const blob = await api.request('/synthesize', { method: 'POST', body: fd })
+      // Preview hits engine directly (no auth needed on engine)
+      const blob = await api.enginePost('/synthesize', fd)
       const audio = new Audio(URL.createObjectURL(blob))
       audio.play()
-    } catch (e) { 
+    } catch (e: any) {
       console.error('Preview failed:', e)
-      alert('Connection error.') 
+      alert('Preview failed. Is the AI engine running?')
+    } finally {
+      setPreviewing(false); setPreviewId(null)
     }
-    finally { setPreviewing(false); setPreviewId(null) }
   }
 
   return (
     <div>
       <div className="profiles-layout">
         <div>
-          <div className="section-head"><div><h2>Record New Profile</h2><p>Capture your voice</p></div></div>
+          <div className="section-head">
+            <div><h2>Record New Profile</h2><p>Capture your voice</p></div>
+          </div>
           <div className="record-studio">
             <WaveVisualiser active={recorder.recording} />
             {recorder.recording && (
@@ -1837,20 +1900,38 @@ function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRef
             </div>
             <div className="input-row">
               <label>Profile name</label>
-              <input className="text-input" value={profileName} onChange={e => setProfileName(e.target.value.replace(/[^a-z0-9-_]/gi, '-'))} disabled={recorder.recording} placeholder="my-voice" />
+              <input
+                className="text-input"
+                value={profileName}
+                onChange={e => setProfileName(e.target.value.replace(/[^a-z0-9-_]/gi, '-').toLowerCase())}
+                disabled={recorder.recording}
+                placeholder="my-voice"
+              />
             </div>
-            <MicBtn recording={recorder.recording} onClick={handleRecord} disabled={saving}
-              label={saving ? 'Saving…' : recorder.recording ? 'Stop & Save' : 'Start Recording'} />
+            <MicBtn
+              recording={recorder.recording}
+              onClick={handleRecord}
+              disabled={saving}
+              label={saving ? 'Saving…' : recorder.recording ? 'Stop & Save' : 'Start Recording'}
+            />
             {msgWarn && <div className="msg msg--warn">{msgWarn}</div>}
             {msg && <div className={`msg ${msg.startsWith('✓') ? 'msg--ok' : 'msg--err'}`}>{msg}</div>}
           </div>
         </div>
 
         <div>
-          <div className="section-head"><div><h2>Saved Profiles</h2><p>{profiles.length} voice model{profiles.length !== 1 ? 's' : ''} ready</p></div></div>
+          <div className="section-head">
+            <div><h2>Saved Profiles</h2><p>{profiles.length} voice model{profiles.length !== 1 ? 's' : ''} ready</p></div>
+          </div>
           {profiles.length > 0 && (
             <div style={{ marginBottom: 14 }}>
-              <input className="text-input" style={{ width: '100%' }} value={previewText} onChange={e => setPreviewText(e.target.value)} placeholder="Preview text…" />
+              <input
+                className="text-input"
+                style={{ width: '100%' }}
+                value={previewText}
+                onChange={e => setPreviewText(e.target.value)}
+                placeholder="Preview text…"
+              />
             </div>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1861,12 +1942,25 @@ function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRef
                   <div className="profile-avatar">{vp.profile_id[0].toUpperCase()}</div>
                   <div style={{ flex: 1 }}>
                     <div className="profile-card__name">{vp.profile_id}</div>
-                    <div className="profile-card__meta">Voice profile · Ready</div>
+                    <div className="profile-card__meta">
+                      Voice profile · Ready{vp.duration ? ` · ${vp.duration.toFixed(1)}s` : ''}
+                    </div>
                   </div>
-                  <button className="btn btn--sm btn--ghost" onClick={() => handlePreview(vp.profile_id)} disabled={previewing} title="Preview voice">
+                  <button
+                    className="btn btn--sm btn--ghost"
+                    onClick={() => handlePreview(vp.profile_id)}
+                    disabled={previewing}
+                    title="Preview voice"
+                  >
                     {previewing && previewId === vp.profile_id ? <span className="spinner" /> : icons.speaker}
                   </button>
-                  <button className="btn btn--sm btn--danger" onClick={() => handleDelete(vp.profile_id)} title="Delete">{icons.trash}</button>
+                  <button
+                    className="btn btn--sm btn--danger"
+                    onClick={() => handleDelete(vp.profile_id)}
+                    title="Delete"
+                  >
+                    {icons.trash}
+                  </button>
                 </div>
               ))
             }

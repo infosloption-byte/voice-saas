@@ -8,6 +8,10 @@ class VoiceProfile extends Model
 {
     protected $guarded = [];
 
+    protected $casts = [
+        'duration' => 'float',
+    ];
+
     public function user()
     {
         return $this->belongsTo(User::class);

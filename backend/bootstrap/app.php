@@ -12,7 +12,14 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Enable Sanctum stateful API (SPA cookie auth)
         $middleware->statefulApi();
+
+        // Trust the frontend origin for CORS + cookies
+        $middleware->trustHosts(hosts: [
+            'localhost',
+            '127.0.0.1',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
