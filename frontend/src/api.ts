@@ -1,26 +1,30 @@
 const ENGINE_API_BASE = 'http://127.0.0.1:8000';
-const LARAVEL_API_BASE = 'http://localhost:8080';;
+const LARAVEL_BASE = 'http://localhost:8080';      // backend root (no /api)
+const LARAVEL_API_BASE = `${LARAVEL_BASE}/api`;    // all API routes live here
 
-function getCookie(name: string) {
-  const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
-  return match ? decodeURIComponent(match[3]) : null;
+function getCookie(name: string): string | null {
+  const match = document.cookie.match(new RegExp('(^|;\\s*)' + name + '=([^;]*)'));
+  return match ? decodeURIComponent(match[2]) : null;
 }
 
-// Paths that belong to the Laravel backend
+// Paths that belong to the Laravel backend (relative, without /api prefix)
 const LARAVEL_PATHS = [
   '/login', '/logout', '/register', '/user',
-  '/projects', '/voice-profiles', '/sanctum',
+  '/projects', '/voice-profiles',
 ];
 
 function isLaravelPath(path: string): boolean {
-  return LARAVEL_PATHS.some(p => path === p || path.startsWith(p + '/') || path.startsWith(p + '?'));
+  return LARAVEL_PATHS.some(
+    p => path === p || path.startsWith(p + '/') || path.startsWith(p + '?')
+  );
 }
 
 class ApiClient {
+  /** Fetch a fresh CSRF cookie from Sanctum. Must be called before any
+   *  state-changing request so Laravel sets the XSRF-TOKEN cookie. */
   async getCsrfCookie(): Promise<void> {
-    // Always fetch fresh — lightweight GET, browser caches the cookie
     try {
-      await fetch(`${LARAVEL_API_BASE}/sanctum/csrf-cookie`, {
+      await fetch(`${LARAVEL_BASE}/sanctum/csrf-cookie`, {
         method: 'GET',
         credentials: 'include',
       });
@@ -33,7 +37,7 @@ class ApiClient {
     const method = (options.method ?? 'GET').toUpperCase();
     const laravel = isLaravelPath(path);
 
-    // Fetch CSRF token before any state-changing Laravel request
+    // Always refresh CSRF before any mutating Laravel request
     if (laravel && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
       await this.getCsrfCookie();
     }
@@ -43,9 +47,8 @@ class ApiClient {
     if (path.startsWith('http')) {
       url = path;
     } else if (laravel) {
-      url = `${LARAVEL_API_BASE}/api${path}`;
+      url = `${LARAVEL_API_BASE}${path}`;
     } else {
-      // Engine routes (voice synthesis, transcription, etc.)
       url = `${ENGINE_API_BASE}${path.startsWith('/') ? path : '/' + path}`;
     }
 
@@ -73,7 +76,15 @@ class ApiClient {
     if (!response.ok) {
       let errorData: any = {};
       try { errorData = await response.json(); } catch { /* ignore */ }
-      const error = new Error(errorData.message ?? `HTTP ${response.status}`);
+
+      // Flatten Laravel validation errors into a readable message
+      let message = errorData.message ?? `HTTP ${response.status}`;
+      if (errorData.errors) {
+        const firstField = Object.values(errorData.errors as Record<string, string[]>)[0];
+        if (firstField?.[0]) message = firstField[0];
+      }
+
+      const error = new Error(message);
       (error as any).status = response.status;
       (error as any).data = errorData;
       throw error;
@@ -97,7 +108,7 @@ class ApiClient {
     return this.request(path, {
       ...options,
       method: 'POST',
-      body: data instanceof FormData ? data : JSON.stringify(data),
+      body: data instanceof FormData ? data : (data !== undefined ? JSON.stringify(data) : undefined),
     });
   }
 
@@ -116,15 +127,21 @@ class ApiClient {
   // ── Engine-specific helpers (always go to port 8000) ──────────────
 
   enginePost(path: string, formData: FormData): Promise<any> {
-    return this.request(path.startsWith('/') ? path : '/' + path, {
+    const fullPath = path.startsWith('/') ? path : '/' + path;
+    return fetch(`${ENGINE_API_BASE}${fullPath}`, {
       method: 'POST',
       body: formData,
-      // No Content-Type header — let browser set multipart boundary
+      credentials: 'omit',
+    }).then(async r => {
+      if (!r.ok) throw new Error(`Engine error: HTTP ${r.status}`);
+      const ct = r.headers.get('Content-Type') ?? '';
+      return ct.includes('audio/') ? r.blob() : r.json();
     });
   }
 
   engineGet(path: string): Promise<any> {
-    return fetch(`${ENGINE_API_BASE}${path.startsWith('/') ? path : '/' + path}`, {
+    const fullPath = path.startsWith('/') ? path : '/' + path;
+    return fetch(`${ENGINE_API_BASE}${fullPath}`, {
       method: 'GET',
       credentials: 'omit',
     }).then(r => r.json());
@@ -133,7 +150,7 @@ class ApiClient {
 
 export const api = new ApiClient();
 
-// ── Data mappers: snake_case (Laravel) ↔ camelCase (frontend) ───────
+// ── Data mappers: snake_case (Laravel) ↔ camelCase (frontend) ────────
 
 export function mapScript(raw: any) {
   return {

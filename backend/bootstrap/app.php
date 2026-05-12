@@ -15,8 +15,12 @@ return Application::configure(basePath: dirname(__DIR__))
         // Enable Sanctum stateful API (SPA cookie auth)
         $middleware->statefulApi();
 
-        // Trust the frontend origin for CORS + cookies
-        $middleware->trustHosts(['localhost', '127.0.0.1']);
+        // Trust localhost regardless of port so cookies work in dev
+        $middleware->trustHosts([
+            'localhost',
+            '127.0.0.1',
+            '::1',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

@@ -622,16 +622,23 @@ export default function App() {
       onSignUp={() => setPage('signup')}
     />
   )
+
   if (page === 'signin') return (
     <SignInPage
-      onSignIn={() => setPage('dashboard')}
+      onSignIn={async (email, password) => {
+        await api.post('/login', { email, password })
+        await checkUser()
+      }}
       onSignUp={() => setPage('signup')}
       onBack={() => setPage('landing')}
     />
   )
   if (page === 'signup') return (
     <SignUpPage
-      onSignUp={() => setPage('dashboard')}
+      onSignUp={async (name, email, password) => {
+        await api.post('/register', { name, email, password })
+        await checkUser()
+      }}
       onSignIn={() => setPage('signin')}
       onBack={() => setPage('landing')}
     />
