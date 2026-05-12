@@ -11,13 +11,16 @@ services:
       - frontend
     networks:
       - voice-network
-  
+
   # Laravel Backend (PHP-FPM)
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: voice_backend
+    ports:
+    - "8080:9000"
+    command: php artisan serve --host=0.0.0.0 --port=8080
     volumes:
       - ./backend:/var/www/html
     environment:
