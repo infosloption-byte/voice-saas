@@ -6,7 +6,7 @@ cd /var/www/html
 # Install PHP dependencies if missing
 if [ ! -f "vendor/autoload.php" ]; then
     echo "Running composer install..."
-    composer install --no-dev --optimize-autoloader
+    composer install --ignore-platform-reqs --no-dev --optimize-autoloader
 fi
 
 # Generate app key if APP_KEY is empty
