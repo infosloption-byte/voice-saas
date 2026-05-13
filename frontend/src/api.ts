@@ -1,5 +1,5 @@
-const ENGINE_API_BASE = 'http://3.83.53.113/ai';
-const LARAVEL_BASE = 'http://3.83.53.113';
+const ENGINE_API_BASE = 'https://3.83.53.113/ai';
+const LARAVEL_BASE = 'https://3.83.53.113';
 const LARAVEL_API_BASE = `${LARAVEL_BASE}/api`;    // all API routes live here
 
 function getCookie(name: string): string | null {

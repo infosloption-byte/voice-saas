@@ -3,7 +3,7 @@ import './App.css'
 import { LandingPage, SignInPage, SignUpPage, SettingsPage } from './AuthAndLandingPages'
 import { api, mapProject } from './api'
 
-const API = import.meta.env.VITE_ENGINE_URL || 'http://3.83.53.113:8000';
+const API = import.meta.env.VITE_ENGINE_URL || 'https://3.83.53.113:8000';
 
 // ── IndexedDB audio persistence ────────────────────────────────────
 const DB_NAME = 'voicestudio', DB_VER = 1, STORE = 'audio'
