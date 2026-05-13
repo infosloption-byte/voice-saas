@@ -2342,25 +2342,6 @@
   /* Mobile assembly: switch to mobile layout */
   .assembly-desktop { display: none }
   .assembly-mobile { display: flex }
-
-  /* Auth: single column on mobile */
-  .auth-shell { grid-template-columns: 1fr }
-  .auth-visual { display: none }
-  .auth-panel { padding: 32px 24px }
-  .auth-brand { margin-bottom: 28px }
-
-  /* Landing mobile */
-  .landing__nav { padding: 14px 20px }
-  .landing__hero { padding: 50px 20px 40px }
-  .landing__features { padding: 40px 20px }
-  .landing__features-grid { grid-template-columns: 1fr; gap: 14px }
-  .landing__footer { padding: 16px 20px; flex-direction: column; gap: 6px; text-align: center }
-
-  /* Settings mobile */
-  .settings-layout { grid-template-columns: 1fr }
-  .settings-nav { border-right: none; border-bottom: 1px solid var(--border); padding: 8px; display: flex; gap: 4px; overflow-x: auto }
-  .settings-nav-item { white-space: nowrap; flex-shrink: 0; width: auto }
-  .settings-content { padding: 20px 16px; max-width: 100% }
 }
 
 @media (max-width: 480px) {
@@ -2372,7 +2353,7 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   APPEND THIS TO THE BOTTOM OF App.css
+   DARK THEME + LANDING + AUTH — CANONICAL DEFINITIONS
    ══════════════════════════════════════════════════════════════════ */
 
 /* ── Dark theme overrides ─────────────────────────────────────────── */
@@ -2527,26 +2508,84 @@
 }
 
 /* ── Waveform bars animation (landing hero) ───────────────────────── */
-@keyframes barFloat0 { 0%,100%{transform:scaleY(1)} 50%{transform:scaleY(0.55)} }
-@keyframes barFloat1 { 0%,100%{transform:scaleY(0.8)} 50%{transform:scaleY(1.15)} }
-@keyframes barFloat2 { 0%,100%{transform:scaleY(1.1)} 50%{transform:scaleY(0.6)} }
-@keyframes barFloat3 { 0%,100%{transform:scaleY(0.7)} 50%{transform:scaleY(1.2)} }
-@keyframes barFloat4 { 0%,100%{transform:scaleY(0.9)} 50%{transform:scaleY(0.5)} }
+@keyframes barFloat0 { 0%,100%{transform:scaleY(1)}   50%{transform:scaleY(0.55)} }
+@keyframes barFloat1 { 0%,100%{transform:scaleY(0.8)}  50%{transform:scaleY(1.15)} }
+@keyframes barFloat2 { 0%,100%{transform:scaleY(1.1)}  50%{transform:scaleY(0.6)} }
+@keyframes barFloat3 { 0%,100%{transform:scaleY(0.7)}  50%{transform:scaleY(1.2)} }
+@keyframes barFloat4 { 0%,100%{transform:scaleY(0.9)}  50%{transform:scaleY(0.5)} }
 
-/* ── Mobile overrides for new pages ──────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════
+   LANDING + AUTH RESPONSIVE — single canonical block
+   All !important rules are here to override inline styles in TSX.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Tablet (769px – 1024px) ──────────────────────────────────────── */
+@media (min-width: 769px) and (max-width: 1024px) {
+  /* Landing */
+  .landing__nav     { padding: 14px 28px !important; }
+  .landing__hero    { padding: 56px 28px 44px !important; }
+  .landing__features { padding: 48px 28px !important; }
+  .landing__testimonials { padding: 48px 28px !important; }
+  .landing__cta     { padding: 48px 28px !important; }
+  .landing__footer  { padding: 16px 28px !important; }
+
+  /* Auth */
+  .auth-shell  { grid-template-columns: 1fr 1fr; }
+  .auth-panel  { padding: 36px 32px; }
+  .auth-visual { display: flex; padding: 32px 28px; }
+}
+
+/* ── Mobile (≤ 768px) ─────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  /* Auth: single column on mobile */
-  .auth-shell { grid-template-columns: 1fr }
-  .auth-visual { display: none }
-  .auth-panel { padding: 32px 24px }
-  .auth-brand { margin-bottom: 28px }
+  /* ── Nav ── */
+  .landing__nav { padding: 12px 20px !important; gap: 8px !important; }
+  .landing__nav-link { display: none !important; }
 
-  /* Landing mobile */
-  .landing__nav { padding: 14px 20px }
-  .landing__hero { padding: 50px 20px 40px }
-  .landing__features { padding: 40px 20px }
-  .landing__features-grid { grid-template-columns: 1fr; gap: 14px }
-  .landing__footer { padding: 16px 20px; flex-direction: column; gap: 6px; text-align: center }
+  /* ── Hero ── */
+  .landing__hero { padding: 44px 20px 36px !important; gap: 18px !important; }
+  .landing__hero-wave { display: none !important; }
+  .landing__hero-stats { gap: 24px !important; }
+
+  /* ── Features ── */
+  .landing__features { padding: 40px 20px !important; }
+  .landing__features-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  /* ── Testimonials ── */
+  .landing__testimonials { padding: 40px 20px !important; }
+  .landing__testimonials-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  /* ── CTA ── */
+  .landing__cta { padding: 44px 20px !important; }
+
+  /* ── Footer ── */
+  .landing__footer {
+    padding: 16px 20px !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    text-align: center !important;
+  }
+
+  /* ── Auth shell ── */
+  .auth-shell {
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: 100svh;
+  }
+  .auth-visual { display: none !important; }
+  .auth-panel {
+    padding: 36px 24px 44px !important;
+    justify-content: flex-start !important;
+    flex: 1;
+    align-items: stretch;
+    overflow-y: auto;
+  }
+  .auth-brand { margin-bottom: 28px !important; }
 
   /* Settings mobile */
   .settings-layout { grid-template-columns: 1fr }
@@ -2561,91 +2600,22 @@
   }
   .settings-nav-item { white-space: nowrap; flex-shrink: 0; width: auto }
   .settings-content { padding: 20px 16px; max-width: 100% }
+
+  /* Prevent iOS auto-zoom on input focus */
+  .full-input { font-size: 16px !important; }
 }
 
-@media (max-width: 640px) {
-  .landing__features-grid { grid-template-columns: 1fr }
-}
+/* ── Small phones (≤ 480px) ──────────────────────────────────────── */
+@media (max-width: 480px) {
+  .landing__nav { padding: 10px 14px !important; }
+  .landing__hero { padding: 36px 14px 28px !important; }
+  .landing__features { padding: 32px 14px !important; }
+  .landing__testimonials { padding: 32px 14px !important; }
+  .landing__cta { padding: 36px 14px !important; }
+  .landing__footer { padding: 14px !important; }
 
-/* ══════════════════════════════════════════════════════════════════
-   AUTH RESPONSIVE FIXES — append these to the bottom of App.css
-   (or replace the existing auth mobile overrides inside the
-   @media (max-width: 768px) block)
-   ══════════════════════════════════════════════════════════════════ */
+  /* Tighter button sizing in nav on tiny screens */
+  .landing__nav .btn { padding: 5px 10px !important; font-size: 12px !important; }
 
-/* ── Tablet (769px – 1024px): show a narrower two-column auth ──── */
-@media (min-width: 769px) and (max-width: 1024px) {
-  .auth-shell {
-    grid-template-columns: 1fr 1fr;
-  }
-  .auth-panel {
-    padding: 36px 32px;
-  }
-  .auth-visual {
-    display: flex;
-    padding: 32px 28px;
-  }
-  .auth-visual__title {
-    font-size: 26px;
-  }
-  .auth-form {
-    max-width: 360px;
-  }
-}
-
-/* ── Mobile (≤ 768px): single column, no visual panel ─────────── */
-@media (max-width: 768px) {
-  /* Auth: single column on mobile — REPLACE the existing auth block */
-  .auth-shell {
-    grid-template-columns: 1fr;
-    min-height: 100svh;
-    display: flex;
-    flex-direction: column;
-  }
-  .auth-visual { display: none !important; }
-  .auth-panel {
-    padding: 36px 20px 40px;
-    justify-content: flex-start;
-    flex: 1;
-    align-items: stretch;
-  }
-  .auth-brand {
-    margin-bottom: 28px;
-  }
-  .auth-form {
-    max-width: 100%;
-    width: 100%;
-  }
-  .auth-form__title {
-    font-size: 24px;
-  }
-  /* Prevent iOS auto-zoom on input focus (font-size must be ≥ 16px) */
-  .full-input {
-    font-size: 16px !important;
-    padding: 12px 14px;
-  }
-  .auth-submit {
-    padding: 14px;
-    font-size: 15px;
-  }
-  .google-btn {
-    padding: 13px 16px;
-    font-size: 14px;
-  }
-  .auth-footer-link {
-    font-size: 14px;
-  }
-  .auth-divider {
-    font-size: 13px;
-  }
-}
-
-/* ── Small phones (≤ 380px) ────────────────────────────────────── */
-@media (max-width: 380px) {
-  .auth-panel {
-    padding: 28px 16px 32px;
-  }
-  .auth-form__title {
-    font-size: 22px;
-  }
+  .auth-panel { padding: 28px 16px 36px !important; }
 }

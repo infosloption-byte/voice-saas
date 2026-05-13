@@ -115,7 +115,7 @@ export function LandingPage({ onSignIn, onSignUp }: LandingPageProps) {
 
         <div style={{ flex: 1 }} />
 
-        <a href="#features" style={{ fontSize: 13, color: 'var(--text-2)', textDecoration: 'none', fontWeight: 500 }}
+        <a href="#features" className="landing__nav-link" style={{ fontSize: 13, color: 'var(--text-2)', textDecoration: 'none', fontWeight: 500 }}
           onClick={e => { e.preventDefault(); document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }) }}>
           Features
         </a>
@@ -167,7 +167,7 @@ export function LandingPage({ onSignIn, onSignUp }: LandingPageProps) {
         </div>
 
         {/* Waveform illustration */}
-        <div style={{
+        <div className="landing__hero-wave" style={{
           width: '100%', maxWidth: 680, height: 64, marginTop: 16,
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3,
           opacity: 0.5,
@@ -187,7 +187,7 @@ export function LandingPage({ onSignIn, onSignUp }: LandingPageProps) {
         </div>
 
         {/* Stats row */}
-        <div style={{ display: 'flex', gap: 40, marginTop: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+        <div className="landing__hero-stats" style={{ display: 'flex', gap: 40, marginTop: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
           {[
             { val: '16', label: 'Languages' },
             { val: '100%', label: 'Local & private' },
@@ -248,13 +248,13 @@ export function LandingPage({ onSignIn, onSignUp }: LandingPageProps) {
       </section>
 
       {/* ── Testimonials ── */}
-      <section style={{ padding: '64px 48px', background: 'var(--bg)' }}>
+      <section className="landing__testimonials" style={{ padding: '64px 48px', background: 'var(--bg)' }}>
         <h2 style={{
           fontFamily: 'var(--serif)', fontSize: 'clamp(22px, 3vw, 34px)',
           textAlign: 'center', fontWeight: 400, letterSpacing: '-0.5px',
           color: 'var(--text-1)', marginBottom: 36,
         }}>Loved by creators</h2>
-        <div style={{
+        <div className="landing__testimonials-grid" style={{
           display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16,
           maxWidth: 900, margin: '0 auto',
         }}>
@@ -285,7 +285,7 @@ export function LandingPage({ onSignIn, onSignUp }: LandingPageProps) {
       </section>
 
       {/* ── CTA ── */}
-      <section style={{
+      <section className="landing__cta" style={{
         padding: '64px 48px', textAlign: 'center',
         background: 'var(--bg-2)', borderTop: '1px solid var(--border)',
       }}>
