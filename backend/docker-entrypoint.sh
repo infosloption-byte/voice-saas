@@ -9,6 +9,10 @@ if [ ! -f "vendor/autoload.php" ]; then
     composer install --ignore-platform-reqs --no-dev --optimize-autoloader
 fi
 
+# Force correct DB host (overrides any stale .env value)
+sed -i 's/DB_HOST=127.0.0.1/DB_HOST=db/' .env 2>/dev/null || true
+sed -i 's/DB_HOST=localhost/DB_HOST=db/' .env 2>/dev/null || true
+
 # Generate app key if APP_KEY is empty
 php artisan key:generate --force
 
