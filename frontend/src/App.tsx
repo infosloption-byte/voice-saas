@@ -699,6 +699,35 @@ export default function App() {
               {darkMode ? icons.light : icons.dark}
             </button>
           </div>
+
+          {/* ── Sign out ── */}
+          <button
+            className="btn btn--ghost btn--sm"
+            onClick={async () => {
+              try { await api.post('/logout') } catch { /* ignore */ }
+              setUser(null)
+              setProjects([])
+              setPage('landing')
+            }}
+            style={{
+              width: '100%',
+              justifyContent: 'flex-start',
+              gap: 8,
+              color: 'var(--err)',
+              borderColor: 'rgba(192,57,43,0.2)',
+              marginBottom: 8,
+              fontSize: 12.5,
+            }}
+            title="Sign out"
+          >
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ width: 14, height: 14, flexShrink: 0 }}>
+              <path d="M7 3H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h3" />
+              <path d="M13 14l4-4-4-4" />
+              <line x1="17" y1="10" x2="7" y2="10" />
+            </svg>
+            Sign out
+          </button>
+
           <div className={`engine-pill engine-pill--${engineStatus}`}>
             <span className="engine-pill__dot" />
             {engineStatus === 'checking' ? 'Connecting…' : engineStatus === 'online' ? 'AI Engine Online' : 'Engine Offline'}

@@ -2566,3 +2566,86 @@
 @media (max-width: 640px) {
   .landing__features-grid { grid-template-columns: 1fr }
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   AUTH RESPONSIVE FIXES — append these to the bottom of App.css
+   (or replace the existing auth mobile overrides inside the
+   @media (max-width: 768px) block)
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Tablet (769px – 1024px): show a narrower two-column auth ──── */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .auth-shell {
+    grid-template-columns: 1fr 1fr;
+  }
+  .auth-panel {
+    padding: 36px 32px;
+  }
+  .auth-visual {
+    display: flex;
+    padding: 32px 28px;
+  }
+  .auth-visual__title {
+    font-size: 26px;
+  }
+  .auth-form {
+    max-width: 360px;
+  }
+}
+
+/* ── Mobile (≤ 768px): single column, no visual panel ─────────── */
+@media (max-width: 768px) {
+  /* Auth: single column on mobile — REPLACE the existing auth block */
+  .auth-shell {
+    grid-template-columns: 1fr;
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+  }
+  .auth-visual { display: none !important; }
+  .auth-panel {
+    padding: 36px 20px 40px;
+    justify-content: flex-start;
+    flex: 1;
+    align-items: stretch;
+  }
+  .auth-brand {
+    margin-bottom: 28px;
+  }
+  .auth-form {
+    max-width: 100%;
+    width: 100%;
+  }
+  .auth-form__title {
+    font-size: 24px;
+  }
+  /* Prevent iOS auto-zoom on input focus (font-size must be ≥ 16px) */
+  .full-input {
+    font-size: 16px !important;
+    padding: 12px 14px;
+  }
+  .auth-submit {
+    padding: 14px;
+    font-size: 15px;
+  }
+  .google-btn {
+    padding: 13px 16px;
+    font-size: 14px;
+  }
+  .auth-footer-link {
+    font-size: 14px;
+  }
+  .auth-divider {
+    font-size: 13px;
+  }
+}
+
+/* ── Small phones (≤ 380px) ────────────────────────────────────── */
+@media (max-width: 380px) {
+  .auth-panel {
+    padding: 28px 16px 32px;
+  }
+  .auth-form__title {
+    font-size: 22px;
+  }
+}
