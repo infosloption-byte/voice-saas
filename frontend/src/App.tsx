@@ -1950,7 +1950,7 @@ function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRef
             )}
             <div className="record-script">
               <div className="record-script__label">Read this aloud</div>
-              <p className="record-script__text">"The quick brown fox jumps over the lazy dog. She sells seashells by the seashore. How much wood would a woodchuck chuck if a woodchuck could chuck wood?"</p>
+              <p className="record-script__text">"Have you ever stood on a hilltop and watched the sunset? The colours shift from gold to deep red. There is nothing quite like it. I think everyone should see it at least once."</p>
             </div>
             <div className="noise-controls">
               <label className="noise-toggle">
