@@ -13,7 +13,13 @@ fi
 php artisan key:generate --force
 
 # Run migrations
-php artisan migrate --force
+echo "Waiting for database..."
+for i in $(seq 1 30); do
+    php artisan migrate --force && break
+    echo "Attempt $i failed, retrying in 3s..."
+    sleep 3
+done
+
 
 # Start the dev server
 exec php artisan serve --host=0.0.0.0 --port=8080
