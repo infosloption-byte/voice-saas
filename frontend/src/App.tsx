@@ -1889,7 +1889,7 @@ function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRef
       const data = await api.post('/voice-profiles', fd)
       // Show backend warning if present (e.g. duration too short)
       if (data?.warning) setMsgWarn(`⚠ ${data.warning}`)
-      setMsg(`✓ Profile "${data.profile_id ?? profileName}" saved — ${data.duration_seconds}s`)
+      setMsg(`✓ Profile "${data.profile_id ?? profileName}" saved${data.duration_seconds ? ` — ${data.duration_seconds}s` : ''}`)
       onRefresh()
     } catch (e: any) {
       setMsg(`Error: ${e.message ?? 'Save failed. Is the AI engine running?'}`)
