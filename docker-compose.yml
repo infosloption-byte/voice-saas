@@ -66,6 +66,7 @@ services:
       - "8000:8000"
     volumes:
       - ./ai-engine:/app
+      - voice_profiles:/app/voice_profiles
       - ai_models:/root/.cache/huggingface
       - tts_models:/root/.local/share/tts  # Add this line!
     environment:
@@ -73,6 +74,12 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000
     networks:
       - voice-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s  # models take time to load
 
   # Infrastructure
   db:
@@ -101,5 +108,6 @@ networks:
     driver: bridge
 
 volumes:
+  voice_profiles:
   ai_models:
   tts_models:

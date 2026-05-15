@@ -368,7 +368,7 @@ export function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]
               ? <div className="empty-state">{icons.profiles}<p>Record your first voice profile</p></div>
               : profiles.map(vp => (
                 <div key={vp.profile_id} className="profile-card">
-                  <div className="profile-avatar">{vp.profile_id[0].toUpperCase()}</div>
+                  <div className="profile-avatar">{(vp.profile_id?.[0] ?? '?').toUpperCase()}</div>
                   <div style={{ flex: 1 }}>
                     <div className="profile-card__name">{vp.profile_id}</div>
                     <div className="profile-card__meta">

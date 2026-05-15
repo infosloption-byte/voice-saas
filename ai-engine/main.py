@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from contextlib import asynccontextmanager
 import whisper
 from TTS.api import TTS
 import os
@@ -188,7 +189,13 @@ def concatenate_wavs(wav_paths: list[str], output_path: str,
 
 
 # ── Model loading ──────────────────────────────────────────────────
-@app.on_event("startup")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await load_all_models()
+    yield
+
+app = FastAPI(lifespan=lifespan)
+
 async def load_all_models():
     print("--- Initializing AI Suite ---")
     try:

@@ -12,6 +12,14 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // ADD THIS — trust nginx as a reverse proxy
+        $middleware->trustProxies(
+            at: '*',
+            headers: Request::HEADER_X_FORWARDED_FOR |
+                     Request::HEADER_X_FORWARDED_HOST |
+                     Request::HEADER_X_FORWARDED_PORT |
+                     Request::HEADER_X_FORWARDED_PROTO
+        );
         // ← ADD THIS: ensures CORS headers are on EVERY response,
         //   including redirects that fire before the api group middleware
         $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);

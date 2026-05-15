@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { icons } from './constants'
+import { LogoMark } from './LandingPage'
 
 // ═══════════════════════════════════════════════════════════════════
 type SettingsSection = 'profile' | 'account' | 'audio' | 'appearance' | 'notifications' | 'api' | 'danger'

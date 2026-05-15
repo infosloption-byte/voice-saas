@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { icons } from './constants'
 
-function LogoMark({ size = 28 }: { size?: number }) {
+export function LogoMark({ size = 28 }: { size?: number }) {
   return (
     <div style={{
       width: size, height: size,

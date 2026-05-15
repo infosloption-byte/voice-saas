@@ -54,9 +54,11 @@ export interface TimelineHistory {
 }
 
 export interface VoiceProfile {
+  id: number
   profile_id: string
-  filename: string
-  duration?: number
+  name: string
+  status: string
+  duration?: number | null
 }
 
 export interface HistoryState {

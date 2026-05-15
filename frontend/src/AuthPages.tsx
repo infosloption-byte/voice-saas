@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { icons } from './constants'
+import { LogoMark } from './LandingPage'
 
 // ═══════════════════════════════════════════════════════════════════
 // SHARED AUTH SHELL (split-panel layout)
