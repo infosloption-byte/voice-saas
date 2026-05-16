@@ -1,11 +1,21 @@
-import { useState, useEffect, useRef, useReducer } from 'react'
+import { useState, useEffect, useRef, useReducer, useCallback } from 'react'
 import { icons, LANGUAGES } from './constants'
 import { loadAudioBlob, saveAudioBlob, deleteAudioBlob, historyReducer, fmt } from './audio'
 import type { Project, Script, VoiceProfile, SaveState } from './types'
 
-const ENGINE_API = import.meta.env.VITE_ENGINE_URL || 'https://3.83.53.113:8000'
+// Read from env only — no hardcoded fallback
+const ENGINE_URL = import.meta.env.VITE_ENGINE_URL as string | undefined
 
-export function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAddScript, onUpdateScript, onDeleteScript, onReorder, voiceProfiles }: {
+export function WorkspacePage({
+  project,
+  activeScriptId,
+  setActiveScriptId,
+  onAddScript,
+  onUpdateScript,
+  onDeleteScript,
+  onReorder,
+  voiceProfiles,
+}: {
   project: Project
   activeScriptId: string | null
   setActiveScriptId: (id: string | null) => void
@@ -16,7 +26,11 @@ export function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAd
   voiceProfiles: VoiceProfile[]
 }) {
   const activeScript = project.scripts.find(s => s.id === activeScriptId) ?? null
-  const [histState, dispatch] = useReducer(historyReducer, { past: [], present: activeScript?.content ?? '', future: [] })
+
+  const [histState, dispatch] = useReducer(
+    historyReducer,
+    { past: [], present: activeScript?.content ?? '', future: [] }
+  )
   const [synthesizing, setSynthesizing] = useState(false)
   const [bulkGenerating, setBulkGenerating] = useState(false)
   const [bulkProgress, setBulkProgress] = useState(0)
@@ -26,50 +40,65 @@ export function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAd
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [showScriptList, setShowScriptList] = useState(true)
   const [transcribing, setTranscribing] = useState(false)
+
   const fileImportRef = useRef<HTMLInputElement>(null)
   const audioUploadRef = useRef<HTMLInputElement>(null)
-  const prevScriptId = useRef<string | null>(null)
+  const synthAbortRef = useRef<AbortController | null>(null)
+  const dragIdx = useRef<number | null>(null)
+
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
 
+  // ── Reset editor when active script changes ───────────────────────
+  // Only depends on activeScriptId — not content — so it only fires on
+  // script selection, not on every keystroke.
   useEffect(() => {
-    if (activeScriptId !== prevScriptId.current) {
-      dispatch({ type: 'SET', value: activeScript?.content ?? '' })
-      prevScriptId.current = activeScriptId
-      setAudioUrl(null)
-      setSynthErr('')
-      if (activeScript?.hasAudio) {
-        loadAudioBlob(`audio_${activeScript.id}`).then(setAudioUrl)
-      }
-    }
-  }, [activeScriptId, activeScript?.content, activeScript?.hasAudio])
+    const content = activeScript?.content ?? ''
+    dispatch({ type: 'SET', value: content })
+    setAudioUrl(null)
+    setSynthErr('')
 
+    if (activeScript?.hasAudio && activeScript.id) {
+      loadAudioBlob(`audio_${activeScript.id}`).then(setAudioUrl)
+    }
+  }, [activeScriptId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Auto-save with debounce ───────────────────────────────────────
   useEffect(() => {
     if (!activeScript) return
-    if (histState.present === activeScript.content) { setSaveState('saved'); return }
+    if (histState.present === activeScript.content) {
+      setSaveState('saved')
+      return
+    }
     setSaveState('saving')
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       onUpdateScript(activeScript.id, { content: histState.present })
       setSaveState('saved')
     }, 600)
-    return () => clearTimeout(t)
-  }, [histState.present])
+    return () => clearTimeout(timer)
+  }, [histState.present]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Global keyboard shortcuts
+  // ── Keyboard shortcuts ────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); dispatch({ type: 'UNDO' }) }
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); dispatch({ type: 'REDO' }) }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        dispatch({ type: 'UNDO' })
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault()
+        dispatch({ type: 'REDO' })
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
-  function handleSelectScript(id: string) {
-    setActiveScriptId(id)
-    if (isMobile) setShowScriptList(false)
-  }
+  // Cancel in-flight synthesis on unmount
+  useEffect(() => {
+    return () => { synthAbortRef.current?.abort() }
+  }, [])
 
-  const dragIdx = useRef<number | null>(null)
+  // ── Script list drag-to-reorder ───────────────────────────────────
   function onDragStart(i: number) { dragIdx.current = i }
   function onDragOver(e: React.DragEvent, i: number) {
     e.preventDefault()
@@ -82,7 +111,22 @@ export function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAd
   }
   function onDragEnd() { dragIdx.current = null }
 
-  async function generateVoiceover(script: Script, text: string): Promise<boolean> {
+  function handleSelectScript(id: string) {
+    setActiveScriptId(id)
+    if (isMobile) setShowScriptList(false)
+  }
+
+  // ── Synthesis ─────────────────────────────────────────────────────
+  const generateVoiceover = useCallback(async (
+    script: Script,
+    text: string,
+    signal?: AbortSignal
+  ): Promise<boolean> => {
+    if (!ENGINE_URL) {
+      console.error('[WorkspacePage] VITE_ENGINE_URL is not set')
+      return false
+    }
+
     const pid = script.profileId || voiceProfiles[0]?.profile_id
     if (!pid || !text.trim()) return false
 
@@ -97,13 +141,22 @@ export function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAd
     fd.append('gap_ms', '60')
 
     try {
-      const res = await fetch(`${ENGINE_API}/synthesize`, { method: 'POST', body: fd })
-      if (!res.ok) return false
-      const blob = await res.blob()
+      const res = await fetch(`${ENGINE_URL}/synthesize`, {
+        method: 'POST',
+        body: fd,
+        signal,
+      })
 
+      if (!res.ok) {
+        console.error(`[WorkspacePage] Synthesis HTTP ${res.status}`)
+        return false
+      }
+
+      const blob = await res.blob()
       let duration: number | null = null
       let peaks: number[] | undefined
 
+      // Decode audio metadata — non-blocking, best-effort
       try {
         const tempUrl = URL.createObjectURL(blob)
         const audioCtx = new AudioContext()
@@ -127,44 +180,88 @@ export function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAd
         peaks = rawPeaks.map(p => p / maxP)
         await audioCtx.close()
         URL.revokeObjectURL(tempUrl)
-      } catch { /* duration/peaks are optional */ }
+      } catch {
+        // Duration/peaks are optional, continue without them
+      }
 
       await saveAudioBlob(`audio_${script.id}`, blob)
       onUpdateScript(script.id, {
-        hasAudio: true, profileId: pid,
+        hasAudio: true,
+        profileId: pid,
         language: script.language || 'en',
-        duration, waveformPeaks: peaks,
+        duration,
+        waveformPeaks: peaks,
       })
       return true
-    } catch {
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') return false
+      console.error('[WorkspacePage] generateVoiceover error:', e)
       return false
     }
-  }
+  }, [voiceProfiles, onUpdateScript])
 
   async function handleGenerateSingle() {
-    if (!activeScript || !histState.present.trim()) { setSynthErr('Write some script content first.'); return }
-    if (!voiceProfiles.length) { setSynthErr('No voice profile selected.'); return }
-    setSynthesizing(true); setSynthErr('')
-    const ok = await generateVoiceover(activeScript, histState.present)
-    if (!ok) setSynthErr('Synthesis failed. Is the AI engine running?')
-    else {
+    if (!activeScript || !histState.present.trim()) {
+      setSynthErr('Write some script content first.')
+      return
+    }
+    if (!voiceProfiles.length) {
+      setSynthErr('No voice profile found. Record one in Voice Profiles.')
+      return
+    }
+    if (!ENGINE_URL) {
+      setSynthErr('Engine URL is not configured. Check your .env file.')
+      return
+    }
+
+    // Cancel any previous request
+    synthAbortRef.current?.abort()
+    const controller = new AbortController()
+    synthAbortRef.current = controller
+
+    setSynthesizing(true)
+    setSynthErr('')
+
+    const ok = await generateVoiceover(activeScript, histState.present, controller.signal)
+
+    if (!ok && !controller.signal.aborted) {
+      setSynthErr('Synthesis failed. Is the AI engine running?')
+    } else if (ok) {
       const url = await loadAudioBlob(`audio_${activeScript.id}`)
       setAudioUrl(url)
     }
+
     setSynthesizing(false)
   }
 
   async function handleBulkGenerate() {
     const pending = project.scripts.filter(s => s.content.trim() && !s.hasAudio)
-    if (!pending.length) { alert('All scripts already have audio.'); return }
-    if (!voiceProfiles.length) { alert('No voice profile selected.'); return }
+    if (!pending.length) {
+      alert('All scripts already have audio.')
+      return
+    }
+    if (!voiceProfiles.length) {
+      alert('No voice profile found. Record one in Voice Profiles first.')
+      return
+    }
+    if (!ENGINE_URL) {
+      alert('Engine URL is not configured. Check your .env file.')
+      return
+    }
+
     setBulkGenerating(true)
     setBulkTotal(pending.length)
     setBulkProgress(0)
+
+    const controller = new AbortController()
+    synthAbortRef.current = controller
+
     for (const script of pending) {
-      await generateVoiceover(script, script.content)
+      if (controller.signal.aborted) break
+      await generateVoiceover(script, script.content, controller.signal)
       setBulkProgress(p => p + 1)
     }
+
     setBulkGenerating(false)
     setBulkTotal(0)
     setBulkProgress(0)
@@ -172,16 +269,24 @@ export function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAd
 
   async function handleAudioTranscribe(file: File) {
     if (!activeScript) return
+    if (!ENGINE_URL) {
+      alert('Engine URL is not configured. Check your .env file.')
+      return
+    }
+
     setTranscribing(true)
     const fd = new FormData()
     fd.append('file', file, file.name)
     try {
-      const res = await fetch(`${ENGINE_API}/transcribe`, { method: 'POST', body: fd })
+      const res = await fetch(`${ENGINE_URL}/transcribe`, { method: 'POST', body: fd })
       if (!res.ok) { alert('Transcription failed'); return }
-      const data = await res.json()
+      const data = await res.json() as { text?: string }
       dispatch({ type: 'SET', value: data.text || '' })
-    } catch { alert('Connection error. Is the AI engine running?') }
-    finally { setTranscribing(false) }
+    } catch {
+      alert('Connection error. Is the AI engine running?')
+    } finally {
+      setTranscribing(false)
+    }
   }
 
   async function handleFileImport(file: File) {
@@ -190,38 +295,72 @@ export function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAd
     if (paragraphs.length <= 1) {
       if (activeScript) dispatch({ type: 'SET', value: text.trim() })
     } else {
-      alert(`Found ${paragraphs.length} paragraphs. This will create ${paragraphs.length} new scripts.`)
-      if (activeScript) dispatch({ type: 'SET', value: paragraphs[0] })
+      const confirmed = confirm(
+        `Found ${paragraphs.length} paragraphs. Import first paragraph into this script?`
+      )
+      if (confirmed && activeScript) dispatch({ type: 'SET', value: paragraphs[0] })
     }
   }
 
-  const wordCount = histState.present.trim() ? histState.present.trim().split(/\s+/).length : 0
+  // ── Derived ───────────────────────────────────────────────────────
+  const wordCount = histState.present.trim()
+    ? histState.present.trim().split(/\s+/).length
+    : 0
   const pendingCount = project.scripts.filter(s => s.content.trim() && !s.hasAudio).length
 
   return (
     <div className="workspace">
+      {/* Script list panel */}
       <div className={`script-panel ${!showScriptList ? 'script-panel--hidden' : ''}`}>
         <div className="script-panel__head">
-          <h3>Scripts <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>({project.scripts.length})</span></h3>
+          <h3>
+            Scripts{' '}
+            <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>
+              ({project.scripts.length})
+            </span>
+          </h3>
           <div style={{ display: 'flex', gap: 4 }}>
             {pendingCount > 0 && !bulkGenerating && (
-              <button className="btn btn--sm" onClick={handleBulkGenerate} title={`Generate all ${pendingCount} scripts`} style={{ background: 'var(--accent-lt)', color: 'var(--accent)', border: '1px solid var(--accent-mid)' }}>
+              <button
+                className="btn btn--sm"
+                onClick={handleBulkGenerate}
+                title={`Generate all ${pendingCount} pending scripts`}
+                style={{
+                  background: 'var(--accent-lt)',
+                  color: 'var(--accent)',
+                  border: '1px solid var(--accent-mid)',
+                }}
+              >
                 {icons.bolt}
               </button>
             )}
             {bulkGenerating && (
-              <span style={{ fontSize: 11, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 4, padding: '0 6px' }}>
+              <span style={{
+                fontSize: 11, color: 'var(--accent)',
+                display: 'flex', alignItems: 'center', gap: 4, padding: '0 6px',
+              }}>
                 <span className="spinner" />{bulkProgress}/{bulkTotal}
               </span>
             )}
-            <button className="btn btn--sm btn--primary" onClick={onAddScript}>{icons.plus}</button>
+            <button className="btn btn--sm btn--primary" onClick={onAddScript}>
+              {icons.plus}
+            </button>
           </div>
         </div>
+
         <div className="script-list">
-          {project.scripts.length === 0
-            ? <div className="empty-state" style={{ padding: '24px 12px' }}>{icons.edit}<p>No scripts yet</p><button className="btn btn--sm btn--primary" onClick={onAddScript}>Add Script</button></div>
-            : project.scripts.map((s, i) => (
-              <div key={s.id}
+          {project.scripts.length === 0 ? (
+            <div className="empty-state" style={{ padding: '24px 12px' }}>
+              {icons.edit}
+              <p>No scripts yet</p>
+              <button className="btn btn--sm btn--primary" onClick={onAddScript}>
+                Add Script
+              </button>
+            </div>
+          ) : (
+            project.scripts.map((s, i) => (
+              <div
+                key={s.id}
                 className={`script-item ${s.id === activeScriptId ? 'script-item--active' : ''}`}
                 draggable
                 onDragStart={() => onDragStart(i)}
@@ -238,27 +377,57 @@ export function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAd
                     {s.duration ? ` · ${fmt(s.duration)}` : ''}
                   </div>
                 </div>
-                <span className={`script-item__status ${s.hasAudio ? 'script-item__status--done' : s.content ? 'script-item__status--pending' : 'script-item__status--none'}`} />
+                <span className={[
+                  'script-item__status',
+                  s.hasAudio
+                    ? 'script-item__status--done'
+                    : s.content
+                      ? 'script-item__status--pending'
+                      : 'script-item__status--none',
+                ].join(' ')} />
               </div>
             ))
-          }
+          )}
         </div>
+
         {pendingCount > 0 && (
           <div style={{ padding: '8px 10px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
-            <button className="btn btn--sm" style={{ width: '100%', justifyContent: 'center', background: bulkGenerating ? 'var(--bg-3)' : 'var(--accent-lt)', color: bulkGenerating ? 'var(--text-3)' : 'var(--accent)', border: '1px solid var(--accent-mid)' }}
-              onClick={handleBulkGenerate} disabled={bulkGenerating}>
-              {bulkGenerating ? <><span className="spinner" /> Generating {bulkProgress}/{bulkTotal}</> : <>{icons.bolt} Generate All ({pendingCount})</>}
+            <button
+              className="btn btn--sm"
+              style={{
+                width: '100%',
+                justifyContent: 'center',
+                background: bulkGenerating ? 'var(--bg-3)' : 'var(--accent-lt)',
+                color: bulkGenerating ? 'var(--text-3)' : 'var(--accent)',
+                border: '1px solid var(--accent-mid)',
+              }}
+              onClick={handleBulkGenerate}
+              disabled={bulkGenerating}
+            >
+              {bulkGenerating
+                ? <><span className="spinner" /> Generating {bulkProgress}/{bulkTotal}</>
+                : <>{icons.bolt} Generate All ({pendingCount})</>}
             </button>
           </div>
         )}
       </div>
 
+      {/* Editor panel */}
       <div className={`editor-panel ${showScriptList && !activeScript ? 'editor-panel--hidden-mobile' : ''}`}>
-        {!activeScript
-          ? <div className="empty-state">{icons.edit}<p>Select a script or create a new one</p></div>
-          : <>
+        {!activeScript ? (
+          <div className="empty-state">
+            {icons.edit}
+            <p>Select a script or create a new one</p>
+          </div>
+        ) : (
+          <>
             <div className="editor-toolbar">
-              <button className="btn btn--ghost btn--sm editor-back" onClick={() => setShowScriptList(true)}>{icons.back}</button>
+              <button
+                className="btn btn--ghost btn--sm editor-back"
+                onClick={() => setShowScriptList(true)}
+              >
+                {icons.back}
+              </button>
               <input
                 className="text-input editor-title"
                 value={activeScript.title}
@@ -266,20 +435,82 @@ export function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAd
                 placeholder="Script title"
               />
               <div className="undo-redo">
-                <button className="btn btn--sm btn--ghost" onClick={() => dispatch({ type: 'UNDO' })} disabled={!histState.past.length} title="Undo">{icons.undo}</button>
-                <button className="btn btn--sm btn--ghost" onClick={() => dispatch({ type: 'REDO' })} disabled={!histState.future.length} title="Redo">{icons.redo}</button>
+                <button
+                  className="btn btn--sm btn--ghost"
+                  onClick={() => dispatch({ type: 'UNDO' })}
+                  disabled={!histState.past.length}
+                  title="Undo (Ctrl+Z)"
+                >
+                  {icons.undo}
+                </button>
+                <button
+                  className="btn btn--sm btn--ghost"
+                  onClick={() => dispatch({ type: 'REDO' })}
+                  disabled={!histState.future.length}
+                  title="Redo (Ctrl+Y)"
+                >
+                  {icons.redo}
+                </button>
               </div>
-              <button className="btn btn--sm btn--ghost" onClick={() => fileImportRef.current?.click()} title="Import .txt file">{icons.upload}</button>
-              <button className="btn btn--sm btn--ghost" onClick={() => audioUploadRef.current?.click()} disabled={transcribing} title="Upload audio → transcribe to script">
+              <button
+                className="btn btn--sm btn--ghost"
+                onClick={() => fileImportRef.current?.click()}
+                title="Import .txt file"
+              >
+                {icons.upload}
+              </button>
+              <button
+                className="btn btn--sm btn--ghost"
+                onClick={() => audioUploadRef.current?.click()}
+                disabled={transcribing}
+                title="Upload audio → transcribe to script"
+              >
                 {transcribing ? <span className="spinner" /> : icons.mic}
               </button>
-              <input ref={fileImportRef} type="file" accept=".txt,.md" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleFileImport(f); e.target.value = '' }} />
-              <input ref={audioUploadRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleAudioTranscribe(f); e.target.value = '' }} />
-              <span style={{ fontSize: 11, color: saveState === 'saved' ? 'var(--ok)' : 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                {saveState === 'saving' ? <span className="spinner" /> : saveState === 'saved' ? icons.check : null}
+              <input
+                ref={fileImportRef}
+                type="file"
+                accept=".txt,.md"
+                style={{ display: 'none' }}
+                onChange={e => {
+                  const f = e.target.files?.[0]
+                  if (f) handleFileImport(f)
+                  e.target.value = ''
+                }}
+              />
+              <input
+                ref={audioUploadRef}
+                type="file"
+                accept="audio/*"
+                style={{ display: 'none' }}
+                onChange={e => {
+                  const f = e.target.files?.[0]
+                  if (f) handleAudioTranscribe(f)
+                  e.target.value = ''
+                }}
+              />
+              <span style={{
+                fontSize: 11,
+                color: saveState === 'saved' ? 'var(--ok)' : 'var(--text-3)',
+                display: 'flex', alignItems: 'center', gap: 3,
+              }}>
+                {saveState === 'saving'
+                  ? <span className="spinner" />
+                  : saveState === 'saved' ? icons.check : null}
                 {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : ''}
               </span>
-              <button className="btn btn--sm btn--danger" onClick={() => { onDeleteScript(activeScript.id); setShowScriptList(true) }}>{icons.trash}</button>
+              <button
+                className="btn btn--sm btn--danger"
+                onClick={() => {
+                  if (confirm(`Delete script "${activeScript.title}"?`)) {
+                    onDeleteScript(activeScript.id)
+                    setShowScriptList(true)
+                  }
+                }}
+                title="Delete script"
+              >
+                {icons.trash}
+              </button>
             </div>
 
             <div className="editor-body">
@@ -291,26 +522,54 @@ export function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAd
               />
             </div>
 
-            {synthErr && <div className="msg msg--err" style={{ margin: '8px 14px 0' }}>{synthErr}</div>}
+            {synthErr && (
+              <div className="msg msg--err" style={{ margin: '8px 14px 0' }}>
+                {synthErr}
+              </div>
+            )}
 
             {audioUrl && (
               <div className="vo-audio-row">
                 <span className="vo-ready-label">✓ Ready</span>
                 <audio src={audioUrl} controls />
-                <a href={audioUrl} download={`${activeScript.title}.wav`} className="btn btn--sm">{icons.download}</a>
+                <a href={audioUrl} download={`${activeScript.title}.wav`} className="btn btn--sm">
+                  {icons.download}
+                </a>
+                <button
+                  className="btn btn--sm btn--danger"
+                  onClick={() => {
+                    deleteAudioBlob(`audio_${activeScript.id}`)
+                    onUpdateScript(activeScript.id, { hasAudio: false, duration: null })
+                    setAudioUrl(null)
+                  }}
+                  title="Remove audio"
+                >
+                  {icons.trash}
+                </button>
               </div>
             )}
 
             <div className="editor-footer">
-              <span className="word-count">{wordCount} words · ~{Math.ceil(wordCount / 130)}m</span>
+              <span className="word-count">
+                {wordCount} words · ~{Math.ceil(wordCount / 130)}m
+              </span>
               <div style={{ flex: 1 }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 11, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>Speed</span>
-                <input type="range" min="0.5" max="2" step="0.1"
+                <span style={{ fontSize: 11, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
+                  Speed
+                </span>
+                <input
+                  type="range" min="0.5" max="2" step="0.1"
                   value={activeScript.speed ?? 1.0}
                   onChange={e => onUpdateScript(activeScript.id, { speed: parseFloat(e.target.value) })}
-                  style={{ width: 60, accentColor: 'var(--accent)' }} />
-                <span style={{ fontSize: 11, color: 'var(--accent)', fontFamily: 'var(--mono)', width: 28 }}>{(activeScript.speed ?? 1.0).toFixed(1)}x</span>
+                  style={{ width: 60, accentColor: 'var(--accent)' }}
+                />
+                <span style={{
+                  fontSize: 11, color: 'var(--accent)',
+                  fontFamily: 'var(--mono)', width: 28,
+                }}>
+                  {(activeScript.speed ?? 1.0).toFixed(1)}x
+                </span>
               </div>
               <select
                 className="profile-select"
@@ -318,7 +577,9 @@ export function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAd
                 onChange={e => onUpdateScript(activeScript.id, { language: e.target.value })}
                 title="Language"
               >
-                {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+                {LANGUAGES.map(l => (
+                  <option key={l.code} value={l.code}>{l.label}</option>
+                ))}
               </select>
               {voiceProfiles.length > 0 && (
                 <select
@@ -326,15 +587,23 @@ export function WorkspacePage({ project, activeScriptId, setActiveScriptId, onAd
                   value={activeScript.profileId ?? voiceProfiles[0]?.profile_id ?? ''}
                   onChange={e => onUpdateScript(activeScript.id, { profileId: e.target.value })}
                 >
-                  {voiceProfiles.map(vp => <option key={vp.profile_id} value={vp.profile_id}>{vp.profile_id}</option>)}
+                  {voiceProfiles.map(vp => (
+                    <option key={vp.profile_id} value={vp.profile_id}>{vp.profile_id}</option>
+                  ))}
                 </select>
               )}
-              <button className="btn btn--primary btn--sm" onClick={handleGenerateSingle} disabled={synthesizing || !histState.present.trim()}>
-                {synthesizing ? <><span className="spinner" /> Generating…</> : <>{icons.play} Generate</>}
+              <button
+                className="btn btn--primary btn--sm"
+                onClick={handleGenerateSingle}
+                disabled={synthesizing || !histState.present.trim()}
+              >
+                {synthesizing
+                  ? <><span className="spinner" /> Generating…</>
+                  : <>{icons.play} Generate</>}
               </button>
             </div>
           </>
-        }
+        )}
       </div>
     </div>
   )

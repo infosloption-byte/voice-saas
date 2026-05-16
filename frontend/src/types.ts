@@ -6,6 +6,13 @@ export type Page =
 
 export type WorkspaceTab = 'scripts' | 'assembly'
 export type SaveState = 'saved' | 'saving' | 'unsaved'
+export type EngineStatus = 'checking' | 'online' | 'offline'
+
+export interface User {
+  id: string | number
+  name: string
+  email: string
+}
 
 export interface Project {
   id: string
@@ -65,4 +72,19 @@ export interface HistoryState {
   past: string[]
   present: string
   future: string[]
+}
+
+// ── API response shapes ────────────────────────────────────────────
+export interface SynthesisResult {
+  warning?: string
+}
+
+export interface VoiceProfileSaveResult {
+  profile_id: string
+  duration_seconds?: number
+  warning?: string
+}
+
+export interface TranscriptionResult {
+  text: string
 }
