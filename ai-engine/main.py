@@ -146,12 +146,16 @@ def concatenate_wavs(wav_paths: list[str], output_path: str, gap_ms: int = 60) -
 def synthesize_chunk_f5(chunk: str, ref_wav: str, speed: float, chunk_path: str) -> None:
     """
     Synthesize a single text chunk using F5-TTS and save to chunk_path.
-    ref_text is intentionally left empty — F5-TTS auto-transcribes the reference.
+    Handles multiple F5-TTS API versions gracefully.
     """
     f5 = models["f5tts"]
     if f5 is None:
         raise RuntimeError("F5-TTS model not loaded")
 
+    wav = None
+    sr = 24000  # F5-TTS default sample rate
+
+    # ── Try modern API (f5-tts >= 0.9) ────────────────────────────
     try:
         result = f5.infer(
             ref_file=ref_wav,
@@ -161,26 +165,44 @@ def synthesize_chunk_f5(chunk: str, ref_wav: str, speed: float, chunk_path: str)
             target_rms=0.1,
             cross_fade_duration=0.15,
         )
-        # infer() returns (wav, sample_rate, spectrogram)
-        wav, sr = result[0], result[1]
+        # infer() returns (wav_array, sample_rate, spectrogram)
+        if isinstance(result, (tuple, list)) and len(result) >= 2:
+            wav, sr = result[0], int(result[1])
+        else:
+            wav = result
     except TypeError:
-        # Fallback for older F5-TTS API variants
-        result = f5.infer(
-            ref_file=ref_wav,
-            ref_text="",
-            gen_text=chunk,
-        )
-        wav, sr = result[0], result[1]
+        # ── Fallback: minimal kwargs (older API) ───────────────────
+        try:
+            result = f5.infer(
+                ref_file=ref_wav,
+                ref_text="",
+                gen_text=chunk,
+            )
+            if isinstance(result, (tuple, list)) and len(result) >= 2:
+                wav, sr = result[0], int(result[1])
+            else:
+                wav = result
+        except Exception as e2:
+            raise RuntimeError(f"F5-TTS infer() failed: {e2}") from e2
+    except Exception as e:
+        raise RuntimeError(f"F5-TTS infer() error: {e}") from e
 
-    # Normalise to numpy float32
+    if wav is None:
+        raise RuntimeError("F5-TTS returned no audio data")
+
+    # ── Normalise to numpy float32 ─────────────────────────────────
     if hasattr(wav, "cpu"):          # torch tensor
         wav = wav.cpu().numpy()
     wav = np.array(wav, dtype=np.float32)
 
+    # Flatten — take first channel if stereo / batch dim
     if wav.ndim > 1:
-        wav = wav[0]                 # take first channel if stereo
+        wav = wav.reshape(-1) if wav.shape[0] == 1 else wav[0]
 
-    sf.write(chunk_path, wav, int(sr), subtype="PCM_16")
+    if wav.size == 0:
+        raise RuntimeError("F5-TTS produced empty audio array")
+
+    sf.write(chunk_path, wav, sr, subtype="PCM_16")
 
 
 # ── Model loading ──────────────────────────────────────────────────
@@ -192,12 +214,23 @@ async def lifespan(app):
 
 app = FastAPI(lifespan=lifespan)
 
+# ── CORS ───────────────────────────────────────────────────────────
+# FIX: Include the production IP so browser requests from https://3.83.53.113
+#      are not blocked.  Add any additional domains/IPs here as needed.
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    # Production EC2 origins (nginx proxies the browser → this engine)
+    "https://3.83.53.113",
+    "http://3.83.53.113",
+    "http://3.83.53.113:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000", "http://127.0.0.1:3000",
-        "http://localhost:5173", "http://127.0.0.1:5173",
-    ],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -223,16 +256,33 @@ async def load_all_models():
     except Exception as e:
         print(f"✗ XTTS v2 failed: {e}")
 
-    # F5-TTS  (optional — graceful fallback if not installed)
-    try:
-        print("Loading F5-TTS…")
-        from f5_tts.api import F5TTS          # noqa: PLC0415
-        models["f5tts"] = F5TTS()
-        print("✓ F5-TTS ready")
-    except ImportError:
-        print("ℹ F5-TTS not installed — run: pip install f5-tts  (XTTS v2 remains available)")
-    except Exception as e:
-        print(f"✗ F5-TTS failed to load: {e}")
+    # F5-TTS — optional, graceful fallback
+    # Tries multiple import paths for different package versions
+    f5_loaded = False
+    for import_path in [
+        ("f5_tts.api",  "F5TTS"),
+        ("f5_tts",      "F5TTS"),
+        ("f5tts",       "F5TTS"),
+    ]:
+        module_name, class_name = import_path
+        try:
+            import importlib
+            mod = importlib.import_module(module_name)
+            F5TTSClass = getattr(mod, class_name)
+            print(f"Loading F5-TTS (from {module_name})…")
+            models["f5tts"] = F5TTSClass()
+            print("✓ F5-TTS ready")
+            f5_loaded = True
+            break
+        except ImportError:
+            continue
+        except Exception as e:
+            print(f"✗ F5-TTS failed to load from {module_name}: {e}")
+            break
+
+    if not f5_loaded:
+        print("ℹ F5-TTS not installed — XTTS v2 remains available")
+        print("  To enable: pip install f5-tts")
 
     print("--- Model Loading Complete ---")
 
@@ -374,7 +424,7 @@ async def synthesize(
         raise HTTPException(
             503,
             "F5-TTS is not available on this server. "
-            "Install it with: pip install f5-tts  — or switch to XTTS v2."
+            "Install it with: pip install f5-tts  — or switch to XTTS v2 in Settings."
         )
     if engine == "xtts" and not models["xtts"]:
         raise HTTPException(503, "XTTS v2 model is not available.")
@@ -426,7 +476,7 @@ async def synthesize(
         raise
     except Exception as e:
         print(f"Synthesis error [{engine}]: {e}")
-        raise HTTPException(500, f"Synthesis failed: {e}")
+        raise HTTPException(500, f"Synthesis failed ({engine}): {e}")
     finally:
         for p in chunk_paths:
             if os.path.exists(p):
