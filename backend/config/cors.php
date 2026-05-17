@@ -20,6 +20,7 @@ return [
         'http://localhost:3000',
         'http://localhost:5173',
         'http://127.0.0.1:3000',
+        'https://3.83.53.113',
         'http://3.83.53.113',      // EC2 public IP (port 80 via nginx)
         'http://3.83.53.113:3000',
     ],
