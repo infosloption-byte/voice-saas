@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { api } from './api'
 import { icons, EMOJIS } from './constants'
 import { fmt, uid, useAudioRecorder } from './audio'
+import { useTTSEngine } from './hooks/useTTSEngine'
 import type { Project, Script, VoiceProfile } from './types'
 
 // ── Wave visualiser ────────────────────────────────────────────────
@@ -202,6 +203,10 @@ export function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
 // ── Voice Profiles ─────────────────────────────────────────────────
 export function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRefresh: () => void }) {
   const recorder = useAudioRecorder()
+
+  // Read current engine preference so preview uses the same engine as synthesis
+  const { engine } = useTTSEngine()
+
   const [profileName, setProfileName] = useState('my-voice')
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
@@ -234,12 +239,12 @@ export function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]
     const secs = recorder.seconds
     if (secs < 6) {
       setMsgWarn(
-        `⚠ Recording is only ${secs}s. XTTS needs 6-30 s of clear speech ` +
+        `⚠ Recording is only ${secs}s. Both engines need 6-30 s of clear speech ` +
         `for accurate voice cloning. Please re-record.`
       )
     } else if (secs > 35) {
       setMsgWarn(
-        `⚠ Recording is ${secs}s — very long references can confuse XTTS. ` +
+        `⚠ Recording is ${secs}s — very long references can reduce quality. ` +
         `10-20 s of clean speech is ideal.`
       )
     }
@@ -281,6 +286,7 @@ export function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]
     fd.append('text', previewText)
     fd.append('profile_id', profile_id)
     fd.append('language', 'en')
+    fd.append('tts_engine', engine)   // ← use whichever engine is currently selected
     try {
       const blob = await api.enginePost('/synthesize', fd)
       const audio = new Audio(URL.createObjectURL(blob))
@@ -292,6 +298,12 @@ export function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]
       setPreviewing(false); setPreviewId(null)
     }
   }
+
+  // Engine label shown next to the preview input
+  const engineLabel = engine === 'f5' ? 'F5-TTS' : 'XTTS v2'
+  const engineColor = engine === 'f5' ? '#4278c9' : 'var(--accent)'
+  const engineBg    = engine === 'f5' ? 'rgba(66,120,201,0.10)' : 'var(--accent-lt)'
+  const engineBorder = engine === 'f5' ? 'rgba(66,120,201,0.25)' : 'var(--accent-mid)'
 
   return (
     <div>
@@ -352,17 +364,34 @@ export function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]
           <div className="section-head">
             <div><h2>Saved Profiles</h2><p>{profiles.length} voice model{profiles.length !== 1 ? 's' : ''} ready</p></div>
           </div>
+
           {profiles.length > 0 && (
             <div style={{ marginBottom: 14 }}>
-              <input
-                className="text-input"
-                style={{ width: '100%' }}
-                value={previewText}
-                onChange={e => setPreviewText(e.target.value)}
-                placeholder="Preview text…"
-              />
+              {/* Preview text input + active engine badge */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <input
+                  className="text-input"
+                  style={{ flex: 1 }}
+                  value={previewText}
+                  onChange={e => setPreviewText(e.target.value)}
+                  placeholder="Preview text…"
+                />
+                <span style={{
+                  fontSize: 10, fontWeight: 700, letterSpacing: '0.4px',
+                  textTransform: 'uppercase', padding: '3px 8px', borderRadius: 5,
+                  background: engineBg, color: engineColor,
+                  border: `1px solid ${engineBorder}`, flexShrink: 0,
+                }} title={`Previewing with ${engineLabel}`}>
+                  {engineLabel}
+                </span>
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>
+                Preview uses your currently selected engine. Switch it in{' '}
+                <strong>Settings → Audio & Synthesis</strong> or the workspace footer.
+              </p>
             </div>
           )}
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {profiles.length === 0
               ? <div className="empty-state">{icons.profiles}<p>Record your first voice profile</p></div>
@@ -379,7 +408,7 @@ export function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]
                     className="btn btn--sm btn--ghost"
                     onClick={() => handlePreview(vp.profile_id)}
                     disabled={previewing}
-                    title="Preview voice"
+                    title={`Preview with ${engineLabel}`}
                   >
                     {previewing && previewId === vp.profile_id ? <span className="spinner" /> : icons.speaker}
                   </button>

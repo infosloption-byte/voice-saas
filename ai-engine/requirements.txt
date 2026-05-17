@@ -5,4 +5,5 @@ coqui-tts
 python-multipart
 numpy
 soundfile
+f5-tts
 torch --index-url https://download.pytorch.org/whl/cpu

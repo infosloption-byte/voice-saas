@@ -14,20 +14,7 @@ import soundfile as sf
 
 os.environ["COQUI_TOS_AGREED"] = "1"
 
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000", "http://127.0.0.1:3000",
-        "http://localhost:5173", "http://127.0.0.1:5173",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-models = {"stt": None, "tts": None}
+models: dict = {"stt": None, "xtts": None, "f5tts": None}
 
 VOICES_DIR = "voice_profiles"
 os.makedirs(VOICES_DIR, exist_ok=True)
@@ -41,21 +28,16 @@ def tmp_path(prefix: str, suffix: str = "") -> str:
 
 # ── Audio conversion ───────────────────────────────────────────────
 def convert_to_wav(input_path: str, output_path: str, sample_rate: int = 22050) -> bool:
-    """
-    Convert any audio → mono WAV at the given sample rate.
-    Uses two-pass: first convert, then apply loudnorm for consistent levels.
-    """
     try:
-        # Pass 1: convert & normalise loudness (EBU R128 loudnorm)
         result = subprocess.run(
             [
                 "ffmpeg", "-y",
                 "-i", input_path,
                 "-af", (
-                    "highpass=f=80,"           # remove rumble
-                    "afftdn=nf=-25,"           # spectral noise reduction
-                    "loudnorm=I=-16:TP=-1.5:LRA=11,"  # loudness normalisation
-                    "aresample=resampler=soxr" # high-quality resampler
+                    "highpass=f=80,"
+                    "afftdn=nf=-25,"
+                    "loudnorm=I=-16:TP=-1.5:LRA=11,"
+                    "aresample=resampler=soxr"
                 ),
                 "-ar", str(sample_rate),
                 "-ac", "1",
@@ -68,7 +50,6 @@ def convert_to_wav(input_path: str, output_path: str, sample_rate: int = 22050) 
             timeout=60,
         )
         if result.returncode != 0:
-            # Fallback: plain conversion without filters
             result = subprocess.run(
                 ["ffmpeg", "-y", "-i", input_path,
                  "-ar", str(sample_rate), "-ac", "1",
@@ -82,10 +63,6 @@ def convert_to_wav(input_path: str, output_path: str, sample_rate: int = 22050) 
 
 
 def trim_silence(wav_path: str, top_db: float = 30.0) -> None:
-    """
-    In-place trim of leading / trailing silence using numpy.
-    top_db: threshold in dB below max – lower = more aggressive trim.
-    """
     try:
         data, sr = sf.read(wav_path)
         if data.ndim > 1:
@@ -95,7 +72,7 @@ def trim_silence(wav_path: str, top_db: float = 30.0) -> None:
         nonzero = np.where(amp > thresh)[0]
         if len(nonzero) == 0:
             return
-        start = max(0, nonzero[0] - int(0.05 * sr))   # 50 ms padding
+        start = max(0, nonzero[0] - int(0.05 * sr))
         end   = min(len(data), nonzero[-1] + int(0.05 * sr))
         sf.write(wav_path, data[start:end], sr, subtype="PCM_16")
     except Exception as e:
@@ -103,20 +80,7 @@ def trim_silence(wav_path: str, top_db: float = 30.0) -> None:
 
 
 # ── Text chunking ──────────────────────────────────────────────────
-# XTTS v2 works best with 1-3 sentences at a time (~100-300 chars).
-# Longer inputs cause internal silent padding and prosody drift.
-
-_SENTENCE_ENDINGS = re.compile(
-    r'(?<=[.!?…])\s+(?=[A-Z"\'])|'   # after .!?… followed by capital
-    r'(?<=\n)\s*(?=\S)',               # paragraph breaks
-)
-
 def split_into_chunks(text: str, max_chars: int = 220) -> list[str]:
-    """
-    Split text into natural sentence chunks ≤ max_chars.
-    Merges short sentences so we don't over-fragment.
-    """
-    # First split on sentence boundaries
     raw = re.split(r'(?<=[.!?…])\s+', text.strip())
     chunks: list[str] = []
     current = ""
@@ -130,7 +94,6 @@ def split_into_chunks(text: str, max_chars: int = 220) -> list[str]:
         else:
             if current:
                 chunks.append(current)
-            # If a single sentence is still > max_chars, split on commas/semicolons
             if len(sentence) > max_chars:
                 sub = re.split(r'(?<=[,;])\s+', sentence)
                 buf = ""
@@ -142,10 +105,7 @@ def split_into_chunks(text: str, max_chars: int = 220) -> list[str]:
                         if buf:
                             chunks.append(buf)
                         buf = part
-                if buf:
-                    current = buf
-                else:
-                    current = ""
+                current = buf
             else:
                 current = sentence
     if current:
@@ -153,12 +113,7 @@ def split_into_chunks(text: str, max_chars: int = 220) -> list[str]:
     return [c for c in chunks if c.strip()]
 
 
-def concatenate_wavs(wav_paths: list[str], output_path: str,
-                     gap_ms: int = 60) -> bool:
-    """
-    Concatenate multiple WAVs with a short silence gap between them.
-    gap_ms: milliseconds of silence injected between chunks (avoids hard cuts).
-    """
+def concatenate_wavs(wav_paths: list[str], output_path: str, gap_ms: int = 60) -> bool:
     try:
         arrays, sr = [], None
         for p in wav_paths:
@@ -176,7 +131,6 @@ def concatenate_wavs(wav_paths: list[str], output_path: str,
         for chunk in arrays[1:]:
             merged = np.concatenate([merged, gap, chunk])
 
-        # Light peak normalise to -3 dBFS
         peak = np.abs(merged).max()
         if peak > 0:
             merged = merged * (10 ** (-3 / 20)) / peak
@@ -188,38 +142,119 @@ def concatenate_wavs(wav_paths: list[str], output_path: str,
         return False
 
 
+# ── F5-TTS synthesis helper ────────────────────────────────────────
+def synthesize_chunk_f5(chunk: str, ref_wav: str, speed: float, chunk_path: str) -> None:
+    """
+    Synthesize a single text chunk using F5-TTS and save to chunk_path.
+    ref_text is intentionally left empty — F5-TTS auto-transcribes the reference.
+    """
+    f5 = models["f5tts"]
+    if f5 is None:
+        raise RuntimeError("F5-TTS model not loaded")
+
+    try:
+        result = f5.infer(
+            ref_file=ref_wav,
+            ref_text="",          # auto-transcription from ref audio
+            gen_text=chunk,
+            speed=max(0.5, min(2.0, speed)),
+            target_rms=0.1,
+            cross_fade_duration=0.15,
+        )
+        # infer() returns (wav, sample_rate, spectrogram)
+        wav, sr = result[0], result[1]
+    except TypeError:
+        # Fallback for older F5-TTS API variants
+        result = f5.infer(
+            ref_file=ref_wav,
+            ref_text="",
+            gen_text=chunk,
+        )
+        wav, sr = result[0], result[1]
+
+    # Normalise to numpy float32
+    if hasattr(wav, "cpu"):          # torch tensor
+        wav = wav.cpu().numpy()
+    wav = np.array(wav, dtype=np.float32)
+
+    if wav.ndim > 1:
+        wav = wav[0]                 # take first channel if stereo
+
+    sf.write(chunk_path, wav, int(sr), subtype="PCM_16")
+
+
 # ── Model loading ──────────────────────────────────────────────────
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app):
     await load_all_models()
     yield
 
+
 app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000", "http://127.0.0.1:3000",
+        "http://localhost:5173", "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 async def load_all_models():
     print("--- Initializing AI Suite ---")
+
+    # Whisper STT
     try:
         print("Loading Whisper (STT)…")
         models["stt"] = whisper.load_model("base", device="cpu")
-        print("Loading XTTS v2 (TTS/Cloning)…")
-        models["tts"] = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to("cpu")
-        print("--- All Models Ready ---")
+        print("✓ Whisper ready")
     except Exception as e:
-        print(f"Error during model loading: {e}")
+        print(f"✗ Whisper failed: {e}")
+
+    # XTTS v2
+    try:
+        print("Loading XTTS v2 (TTS/Cloning)…")
+        models["xtts"] = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to("cpu")
+        print("✓ XTTS v2 ready")
+    except Exception as e:
+        print(f"✗ XTTS v2 failed: {e}")
+
+    # F5-TTS  (optional — graceful fallback if not installed)
+    try:
+        print("Loading F5-TTS…")
+        from f5_tts.api import F5TTS          # noqa: PLC0415
+        models["f5tts"] = F5TTS()
+        print("✓ F5-TTS ready")
+    except ImportError:
+        print("ℹ F5-TTS not installed — run: pip install f5-tts  (XTTS v2 remains available)")
+    except Exception as e:
+        print(f"✗ F5-TTS failed to load: {e}")
+
+    print("--- Model Loading Complete ---")
 
 
+# ── Status ────────────────────────────────────────────────────────
 @app.get("/")
 async def status():
     return {
         "status": "Online",
         "features": {
-            "transcription": "Ready" if models["stt"] else "Loading",
-            "voice_cloning":  "Ready" if models["tts"] else "Loading",
+            "transcription":       "Ready" if models["stt"]   else "Unavailable",
+            "voice_cloning_xtts":  "Ready" if models["xtts"]  else "Unavailable",
+            "voice_cloning_f5":    "Ready" if models["f5tts"] else "Unavailable",
+        },
+        "engines": {
+            "xtts": models["xtts"]  is not None,
+            "f5":   models["f5tts"] is not None,
         },
     }
 
 
-# ── FEATURE 1: TRANSCRIPTION ───────────────────────────────────────
+# ── FEATURE 1: TRANSCRIPTION ──────────────────────────────────────
 @app.post("/transcribe")
 async def transcribe(file: UploadFile = File(...)):
     if not models["stt"]:
@@ -253,10 +288,6 @@ async def save_voice_profile(
     file: UploadFile = File(...),
     profile_id: str = Form(...),
 ):
-    """
-    Save a voice recording as a named profile.
-    We normalise + trim silence so XTTS gets clean reference audio.
-    """
     raw_path = tmp_path("voice_raw")
     wav_path = os.path.join(VOICES_DIR, f"{profile_id}.wav")
 
@@ -264,14 +295,11 @@ async def save_voice_profile(
         with open(raw_path, "wb") as b:
             b.write(await file.read())
 
-        # Convert at 22 kHz (XTTS native rate) with loudnorm
         if not convert_to_wav(raw_path, wav_path, sample_rate=22050):
             raise HTTPException(400, "Could not convert audio.")
 
-        # Trim leading / trailing silence
         trim_silence(wav_path, top_db=35)
 
-        # Check duration
         probe = subprocess.run(
             [
                 "ffprobe", "-v", "error",
@@ -285,7 +313,7 @@ async def save_voice_profile(
 
         warning = None
         if duration < 6:
-            warning = f"Recording is only {duration:.1f}s — XTTS needs 6-30 seconds for best quality."
+            warning = f"Recording is only {duration:.1f}s — both engines need 6-30 s for best quality."
         elif duration > 30:
             warning = "Recording is over 30 s — consider trimming to the best 10-20 s."
 
@@ -315,37 +343,41 @@ async def list_voice_profiles():
     return {"profiles": profiles}
 
 
-# ── FEATURE 4: SYNTHESIZE WITH CHUNKING ──────────────────────────
+# ── FEATURE 4: SYNTHESIZE (XTTS v2 or F5-TTS) ────────────────────
 @app.post("/synthesize")
 async def synthesize(
-    text: str = Form(...),
-    profile_id: str = Form(...),
-    language: str = Form(default="en"),
-    # XTTS quality knobs — exposed so the frontend can tune them later
-    temperature: float = Form(default=0.65),   # lower = more stable/consistent
-    top_k: int     = Form(default=50),
-    top_p: float   = Form(default=0.85),
-    speed: float   = Form(default=1.0),        # 0.5 – 2.0
-    # Gap injected between synthesised sentence chunks (ms)
-    gap_ms: int    = Form(default=60),
+    text: str        = Form(...),
+    profile_id: str  = Form(...),
+    language: str    = Form(default="en"),
+    tts_engine: str  = Form(default="xtts"),   # "xtts" | "f5"
+    # XTTS-specific knobs (ignored by F5-TTS)
+    temperature: float = Form(default=0.65),
+    top_k: int         = Form(default=50),
+    top_p: float       = Form(default=0.85),
+    speed: float       = Form(default=1.0),
+    gap_ms: int        = Form(default=60),
 ):
-    """
-    Generate speech from text using a saved voice profile.
-    Text is split into sentence chunks so XTTS never operates on a long
-    passage — this eliminates the silent-gap artefact and improves
-    voice-match consistency.
-    """
-    if not models["tts"]:
-        raise HTTPException(503, "TTS model still loading…")
-
     ref_wav = os.path.join(VOICES_DIR, f"{profile_id}.wav")
     if not os.path.exists(ref_wav):
         raise HTTPException(404, f"Voice profile '{profile_id}' not found.")
 
-    # Split input into manageable chunks
     chunks = split_into_chunks(text.strip())
     if not chunks:
         raise HTTPException(400, "No text to synthesise.")
+
+    engine = tts_engine.lower().strip()
+    if engine not in ("xtts", "f5"):
+        engine = "xtts"
+
+    # Guard: check the requested engine is available
+    if engine == "f5" and not models["f5tts"]:
+        raise HTTPException(
+            503,
+            "F5-TTS is not available on this server. "
+            "Install it with: pip install f5-tts  — or switch to XTTS v2."
+        )
+    if engine == "xtts" and not models["xtts"]:
+        raise HTTPException(503, "XTTS v2 model is not available.")
 
     chunk_paths: list[str] = []
     out_path = tmp_path("synth_final", ".wav")
@@ -355,22 +387,27 @@ async def synthesize(
             chunk_path = tmp_path(f"synth_chunk_{i}", ".wav")
             chunk_paths.append(chunk_path)
 
-            models["tts"].tts_to_file(
-                text=chunk,
-                speaker_wav=ref_wav,
-                language=language,
-                file_path=chunk_path,
-                # --- XTTS inference parameters ---
-                # temperature: lower → more faithful to reference timbre
-                # (default 0.65 strikes a good balance; raise to 0.8+ for
-                #  more expressive/varied delivery)
-                temperature=max(0.1, min(1.0, temperature)),
-                top_k=max(1, min(100, top_k)),
-                top_p=max(0.1, min(1.0, top_p)),
-                speed=max(0.5, min(2.0, speed)),
-                # enable_text_splitting=False keeps us in control of chunks
-                enable_text_splitting=False,
-            )
+            if engine == "f5":
+                # ── F5-TTS path ──────────────────────────────────
+                synthesize_chunk_f5(
+                    chunk=chunk,
+                    ref_wav=ref_wav,
+                    speed=speed,
+                    chunk_path=chunk_path,
+                )
+            else:
+                # ── XTTS v2 path ─────────────────────────────────
+                models["xtts"].tts_to_file(
+                    text=chunk,
+                    speaker_wav=ref_wav,
+                    language=language,
+                    file_path=chunk_path,
+                    temperature=max(0.1, min(1.0, temperature)),
+                    top_k=max(1, min(100, top_k)),
+                    top_p=max(0.1, min(1.0, top_p)),
+                    speed=max(0.5, min(2.0, speed)),
+                    enable_text_splitting=False,
+                )
 
         # Merge chunks
         if len(chunk_paths) == 1:
@@ -388,7 +425,7 @@ async def synthesize(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Synthesis error: {e}")
+        print(f"Synthesis error [{engine}]: {e}")
         raise HTTPException(500, f"Synthesis failed: {e}")
     finally:
         for p in chunk_paths:
@@ -402,7 +439,7 @@ async def clone(
     text: str = Form(...),
     file: UploadFile = File(...),
 ):
-    if not models["tts"]:
+    if not models["xtts"]:
         raise HTTPException(503, "Cloning model still loading…")
 
     raw_path = tmp_path("ref_raw")
@@ -423,7 +460,7 @@ async def clone(
         for i, chunk in enumerate(chunks):
             cp = tmp_path(f"clone_chunk_{i}", ".wav")
             chunk_paths.append(cp)
-            models["tts"].tts_to_file(
+            models["xtts"].tts_to_file(
                 text=chunk,
                 speaker_wav=ref_path,
                 language="en",

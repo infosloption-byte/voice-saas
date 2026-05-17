@@ -1,11 +1,30 @@
 import { useState, useEffect, useRef, useReducer, useCallback } from 'react'
 import { icons, LANGUAGES } from './constants'
 import { loadAudioBlob, saveAudioBlob, deleteAudioBlob, historyReducer, fmt } from './audio'
+import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
 import type { Project, Script, VoiceProfile, SaveState } from './types'
 
-// Read exclusively from env — no hardcoded fallback so misconfiguration
-// surfaces immediately rather than silently hitting the wrong host.
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL as string | undefined
+
+// ── Small engine badge shown in the footer ─────────────────────────
+function EngineBadge({ engine }: { engine: TTSEngine }) {
+  return (
+    <span style={{
+      fontSize: 9,
+      fontWeight: 700,
+      letterSpacing: '0.5px',
+      textTransform: 'uppercase' as const,
+      padding: '2px 6px',
+      borderRadius: 4,
+      background: engine === 'f5' ? 'rgba(66,120,201,0.12)' : 'var(--accent-lt)',
+      color: engine === 'f5' ? '#4278c9' : 'var(--accent)',
+      border: engine === 'f5' ? '1px solid rgba(66,120,201,0.25)' : '1px solid var(--accent-mid)',
+      flexShrink: 0,
+    }}>
+      {engine === 'f5' ? 'F5' : 'XTTS'}
+    </span>
+  )
+}
 
 export function WorkspacePage({
   project,
@@ -42,11 +61,13 @@ export function WorkspacePage({
   const [audioUrl, setAudioUrl]             = useState<string | null>(null)
   const [showScriptList, setShowScriptList] = useState(true)
   const [transcribing, setTranscribing]     = useState(false)
+  const [showEngineMenu, setShowEngineMenu] = useState(false)
+
+  // TTS engine preference (persisted in localStorage)
+  const { engine, setEngine } = useTTSEngine()
 
   const fileImportRef  = useRef<HTMLInputElement>(null)
   const audioUploadRef = useRef<HTMLInputElement>(null)
-  // A single AbortController shared between single and bulk synthesis.
-  // Always abort the previous controller before starting a new request.
   const synthAbortRef  = useRef<AbortController | null>(null)
   const dragIdx        = useRef<number | null>(null)
 
@@ -54,9 +75,6 @@ export function WorkspacePage({
     typeof window !== 'undefined' && window.innerWidth < 768
 
   // ── Reset editor when active script changes ───────────────────────
-  // Intentionally depends only on activeScriptId, NOT on activeScript.content.
-  // This means the effect only fires when the user selects a different script,
-  // not on every auto-save keystroke. The eslint-disable is deliberate here.
   useEffect(() => {
     const content = activeScript?.content ?? ''
     dispatch({ type: 'SET', value: content })
@@ -102,15 +120,12 @@ export function WorkspacePage({
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
-  // ── Abort in-flight synthesis on unmount ─────────────────────────
   useEffect(() => {
     return () => { synthAbortRef.current?.abort() }
   }, [])
 
   // ── Script list drag-to-reorder ───────────────────────────────────
-  function onDragStart(i: number) {
-    dragIdx.current = i
-  }
+  function onDragStart(i: number) { dragIdx.current = i }
 
   function onDragOver(e: React.DragEvent, i: number) {
     e.preventDefault()
@@ -122,9 +137,7 @@ export function WorkspacePage({
     onReorder(next)
   }
 
-  function onDragEnd() {
-    dragIdx.current = null
-  }
+  function onDragEnd() { dragIdx.current = null }
 
   function handleSelectScript(id: string) {
     setActiveScriptId(id)
@@ -132,13 +145,12 @@ export function WorkspacePage({
   }
 
   // ── Core synthesis helper ─────────────────────────────────────────
-  // Returns true on success, false on failure/abort.
-  // Caller is responsible for aborting any previous controller before calling.
   const generateVoiceover = useCallback(
     async (
       script: Script,
       text: string,
-      signal?: AbortSignal
+      signal?: AbortSignal,
+      ttsEngine: TTSEngine = 'xtts'
     ): Promise<boolean> => {
       if (!ENGINE_URL) {
         console.error('[WorkspacePage] VITE_ENGINE_URL is not set')
@@ -153,6 +165,8 @@ export function WorkspacePage({
       fd.append('profile_id',  pid)
       fd.append('language',    script.language || 'en')
       fd.append('speed',       String(Math.max(0.5, Math.min(2.0, script.speed ?? 1.0))))
+      fd.append('tts_engine',  ttsEngine)
+      // XTTS-specific knobs (backend ignores them for F5-TTS)
       fd.append('temperature', '0.65')
       fd.append('top_k',       '50')
       fd.append('top_p',       '0.85')
@@ -166,7 +180,8 @@ export function WorkspacePage({
         })
 
         if (!res.ok) {
-          console.error(`[WorkspacePage] Synthesis HTTP ${res.status}`)
+          const errData = await res.json().catch(() => ({}))
+          console.error(`[WorkspacePage] Synthesis HTTP ${res.status}:`, errData.detail ?? errData)
           return false
         }
 
@@ -174,8 +189,6 @@ export function WorkspacePage({
         let duration: number | null = null
         let peaks: number[] | undefined
 
-        // Decode audio metadata — non-blocking, best-effort.
-        // Failure here does not abort the save.
         try {
           const tempUrl  = URL.createObjectURL(blob)
           const audioCtx = new AudioContext()
@@ -201,7 +214,7 @@ export function WorkspacePage({
           await audioCtx.close()
           URL.revokeObjectURL(tempUrl)
         } catch {
-          // Duration/peaks are optional — continue without them
+          // Duration/peaks optional
         }
 
         await saveAudioBlob(`audio_${script.id}`, blob)
@@ -237,7 +250,6 @@ export function WorkspacePage({
       return
     }
 
-    // Cancel any in-flight request (single or bulk) before starting a new one.
     synthAbortRef.current?.abort()
     const controller = new AbortController()
     synthAbortRef.current = controller
@@ -248,11 +260,16 @@ export function WorkspacePage({
     const ok = await generateVoiceover(
       activeScript,
       histState.present,
-      controller.signal
+      controller.signal,
+      engine
     )
 
     if (!ok && !controller.signal.aborted) {
-      setSynthErr('Synthesis failed. Is the AI engine running?')
+      setSynthErr(
+        engine === 'f5'
+          ? 'F5-TTS synthesis failed. Is the engine running and f5-tts installed?'
+          : 'Synthesis failed. Is the AI engine running?'
+      )
     } else if (ok) {
       const url = await loadAudioBlob(`audio_${activeScript.id}`)
       setAudioUrl(url)
@@ -264,20 +281,10 @@ export function WorkspacePage({
   // ── Bulk synthesis ────────────────────────────────────────────────
   async function handleBulkGenerate() {
     const pending = project.scripts.filter(s => s.content.trim() && !s.hasAudio)
-    if (!pending.length) {
-      alert('All scripts already have audio.')
-      return
-    }
-    if (!voiceProfiles.length) {
-      alert('No voice profile found. Record one in Voice Profiles first.')
-      return
-    }
-    if (!ENGINE_URL) {
-      alert('Engine URL is not configured. Check your .env file.')
-      return
-    }
+    if (!pending.length) { alert('All scripts already have audio.'); return }
+    if (!voiceProfiles.length) { alert('No voice profile found. Record one in Voice Profiles first.'); return }
+    if (!ENGINE_URL) { alert('Engine URL is not configured. Check your .env file.'); return }
 
-    // Cancel any in-flight single synthesis before starting bulk.
     synthAbortRef.current?.abort()
     const controller = new AbortController()
     synthAbortRef.current = controller
@@ -289,7 +296,7 @@ export function WorkspacePage({
 
     for (const script of pending) {
       if (controller.signal.aborted) break
-      const ok = await generateVoiceover(script, script.content, controller.signal)
+      const ok = await generateVoiceover(script, script.content, controller.signal, engine)
       if (!ok && !controller.signal.aborted) {
         setBulkErrors(prev => [...prev, script.title])
       }
@@ -304,23 +311,14 @@ export function WorkspacePage({
   // ── Audio transcription ───────────────────────────────────────────
   async function handleAudioTranscribe(file: File) {
     if (!activeScript) return
-    if (!ENGINE_URL) {
-      alert('Engine URL is not configured. Check your .env file.')
-      return
-    }
+    if (!ENGINE_URL) { alert('Engine URL is not configured. Check your .env file.'); return }
 
     setTranscribing(true)
     const fd = new FormData()
     fd.append('file', file, file.name)
     try {
-      const res = await fetch(`${ENGINE_URL}/transcribe`, {
-        method: 'POST',
-        body: fd,
-      })
-      if (!res.ok) {
-        alert('Transcription failed. Is the AI engine running?')
-        return
-      }
+      const res = await fetch(`${ENGINE_URL}/transcribe`, { method: 'POST', body: fd })
+      if (!res.ok) { alert('Transcription failed. Is the AI engine running?'); return }
       const data = await res.json() as { text?: string }
       dispatch({ type: 'SET', value: data.text ?? '' })
     } catch {
@@ -355,6 +353,92 @@ export function WorkspacePage({
   const pendingCount = project.scripts.filter(
     s => s.content.trim() && !s.hasAudio
   ).length
+
+  // ── Engine switcher dropdown ──────────────────────────────────────
+  const EngineSelector = () => (
+    <div style={{ position: 'relative' }}>
+      <button
+        className="btn btn--sm btn--ghost"
+        onClick={() => setShowEngineMenu(v => !v)}
+        title="Switch TTS engine"
+        style={{ gap: 5, paddingRight: 8 }}
+      >
+        <EngineBadge engine={engine} />
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"
+          style={{ width: 10, height: 10, opacity: 0.5 }}>
+          <path d="M5 8l5 5 5-5" />
+        </svg>
+      </button>
+
+      {showEngineMenu && (
+        <>
+          {/* click-away overlay */}
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 199 }}
+            onClick={() => setShowEngineMenu(false)}
+          />
+          <div style={{
+            position: 'absolute', bottom: '100%', right: 0, marginBottom: 6,
+            background: 'var(--surface)', border: '1px solid var(--border-2)',
+            borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)',
+            zIndex: 200, minWidth: 210, overflow: 'hidden',
+          }}>
+            <div style={{ padding: '8px 12px 6px', fontSize: 10, fontWeight: 700,
+              textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)' }}>
+              TTS Engine
+            </div>
+
+            {([ 
+              {
+                id: 'xtts' as TTSEngine,
+                label: 'XTTS v2',
+                desc: '16 languages · multilingual · fast',
+                color: 'var(--accent)',
+              },
+              {
+                id: 'f5' as TTSEngine,
+                label: 'F5-TTS',
+                desc: 'Flow-matching · natural prosody · English-first',
+                color: '#4278c9',
+              },
+            ] as const).map(opt => (
+              <button
+                key={opt.id}
+                onClick={() => { setEngine(opt.id); setShowEngineMenu(false) }}
+                style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 10,
+                  width: '100%', padding: '9px 12px', border: 'none',
+                  background: engine === opt.id ? `${opt.color}10` : 'transparent',
+                  cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s',
+                  borderLeft: engine === opt.id ? `3px solid ${opt.color}` : '3px solid transparent',
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)',
+                    display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {opt.label}
+                    {engine === opt.id && (
+                      <span style={{ width: 14, height: 14, color: opt.color }}>
+                        {icons.check}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 1 }}>
+                    {opt.desc}
+                  </div>
+                </div>
+              </button>
+            ))}
+
+            <div style={{ padding: '6px 12px 8px', fontSize: 11, color: 'var(--text-3)',
+              borderTop: '1px solid var(--border)', lineHeight: 1.5, marginTop: 2 }}>
+              Applies to all future generations in this session.
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
 
   // ─────────────────────────────────────────────────────────────────
   return (
@@ -455,21 +539,15 @@ export function WorkspacePage({
 
         {/* Bulk generate footer */}
         {pendingCount > 0 && (
-          <div
-            style={{
-              padding: '8px 10px',
-              borderTop: '1px solid var(--border)',
-              flexShrink: 0,
-            }}
-          >
+          <div style={{ padding: '8px 10px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
             <button
               className="btn btn--sm"
               style={{
-                width:            '100%',
-                justifyContent:   'center',
-                background:       bulkGenerating ? 'var(--bg-3)' : 'var(--accent-lt)',
-                color:            bulkGenerating ? 'var(--text-3)' : 'var(--accent)',
-                border:           '1px solid var(--accent-mid)',
+                width:          '100%',
+                justifyContent: 'center',
+                background:     bulkGenerating ? 'var(--bg-3)' : 'var(--accent-lt)',
+                color:          bulkGenerating ? 'var(--text-3)' : 'var(--accent)',
+                border:         '1px solid var(--accent-mid)',
               }}
               onClick={handleBulkGenerate}
               disabled={bulkGenerating}
@@ -481,12 +559,8 @@ export function WorkspacePage({
               )}
             </button>
 
-            {/* Surface per-script errors after bulk completes */}
             {!bulkGenerating && bulkErrors.length > 0 && (
-              <div
-                className="msg msg--err"
-                style={{ marginTop: 8, fontSize: 11, lineHeight: 1.5 }}
-              >
+              <div className="msg msg--err" style={{ marginTop: 8, fontSize: 11, lineHeight: 1.5 }}>
                 Failed: {bulkErrors.join(', ')}
               </div>
             )}
@@ -587,8 +661,7 @@ export function WorkspacePage({
               <span
                 style={{
                   fontSize: 11,
-                  color:
-                    saveState === 'saved' ? 'var(--ok)' : 'var(--text-3)',
+                  color: saveState === 'saved' ? 'var(--ok)' : 'var(--text-3)',
                   display: 'flex',
                   alignItems: 'center',
                   gap: 3,
@@ -599,11 +672,7 @@ export function WorkspacePage({
                 ) : saveState === 'saved' ? (
                   icons.check
                 ) : null}
-                {saveState === 'saving'
-                  ? 'Saving…'
-                  : saveState === 'saved'
-                    ? 'Saved'
-                    : ''}
+                {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : ''}
               </span>
 
               <button
@@ -653,10 +722,7 @@ export function WorkspacePage({
                   className="btn btn--sm btn--danger"
                   onClick={() => {
                     deleteAudioBlob(`audio_${activeScript.id}`)
-                    onUpdateScript(activeScript.id, {
-                      hasAudio: false,
-                      duration: null,
-                    })
+                    onUpdateScript(activeScript.id, { hasAudio: false, duration: null })
                     setAudioUrl(null)
                   }}
                   title="Remove audio"
@@ -686,37 +752,25 @@ export function WorkspacePage({
                   step="0.1"
                   value={activeScript.speed ?? 1.0}
                   onChange={e =>
-                    onUpdateScript(activeScript.id, {
-                      speed: parseFloat(e.target.value),
-                    })
+                    onUpdateScript(activeScript.id, { speed: parseFloat(e.target.value) })
                   }
                   style={{ width: 60, accentColor: 'var(--accent)' }}
                 />
-                <span
-                  style={{
-                    fontSize: 11,
-                    color: 'var(--accent)',
-                    fontFamily: 'var(--mono)',
-                    width: 28,
-                  }}
-                >
+                <span style={{ fontSize: 11, color: 'var(--accent)', fontFamily: 'var(--mono)', width: 28 }}>
                   {(activeScript.speed ?? 1.0).toFixed(1)}x
                 </span>
               </div>
 
-              {/* Language */}
+              {/* Language (only meaningfully affects XTTS) */}
               <select
                 className="profile-select"
                 value={activeScript.language || 'en'}
-                onChange={e =>
-                  onUpdateScript(activeScript.id, { language: e.target.value })
-                }
-                title="Language"
+                onChange={e => onUpdateScript(activeScript.id, { language: e.target.value })}
+                title={engine === 'f5' ? 'Language (XTTS v2 only — F5-TTS is English-first)' : 'Language'}
+                style={{ opacity: engine === 'f5' ? 0.5 : 1 }}
               >
                 {LANGUAGES.map(l => (
-                  <option key={l.code} value={l.code}>
-                    {l.label}
-                  </option>
+                  <option key={l.code} value={l.code}>{l.label}</option>
                 ))}
               </select>
 
@@ -724,22 +778,17 @@ export function WorkspacePage({
               {voiceProfiles.length > 0 && (
                 <select
                   className="profile-select"
-                  value={
-                    activeScript.profileId ??
-                    voiceProfiles[0]?.profile_id ??
-                    ''
-                  }
-                  onChange={e =>
-                    onUpdateScript(activeScript.id, { profileId: e.target.value })
-                  }
+                  value={activeScript.profileId ?? voiceProfiles[0]?.profile_id ?? ''}
+                  onChange={e => onUpdateScript(activeScript.id, { profileId: e.target.value })}
                 >
                   {voiceProfiles.map(vp => (
-                    <option key={vp.profile_id} value={vp.profile_id}>
-                      {vp.profile_id}
-                    </option>
+                    <option key={vp.profile_id} value={vp.profile_id}>{vp.profile_id}</option>
                   ))}
                 </select>
               )}
+
+              {/* Engine switcher */}
+              <EngineSelector />
 
               {/* Generate button */}
               <button

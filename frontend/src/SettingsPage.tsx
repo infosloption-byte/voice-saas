@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { icons } from './constants'
 import { LogoMark } from './LandingPage'
+import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
 
 // ═══════════════════════════════════════════════════════════════════
 type SettingsSection =
@@ -418,11 +419,14 @@ function AccountSettings({ onSave }: { onSave: () => void }) {
 // ── Audio & Synthesis ────────────────────────────────────────────────
 
 function AudioSettings({ onSave }: { onSave: () => void }) {
-  const [defaultLang, setDefaultLang]         = useState('en')
-  const [defaultSpeed, setDefaultSpeed]       = useState(1.0)
+  const [defaultLang, setDefaultLang]           = useState('en')
+  const [defaultSpeed, setDefaultSpeed]         = useState(1.0)
   const [noiseSuppression, setNoiseSuppression] = useState(true)
-  const [autoGain, setAutoGain]               = useState(true)
-  const [defaultGain, setDefaultGain]         = useState(0.85)
+  const [autoGain, setAutoGain]                 = useState(true)
+  const [defaultGain, setDefaultGain]           = useState(0.85)
+ 
+  // TTS engine — persisted to localStorage, shared with WorkspacePage
+  const { engine, setEngine } = useTTSEngine()
 
   const languages = [
     { code: 'en', label: 'English'    },
@@ -439,6 +443,51 @@ function AudioSettings({ onSave }: { onSave: () => void }) {
         title="Audio & Synthesis"
         desc="Default settings for voice synthesis and recording."
       />
+
+      <SettingsRow
+        label="TTS engine"
+        hint="Which voice synthesis engine to use when generating audio."
+      >
+        <div style={{ display: 'flex', gap: 6 }}>
+          {([
+            { id: 'xtts' as TTSEngine, label: 'XTTS v2', desc: '16 languages' },
+            { id: 'f5'   as TTSEngine, label: 'F5-TTS',  desc: 'English-first' },
+          ]).map(opt => (
+            <button
+              key={opt.id}
+              onClick={() => setEngine(opt.id)}
+              title={opt.desc}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 2,
+                padding: '7px 14px',
+                borderRadius: 'var(--radius-sm)',
+                border: engine === opt.id
+                  ? `2px solid ${opt.id === 'f5' ? '#4278c9' : 'var(--accent)'}`
+                  : '2px solid var(--border-2)',
+                background: engine === opt.id
+                  ? (opt.id === 'f5' ? 'rgba(66,120,201,0.08)' : 'var(--accent-lt)')
+                  : 'var(--surface)',
+                cursor: 'pointer',
+                transition: 'all 0.12s',
+              }}
+            >
+              <span style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: engine === opt.id
+                  ? (opt.id === 'f5' ? '#4278c9' : 'var(--accent)')
+                  : 'var(--text-1)',
+              }}>
+                {opt.label}
+              </span>
+              <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{opt.desc}</span>
+            </button>
+          ))}
+        </div>
+      </SettingsRow>
 
       <SettingsRow label="Default language" hint="Used when creating new scripts.">
         <select
