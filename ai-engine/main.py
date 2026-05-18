@@ -3,45 +3,33 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 import torch
+import types
 
 # ── Compatibility shim ─────────────────────────────────────────────
 # torch.xpu (Intel XPU device support) was added in PyTorch 2.4.
-# F5-TTS checks it at import/init time; on CPU-only builds (torch 2.2.x)
-# the attribute simply doesn't exist, causing an AttributeError.
-# We stub it out so F5-TTS loads cleanly without needing a torch upgrade.
+# F5-TTS checks it at import time AND at every infer() call on torch 2.2.x.
+# We stub the entire sub-module so every attribute access returns False/0
+# without raising AttributeError — including _is_in_bad_fork, which F5-TTS
+# calls at synthesis time via a multiprocessing fork-safety check.
 if not hasattr(torch, "xpu"):
-    class _StubXPU:
-        @staticmethod
-        def is_available() -> bool:
+    _xpu_stub = types.ModuleType("torch.xpu")
+    _xpu_stub.is_available     = lambda: False
+    _xpu_stub.device_count     = lambda: 0
+    _xpu_stub._is_in_bad_fork  = lambda: False
+    _xpu_stub.current_device   = lambda: 0
+    _xpu_stub.get_device_name  = lambda idx=0: ""
+    _xpu_stub.device           = lambda idx=0: "cpu"
+    _xpu_stub.synchronize      = lambda: None
+    _xpu_stub.empty_cache      = lambda: None
+
+    # Catch-all: any other attribute F5-TTS might probe returns a no-op
+    def _xpu_getattr(name: str):
+        def _noop(*a, **kw):
             return False
+        return _noop
 
-        @staticmethod
-        def device_count() -> int:
-            return 0
-
-        @staticmethod
-        def _is_in_bad_fork() -> bool:
-            return False
-
-        @staticmethod
-        def current_device() -> int:
-            return 0
-
-        @staticmethod
-        def get_device_name(idx: int = 0) -> str:
-            return ""
-
-        def __call__(self, *args, **kwargs):
-            return self
-
-        def __getattr__(self, name: str):
-            # Catch-all: return a no-op callable for any other method
-            # F5-TTS may call on torch.xpu so we never get an AttributeError again.
-            def _noop(*a, **kw):
-                return False
-            return _noop
-
-    torch.xpu = _StubXPU()  # type: ignore[attr-defined]
+    _xpu_stub.__getattr__ = _xpu_getattr
+    torch.xpu = _xpu_stub  # type: ignore[attr-defined]
 
 import whisper
 from TTS.api import TTS
@@ -296,9 +284,6 @@ async def load_all_models():
         print(f"✗ XTTS v2 failed: {e}")
 
     # F5-TTS — optional, graceful fallback
-    # The torch.xpu shim at the top of this file ensures F5-TTS can import
-    # cleanly on CPU-only torch 2.2.x builds.
-    # Tries multiple import paths for different package versions.
     f5_loaded = False
     for import_path in [
         ("f5_tts.api", "F5TTS"),
