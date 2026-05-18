@@ -19,8 +19,27 @@ if not hasattr(torch, "xpu"):
         def device_count() -> int:
             return 0
 
+        @staticmethod
+        def _is_in_bad_fork() -> bool:
+            return False
+
+        @staticmethod
+        def current_device() -> int:
+            return 0
+
+        @staticmethod
+        def get_device_name(idx: int = 0) -> str:
+            return ""
+
         def __call__(self, *args, **kwargs):
             return self
+
+        def __getattr__(self, name: str):
+            # Catch-all: return a no-op callable for any other method
+            # F5-TTS may call on torch.xpu so we never get an AttributeError again.
+            def _noop(*a, **kw):
+                return False
+            return _noop
 
     torch.xpu = _StubXPU()  # type: ignore[attr-defined]
 
