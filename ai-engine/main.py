@@ -2,6 +2,28 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
+import torch
+
+# ── Compatibility shim ─────────────────────────────────────────────
+# torch.xpu (Intel XPU device support) was added in PyTorch 2.4.
+# F5-TTS checks it at import/init time; on CPU-only builds (torch 2.2.x)
+# the attribute simply doesn't exist, causing an AttributeError.
+# We stub it out so F5-TTS loads cleanly without needing a torch upgrade.
+if not hasattr(torch, "xpu"):
+    class _StubXPU:
+        @staticmethod
+        def is_available() -> bool:
+            return False
+
+        @staticmethod
+        def device_count() -> int:
+            return 0
+
+        def __call__(self, *args, **kwargs):
+            return self
+
+    torch.xpu = _StubXPU()  # type: ignore[attr-defined]
+
 import whisper
 from TTS.api import TTS
 import os
@@ -215,8 +237,6 @@ async def lifespan(app):
 app = FastAPI(lifespan=lifespan)
 
 # ── CORS ───────────────────────────────────────────────────────────
-# FIX: Include the production IP so browser requests from https://3.83.53.113
-#      are not blocked.  Add any additional domains/IPs here as needed.
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -257,12 +277,14 @@ async def load_all_models():
         print(f"✗ XTTS v2 failed: {e}")
 
     # F5-TTS — optional, graceful fallback
-    # Tries multiple import paths for different package versions
+    # The torch.xpu shim at the top of this file ensures F5-TTS can import
+    # cleanly on CPU-only torch 2.2.x builds.
+    # Tries multiple import paths for different package versions.
     f5_loaded = False
     for import_path in [
-        ("f5_tts.api",  "F5TTS"),
-        ("f5_tts",      "F5TTS"),
-        ("f5tts",       "F5TTS"),
+        ("f5_tts.api", "F5TTS"),
+        ("f5_tts",     "F5TTS"),
+        ("f5tts",      "F5TTS"),
     ]:
         module_name, class_name = import_path
         try:
@@ -396,10 +418,10 @@ async def list_voice_profiles():
 # ── FEATURE 4: SYNTHESIZE (XTTS v2 or F5-TTS) ────────────────────
 @app.post("/synthesize")
 async def synthesize(
-    text: str        = Form(...),
-    profile_id: str  = Form(...),
-    language: str    = Form(default="en"),
-    tts_engine: str  = Form(default="xtts"),   # "xtts" | "f5"
+    text: str          = Form(...),
+    profile_id: str    = Form(...),
+    language: str      = Form(default="en"),
+    tts_engine: str    = Form(default="xtts"),   # "xtts" | "f5"
     # XTTS-specific knobs (ignored by F5-TTS)
     temperature: float = Form(default=0.65),
     top_k: int         = Form(default=50),
