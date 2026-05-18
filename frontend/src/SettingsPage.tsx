@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { icons } from './constants'
 import { LogoMark } from './LandingPage'
 import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
+import type { EngineCaps } from './types'
 
 // ═══════════════════════════════════════════════════════════════════
 type SettingsSection =
@@ -18,6 +19,7 @@ interface SettingsPageProps {
   onToggleDark?: () => void
   onSignOut?: () => void
   user?: { name: string; email: string }
+  engineCaps?: EngineCaps
 }
 
 export function SettingsPage({
@@ -25,6 +27,7 @@ export function SettingsPage({
   onToggleDark,
   onSignOut,
   user = { name: 'Alex Smith', email: 'alex@example.com' },
+  engineCaps = { xtts: false, f5: false },
 }: SettingsPageProps) {
   const [section, setSection] = useState<SettingsSection>('profile')
   const [saved, setSaved] = useState(false)
@@ -123,7 +126,12 @@ export function SettingsPage({
         <div className="settings-content" style={{ padding: '32px 40px', maxWidth: 640 }}>
           {section === 'profile'       && <ProfileSettings       user={user}     onSave={handleSave} />}
           {section === 'account'       && <AccountSettings                       onSave={handleSave} />}
-          {section === 'audio'         && <AudioSettings                         onSave={handleSave} />}
+          {section === 'audio'         && (
+            <AudioSettings
+              engineCaps={engineCaps}
+              onSave={handleSave}
+            />
+          )}
           {section === 'appearance'    && (
             <AppearanceSettings
               darkMode={darkMode}
@@ -145,15 +153,10 @@ export function SettingsPage({
 function SettingsHeading({ title, desc }: { title: string; desc: string }) {
   return (
     <div style={{ marginBottom: 28 }}>
-      <h2
-        style={{
-          fontSize: 18,
-          fontWeight: 600,
-          color: 'var(--text-1)',
-          letterSpacing: '-0.3px',
-          marginBottom: 4,
-        }}
-      >
+      <h2 style={{
+        fontSize: 18, fontWeight: 600, color: 'var(--text-1)',
+        letterSpacing: '-0.3px', marginBottom: 4,
+      }}>
         {title}
       </h2>
       <p style={{ fontSize: 13, color: 'var(--text-2)' }}>{desc}</p>
@@ -161,27 +164,14 @@ function SettingsHeading({ title, desc }: { title: string; desc: string }) {
   )
 }
 
-function SettingsRow({
-  label,
-  hint,
-  children,
-}: {
-  label: string
-  hint?: string
-  children: React.ReactNode
+function SettingsRow({ label, hint, children }: {
+  label: string; hint?: string; children: React.ReactNode
 }) {
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'space-between',
-        gap: 16,
-        paddingBottom: 20,
-        borderBottom: '1px solid var(--border-3)',
-        marginBottom: 20,
-      }}
-    >
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+      gap: 16, paddingBottom: 20, borderBottom: '1px solid var(--border-3)', marginBottom: 20,
+    }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text-1)', marginBottom: 2 }}>
           {label}
@@ -195,56 +185,32 @@ function SettingsRow({
   )
 }
 
-function Toggle({
-  checked,
-  onChange,
-}: {
-  checked: boolean
-  onChange: (v: boolean) => void
-}) {
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
       style={{
-        width: 40,
-        height: 22,
-        borderRadius: 11,
+        width: 40, height: 22, borderRadius: 11,
         background: checked ? 'var(--accent)' : 'var(--border-2)',
-        border: 'none',
-        cursor: 'pointer',
-        position: 'relative',
-        transition: 'background 0.18s',
-        flexShrink: 0,
+        border: 'none', cursor: 'pointer', position: 'relative',
+        transition: 'background 0.18s', flexShrink: 0,
       }}
     >
-      <span
-        style={{
-          position: 'absolute',
-          top: 3,
-          left: checked ? 21 : 3,
-          width: 16,
-          height: 16,
-          borderRadius: '50%',
-          background: '#fff',
-          boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
-          transition: 'left 0.18s',
-        }}
-      />
+      <span style={{
+        position: 'absolute', top: 3, left: checked ? 21 : 3,
+        width: 16, height: 16, borderRadius: '50%',
+        background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
+        transition: 'left 0.18s',
+      }} />
     </button>
   )
 }
 
 // ── Profile ──────────────────────────────────────────────────────────
 
-function ProfileSettings({
-  user,
-  onSave,
-}: {
-  user: { name: string; email: string }
-  onSave: () => void
-}) {
+function ProfileSettings({ user, onSave }: { user: { name: string; email: string }; onSave: () => void }) {
   const [name, setName]   = useState(user.name)
   const [email, setEmail] = useState(user.email)
   const [bio, setBio]     = useState('')
@@ -253,34 +219,16 @@ function ProfileSettings({
     <div>
       <SettingsHeading title="Profile" desc="Your public identity within VoiceStudio." />
 
-      {/* Avatar row */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 16,
-          marginBottom: 28,
-          padding: 16,
-          background: 'var(--bg-2)',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--border)',
-        }}
-      >
-        <div
-          style={{
-            width: 56,
-            height: 56,
-            borderRadius: '50%',
-            background: 'var(--accent)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 22,
-            fontWeight: 700,
-            color: '#fff',
-            flexShrink: 0,
-          }}
-        >
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 16, marginBottom: 28,
+        padding: 16, background: 'var(--bg-2)', borderRadius: 'var(--radius-lg)',
+        border: '1px solid var(--border)',
+      }}>
+        <div style={{
+          width: 56, height: 56, borderRadius: '50%', background: 'var(--accent)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 22, fontWeight: 700, color: '#fff', flexShrink: 0,
+        }}>
           {name[0]?.toUpperCase()}
         </div>
         <div>
@@ -295,34 +243,19 @@ function ProfileSettings({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 28 }}>
         <div className="field">
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>Full name</label>
-          <input
-            className="full-input"
-            value={name}
-            onChange={e => setName(e.target.value)}
-          />
+          <input className="full-input" value={name} onChange={e => setName(e.target.value)} />
+        </div>
+        <div className="field">
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>Email address</label>
+          <input className="full-input" type="email" value={email} onChange={e => setEmail(e.target.value)} />
         </div>
         <div className="field">
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>
-            Email address
-          </label>
-          <input
-            className="full-input"
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>
-            Bio{' '}
-            <span style={{ fontWeight: 400, color: 'var(--text-3)' }}>(optional)</span>
+            Bio <span style={{ fontWeight: 400, color: 'var(--text-3)' }}>(optional)</span>
           </label>
           <textarea
-            className="full-input"
-            value={bio}
-            onChange={e => setBio(e.target.value)}
-            rows={3}
-            placeholder="Podcaster, narrator, creator…"
+            className="full-input" value={bio} onChange={e => setBio(e.target.value)}
+            rows={3} placeholder="Podcaster, narrator, creator…"
             style={{ resize: 'vertical', lineHeight: 1.6 }}
           />
         </div>
@@ -346,22 +279,13 @@ function AccountSettings({ onSave }: { onSave: () => void }) {
 
   return (
     <div>
-      <SettingsHeading
-        title="Account & Security"
-        desc="Manage your password and security settings."
-      />
+      <SettingsHeading title="Account & Security" desc="Manage your password and security settings." />
 
-      <SettingsRow
-        label="Two-factor authentication"
-        hint="Add an extra layer of security to your account."
-      >
+      <SettingsRow label="Two-factor authentication" hint="Add an extra layer of security to your account.">
         <Toggle checked={twoFa} onChange={setTwoFa} />
       </SettingsRow>
 
-      <SettingsRow
-        label="Active sessions"
-        hint="Automatically sign out from inactive sessions."
-      >
+      <SettingsRow label="Active sessions" hint="Automatically sign out from inactive sessions.">
         <Toggle checked={sessions} onChange={setSessions} />
       </SettingsRow>
 
@@ -371,40 +295,16 @@ function AccountSettings({ onSave }: { onSave: () => void }) {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="field">
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>
-              Current password
-            </label>
-            <input
-              className="full-input"
-              type="password"
-              value={currentPw}
-              onChange={e => setCurrentPw(e.target.value)}
-              placeholder="••••••••"
-            />
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>Current password</label>
+            <input className="full-input" type="password" value={currentPw} onChange={e => setCurrentPw(e.target.value)} placeholder="••••••••" />
           </div>
           <div className="field">
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>
-              New password
-            </label>
-            <input
-              className="full-input"
-              type="password"
-              value={newPw}
-              onChange={e => setNewPw(e.target.value)}
-              placeholder="Min. 8 characters"
-            />
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>New password</label>
+            <input className="full-input" type="password" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="Min. 8 characters" />
           </div>
           <div className="field">
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>
-              Confirm new password
-            </label>
-            <input
-              className="full-input"
-              type="password"
-              value={confirmPw}
-              onChange={e => setConfirmPw(e.target.value)}
-              placeholder="Re-enter new password"
-            />
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>Confirm new password</label>
+            <input className="full-input" type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)} placeholder="Re-enter new password" />
           </div>
         </div>
       </div>
@@ -418,23 +318,36 @@ function AccountSettings({ onSave }: { onSave: () => void }) {
 
 // ── Audio & Synthesis ────────────────────────────────────────────────
 
-function AudioSettings({ onSave }: { onSave: () => void }) {
+function AudioSettings({ engineCaps, onSave }: { engineCaps: EngineCaps; onSave: () => void }) {
   const [defaultLang, setDefaultLang]           = useState('en')
   const [defaultSpeed, setDefaultSpeed]         = useState(1.0)
   const [noiseSuppression, setNoiseSuppression] = useState(true)
   const [autoGain, setAutoGain]                 = useState(true)
   const [defaultGain, setDefaultGain]           = useState(0.85)
- 
+
   // TTS engine — persisted to localStorage, shared with WorkspacePage
   const { engine, setEngine } = useTTSEngine()
 
   const languages = [
-    { code: 'en', label: 'English'    },
-    { code: 'es', label: 'Spanish'    },
-    { code: 'fr', label: 'French'     },
-    { code: 'de', label: 'German'     },
-    { code: 'ja', label: 'Japanese'   },
-    { code: 'zh', label: 'Chinese'    },
+    { code: 'en', label: 'English' }, { code: 'es', label: 'Spanish' },
+    { code: 'fr', label: 'French'  }, { code: 'de', label: 'German'  },
+    { code: 'ja', label: 'Japanese'}, { code: 'zh', label: 'Chinese' },
+  ]
+
+  const engineOptions: {
+    id: TTSEngine; label: string; desc: string
+    color: string; bg: string; border: string; available: boolean
+  }[] = [
+    {
+      id: 'xtts', label: 'XTTS v2', desc: '16 languages',
+      color: 'var(--accent)', bg: 'var(--accent-lt)', border: 'var(--accent)',
+      available: engineCaps.xtts,
+    },
+    {
+      id: 'f5', label: 'F5-TTS', desc: 'English-first',
+      color: '#4278c9', bg: 'rgba(66,120,201,0.08)', border: '#4278c9',
+      available: engineCaps.f5,
+    },
   ]
 
   return (
@@ -448,53 +361,76 @@ function AudioSettings({ onSave }: { onSave: () => void }) {
         label="TTS engine"
         hint="Which voice synthesis engine to use when generating audio."
       >
-        <div style={{ display: 'flex', gap: 6 }}>
-          {([
-            { id: 'xtts' as TTSEngine, label: 'XTTS v2', desc: '16 languages' },
-            { id: 'f5'   as TTSEngine, label: 'F5-TTS',  desc: 'English-first' },
-          ]).map(opt => (
-            <button
-              key={opt.id}
-              onClick={() => setEngine(opt.id)}
-              title={opt.desc}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 2,
-                padding: '7px 14px',
-                borderRadius: 'var(--radius-sm)',
-                border: engine === opt.id
-                  ? `2px solid ${opt.id === 'f5' ? '#4278c9' : 'var(--accent)'}`
-                  : '2px solid var(--border-2)',
-                background: engine === opt.id
-                  ? (opt.id === 'f5' ? 'rgba(66,120,201,0.08)' : 'var(--accent-lt)')
-                  : 'var(--surface)',
-                cursor: 'pointer',
-                transition: 'all 0.12s',
-              }}
-            >
-              <span style={{
-                fontSize: 12,
-                fontWeight: 700,
-                color: engine === opt.id
-                  ? (opt.id === 'f5' ? '#4278c9' : 'var(--accent)')
-                  : 'var(--text-1)',
-              }}>
-                {opt.label}
-              </span>
-              <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{opt.desc}</span>
-            </button>
-          ))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {engineOptions.map(opt => (
+              <button
+                key={opt.id}
+                onClick={() => setEngine(opt.id)}
+                title={opt.available ? opt.desc : `${opt.label} is not installed on this server`}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  gap: 2, padding: '7px 14px', borderRadius: 'var(--radius-sm)',
+                  border: engine === opt.id
+                    ? `2px solid ${opt.border}`
+                    : '2px solid var(--border-2)',
+                  background: engine === opt.id ? opt.bg : 'var(--surface)',
+                  cursor: 'pointer', transition: 'all 0.12s',
+                  opacity: opt.available ? 1 : 0.6,
+                  position: 'relative',
+                }}
+              >
+                <span style={{
+                  fontSize: 12, fontWeight: 700,
+                  color: engine === opt.id ? opt.color : 'var(--text-1)',
+                }}>
+                  {opt.label}
+                </span>
+                <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{opt.desc}</span>
+                {/* Availability dot */}
+                <span style={{
+                  position: 'absolute', top: 4, right: 4,
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: opt.available ? 'var(--ok)' : 'var(--warn)',
+                  boxShadow: opt.available
+                    ? '0 0 0 2px var(--ok-lt)'
+                    : '0 0 0 2px var(--warn-lt)',
+                }} title={opt.available ? 'Ready' : 'Not installed'} />
+              </button>
+            ))}
+          </div>
+
+          {/* Inline warning when selected engine is not available */}
+          {engine === 'f5' && !engineCaps.f5 && (
+            <div style={{
+              fontSize: 11.5, color: 'var(--warn)', lineHeight: 1.55,
+              background: 'var(--warn-lt)', border: '1px solid rgba(160,117,48,0.25)',
+              borderRadius: 'var(--radius-sm)', padding: '6px 10px',
+            }}>
+              F5-TTS is not installed on this server.
+              Run <code style={{ fontFamily: 'var(--mono)' }}>pip install f5-tts</code> and
+              restart the engine, or switch to XTTS v2.
+            </div>
+          )}
+          {engine === 'xtts' && !engineCaps.xtts && (
+            <div style={{
+              fontSize: 11.5, color: 'var(--warn)', lineHeight: 1.55,
+              background: 'var(--warn-lt)', border: '1px solid rgba(160,117,48,0.25)',
+              borderRadius: 'var(--radius-sm)', padding: '6px 10px',
+            }}>
+              XTTS v2 is not available on this server. Check the engine logs.
+            </div>
+          )}
         </div>
       </SettingsRow>
 
-      <SettingsRow label="Default language" hint="Used when creating new scripts.">
+      <SettingsRow label="Default language" hint="Used when creating new scripts. XTTS v2 only — F5-TTS is English-first.">
         <select
           className="full-input"
           value={defaultLang}
           onChange={e => setDefaultLang(e.target.value)}
-          style={{ width: 160, padding: '6px 10px' }}
+          disabled={engine === 'f5'}
+          style={{ width: 160, padding: '6px 10px', opacity: engine === 'f5' ? 0.45 : 1 }}
         >
           {languages.map(l => (
             <option key={l.code} value={l.code}>{l.label}</option>
@@ -508,39 +444,21 @@ function AudioSettings({ onSave }: { onSave: () => void }) {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <input
-            type="range"
-            min="0.5"
-            max="2"
-            step="0.05"
-            value={defaultSpeed}
+            type="range" min="0.5" max="2" step="0.05" value={defaultSpeed}
             onChange={e => setDefaultSpeed(Number(e.target.value))}
             style={{ width: 120, accentColor: 'var(--accent)' }}
           />
-          <span
-            style={{
-              fontSize: 12,
-              fontFamily: 'var(--mono)',
-              color: 'var(--accent)',
-              minWidth: 32,
-              textAlign: 'right',
-            }}
-          >
+          <span style={{ fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--accent)', minWidth: 32, textAlign: 'right' }}>
             {defaultSpeed.toFixed(1)}×
           </span>
         </div>
       </SettingsRow>
 
-      <SettingsRow
-        label="Browser noise suppression"
-        hint="Reduces background noise during recording."
-      >
+      <SettingsRow label="Browser noise suppression" hint="Reduces background noise during recording.">
         <Toggle checked={noiseSuppression} onChange={setNoiseSuppression} />
       </SettingsRow>
 
-      <SettingsRow
-        label="Auto gain control"
-        hint="Normalises microphone input level automatically."
-      >
+      <SettingsRow label="Auto gain control" hint="Normalises microphone input level automatically.">
         <Toggle checked={autoGain} onChange={setAutoGain} />
       </SettingsRow>
 
@@ -550,23 +468,11 @@ function AudioSettings({ onSave }: { onSave: () => void }) {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <input
-            type="range"
-            min="0.1"
-            max="2"
-            step="0.05"
-            value={defaultGain}
+            type="range" min="0.1" max="2" step="0.05" value={defaultGain}
             onChange={e => setDefaultGain(Number(e.target.value))}
             style={{ width: 120, accentColor: 'var(--accent)' }}
           />
-          <span
-            style={{
-              fontSize: 12,
-              fontFamily: 'var(--mono)',
-              color: 'var(--accent)',
-              minWidth: 32,
-              textAlign: 'right',
-            }}
-          >
+          <span style={{ fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--accent)', minWidth: 32, textAlign: 'right' }}>
             {defaultGain.toFixed(2)}
           </span>
         </div>
@@ -581,24 +487,15 @@ function AudioSettings({ onSave }: { onSave: () => void }) {
 
 // ── Appearance ───────────────────────────────────────────────────────
 
-function AppearanceSettings({
-  darkMode,
-  onToggleDark,
-  onSave,
-}: {
-  darkMode?: boolean
-  onToggleDark?: () => void
-  onSave: () => void
+function AppearanceSettings({ darkMode, onToggleDark, onSave }: {
+  darkMode?: boolean; onToggleDark?: () => void; onSave: () => void
 }) {
   const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   return (
     <div>
-      <SettingsHeading
-        title="Appearance"
-        desc="Customise how VoiceStudio looks and feels."
-      />
+      <SettingsHeading title="Appearance" desc="Customise how VoiceStudio looks and feels." />
 
       <SettingsRow label="Dark mode" hint="Switch between light and dark interface themes.">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -609,10 +506,7 @@ function AppearanceSettings({
         </div>
       </SettingsRow>
 
-      <SettingsRow
-        label="Layout density"
-        hint="Controls spacing throughout the interface."
-      >
+      <SettingsRow label="Layout density" hint="Controls spacing throughout the interface.">
         <div style={{ display: 'flex', gap: 6 }}>
           {(['comfortable', 'compact'] as const).map(d => (
             <button
@@ -627,72 +521,25 @@ function AppearanceSettings({
         </div>
       </SettingsRow>
 
-      <SettingsRow
-        label="Collapsed sidebar"
-        hint="Hides text labels in the sidebar navigation."
-      >
+      <SettingsRow label="Collapsed sidebar" hint="Hides text labels in the sidebar navigation.">
         <Toggle checked={sidebarCollapsed} onChange={setSidebarCollapsed} />
       </SettingsRow>
 
-      {/* Live preview */}
-      <div
-        style={{
-          margin: '20px 0',
-          padding: 16,
-          background: 'var(--bg-2)',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--border)',
-        }}
-      >
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: 0.8,
-            color: 'var(--text-3)',
-            marginBottom: 10,
-          }}
-        >
+      <div style={{
+        margin: '20px 0', padding: 16, background: 'var(--bg-2)',
+        borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)',
+      }}>
+        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, color: 'var(--text-3)', marginBottom: 10 }}>
           Preview
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 8,
-              background: 'var(--accent)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 14,
-            }}
-          >
-            🎙
-          </div>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>🎙</div>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>
-              Sample project
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
-              4 scripts · 2 voice profiles
-            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>Sample project</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>4 scripts · 2 voice profiles</div>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-            <span
-              style={{
-                fontSize: 11,
-                padding: '3px 8px',
-                borderRadius: 99,
-                background: 'var(--accent-lt)',
-                color: 'var(--accent)',
-                border: '1px solid var(--accent-mid)',
-                fontWeight: 600,
-              }}
-            >
-              Active
-            </span>
+            <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 99, background: 'var(--accent-lt)', color: 'var(--accent)', border: '1px solid var(--accent-mid)', fontWeight: 600 }}>Active</span>
           </div>
         </div>
       </div>
@@ -707,46 +554,26 @@ function AppearanceSettings({
 // ── Notifications ────────────────────────────────────────────────────
 
 function NotificationSettings({ onSave }: { onSave: () => void }) {
-  const [synth, setSynth]       = useState(true)
-  const [exports, setExports]   = useState(true)
-  const [errors, setErrors]     = useState(true)
-  const [updates, setUpdates]   = useState(false)
+  const [synth, setSynth]     = useState(true)
+  const [exports, setExports] = useState(true)
+  const [errors, setErrors]   = useState(true)
+  const [updates, setUpdates] = useState(false)
 
   return (
     <div>
-      <SettingsHeading
-        title="Notifications"
-        desc="Choose when VoiceStudio should alert you."
-      />
-
-      <SettingsRow
-        label="Synthesis complete"
-        hint="Notify when a script has finished generating audio."
-      >
+      <SettingsHeading title="Notifications" desc="Choose when VoiceStudio should alert you." />
+      <SettingsRow label="Synthesis complete" hint="Notify when a script has finished generating audio.">
         <Toggle checked={synth} onChange={setSynth} />
       </SettingsRow>
-
-      <SettingsRow
-        label="Export complete"
-        hint="Notify when a timeline export has finished."
-      >
+      <SettingsRow label="Export complete" hint="Notify when a timeline export has finished.">
         <Toggle checked={exports} onChange={setExports} />
       </SettingsRow>
-
-      <SettingsRow
-        label="Engine errors"
-        hint="Alert if the local XTTS engine encounters a problem."
-      >
+      <SettingsRow label="Engine errors" hint="Alert if the local XTTS engine encounters a problem.">
         <Toggle checked={errors} onChange={setErrors} />
       </SettingsRow>
-
-      <SettingsRow
-        label="Product updates"
-        hint="Occasional announcements about new features."
-      >
+      <SettingsRow label="Product updates" hint="Occasional announcements about new features.">
         <Toggle checked={updates} onChange={setUpdates} />
       </SettingsRow>
-
       <button className="btn btn--primary" onClick={onSave} style={{ gap: 6 }}>
         {icons.check} Save preferences
       </button>
@@ -766,19 +593,13 @@ function ApiSettings({ onSave }: { onSave: () => void }) {
 
   return (
     <div>
-      <SettingsHeading
-        title="API & Engine"
-        desc="Configure the connection to your local XTTS engine."
-      />
+      <SettingsHeading title="API & Engine" desc="Configure the connection to your local XTTS engine." />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 24 }}>
         <div className="field">
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>
-            Engine endpoint
-          </label>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>Engine endpoint</label>
           <input
-            className="full-input"
-            value={endpoint}
+            className="full-input" value={endpoint}
             onChange={e => setEndpoint(e.target.value)}
             placeholder="http://localhost:8000"
             style={{ fontFamily: 'var(--mono)', fontSize: 12.5 }}
@@ -789,27 +610,14 @@ function ApiSettings({ onSave }: { onSave: () => void }) {
         </div>
 
         <div className="field">
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>
-            Request timeout (seconds)
-          </label>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>Request timeout (seconds)</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <input
-              type="range"
-              min="5"
-              max="120"
-              step="5"
-              value={timeout}
+              type="range" min="5" max="120" step="5" value={timeout}
               onChange={e => setTimeout_(Number(e.target.value))}
               style={{ flex: 1, accentColor: 'var(--accent)' }}
             />
-            <span
-              style={{
-                fontSize: 13,
-                fontFamily: 'var(--mono)',
-                color: 'var(--accent)',
-                minWidth: 36,
-              }}
-            >
+            <span style={{ fontSize: 13, fontFamily: 'var(--mono)', color: 'var(--accent)', minWidth: 36 }}>
               {timeout}s
             </span>
           </div>
@@ -817,32 +625,17 @@ function ApiSettings({ onSave }: { onSave: () => void }) {
 
         <div className="field">
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>
-            API key{' '}
-            <span style={{ fontWeight: 400, color: 'var(--text-3)' }}>(optional)</span>
+            API key <span style={{ fontWeight: 400, color: 'var(--text-3)' }}>(optional)</span>
           </label>
           <div style={{ position: 'relative' }}>
             <input
-              className="full-input"
-              type={showKey ? 'text' : 'password'}
-              value={apiKey}
+              className="full-input" type={showKey ? 'text' : 'password'} value={apiKey}
               onChange={e => setApiKey(e.target.value)}
               style={{ fontFamily: 'var(--mono)', fontSize: 12, paddingRight: 38 }}
             />
             <button
               onClick={() => setShowKey(v => !v)}
-              style={{
-                position: 'absolute',
-                right: 10,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: 'var(--text-3)',
-                width: 16,
-                height: 16,
-                padding: 0,
-              }}
+              style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', width: 16, height: 16, padding: 0 }}
             >
               {showKey ? icons.eyeOff : icons.eye}
             </button>
@@ -850,36 +643,13 @@ function ApiSettings({ onSave }: { onSave: () => void }) {
         </div>
       </div>
 
-      {/* Engine status pill */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '10px 14px',
-          background: 'var(--bg-2)',
-          borderRadius: 'var(--radius)',
-          border: '1px solid var(--border)',
-          marginBottom: 20,
-        }}
-      >
-        <span
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background: 'var(--ok)',
-            boxShadow: '0 0 0 2px var(--ok-lt)',
-            animation: 'blink 2.5s infinite',
-            flexShrink: 0,
-          }}
-        />
-        <span style={{ fontSize: 12.5, color: 'var(--ok)', fontWeight: 500 }}>
-          Engine connected
-        </span>
-        <span style={{ fontSize: 12, color: 'var(--text-3)', marginLeft: 'auto' }}>
-          XTTS v2.0.3
-        </span>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
+        background: 'var(--bg-2)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', marginBottom: 20,
+      }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--ok)', boxShadow: '0 0 0 2px var(--ok-lt)', animation: 'blink 2.5s infinite', flexShrink: 0 }} />
+        <span style={{ fontSize: 12.5, color: 'var(--ok)', fontWeight: 500 }}>Engine connected</span>
+        <span style={{ fontSize: 12, color: 'var(--text-3)', marginLeft: 'auto' }}>XTTS v2.0.3</span>
       </div>
 
       <button className="btn btn--primary" onClick={onSave} style={{ gap: 6 }}>
@@ -896,131 +666,42 @@ function DangerSettings({ onSignOut }: { onSignOut?: () => void }) {
 
   return (
     <div>
-      <SettingsHeading
-        title="Danger Zone"
-        desc="Irreversible actions — proceed with caution."
-      />
+      <SettingsHeading title="Danger Zone" desc="Irreversible actions — proceed with caution." />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {/* Sign out all devices */}
-        <div
-          style={{
-            padding: 16,
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-lg)',
-            background: 'var(--bg-2)',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: 16,
-            }}
-          >
+        <div style={{ padding: 16, border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-2)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
             <div>
-              <div
-                style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text-1)', marginBottom: 3 }}
-              >
-                Sign out of all devices
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-2)' }}>
-                Revoke all active sessions across every device.
-              </div>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text-1)', marginBottom: 3 }}>Sign out of all devices</div>
+              <div style={{ fontSize: 12, color: 'var(--text-2)' }}>Revoke all active sessions across every device.</div>
             </div>
-            <button
-              className="btn btn--ghost btn--sm"
-              style={{
-                color: 'var(--warn)',
-                borderColor: 'rgba(160,117,48,0.35)',
-                flexShrink: 0,
-              }}
-              onClick={onSignOut}
-            >
-              Sign out all
-            </button>
+            <button className="btn btn--ghost btn--sm" style={{ color: 'var(--warn)', borderColor: 'rgba(160,117,48,0.35)', flexShrink: 0 }} onClick={onSignOut}>Sign out all</button>
           </div>
         </div>
 
-        {/* Clear cached audio */}
-        <div
-          style={{
-            padding: 16,
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-lg)',
-            background: 'var(--bg-2)',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: 16,
-            }}
-          >
+        <div style={{ padding: 16, border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-2)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
             <div>
-              <div
-                style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text-1)', marginBottom: 3 }}
-              >
-                Clear all cached audio
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-2)' }}>
-                Removes all stored audio blobs from IndexedDB. Scripts are unaffected.
-              </div>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text-1)', marginBottom: 3 }}>Clear all cached audio</div>
+              <div style={{ fontSize: 12, color: 'var(--text-2)' }}>Removes all stored audio blobs from IndexedDB. Scripts are unaffected.</div>
             </div>
-            <button
-              className="btn btn--ghost btn--sm"
-              style={{
-                color: 'var(--warn)',
-                borderColor: 'rgba(160,117,48,0.35)',
-                flexShrink: 0,
-              }}
-            >
-              Clear cache
-            </button>
+            <button className="btn btn--ghost btn--sm" style={{ color: 'var(--warn)', borderColor: 'rgba(160,117,48,0.35)', flexShrink: 0 }}>Clear cache</button>
           </div>
         </div>
 
-        {/* Delete account */}
-        <div
-          style={{
-            padding: 16,
-            border: '1px solid rgba(192,57,43,0.25)',
-            borderRadius: 'var(--radius-lg)',
-            background: 'var(--err-lt)',
-          }}
-        >
-          <div
-            style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--err)', marginBottom: 4 }}
-          >
-            Delete account
-          </div>
-          <p
-            style={{
-              fontSize: 12.5,
-              color: 'var(--text-2)',
-              lineHeight: 1.6,
-              marginBottom: 14,
-            }}
-          >
-            This will permanently delete your account, all projects, scripts, voice profiles,
-            and audio. This cannot be undone.
+        <div style={{ padding: 16, border: '1px solid rgba(192,57,43,0.25)', borderRadius: 'var(--radius-lg)', background: 'var(--err-lt)' }}>
+          <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--err)', marginBottom: 4 }}>Delete account</div>
+          <p style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.6, marginBottom: 14 }}>
+            This will permanently delete your account, all projects, scripts, voice profiles, and audio. This cannot be undone.
           </p>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <input
-              className="full-input"
-              value={confirmDelete}
+              className="full-input" value={confirmDelete}
               onChange={e => setConfirmDelete(e.target.value)}
               placeholder='Type "delete" to confirm'
               style={{ flex: 1, borderColor: 'rgba(192,57,43,0.35)' }}
             />
-            <button
-              className="btn btn--danger btn--sm"
-              disabled={confirmDelete !== 'delete'}
-              style={{ flexShrink: 0 }}
-            >
+            <button className="btn btn--danger btn--sm" disabled={confirmDelete !== 'delete'} style={{ flexShrink: 0 }}>
               {icons.trash} Delete account
             </button>
           </div>

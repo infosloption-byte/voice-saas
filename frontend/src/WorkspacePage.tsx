@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useReducer, useCallback } from 'react'
 import { icons, LANGUAGES } from './constants'
 import { loadAudioBlob, saveAudioBlob, deleteAudioBlob, historyReducer, fmt } from './audio'
 import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
-import type { Project, Script, VoiceProfile, SaveState } from './types'
+import type { Project, Script, VoiceProfile, SaveState, EngineCaps } from './types'
 
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL as string | undefined
 
@@ -35,6 +35,7 @@ export function WorkspacePage({
   onDeleteScript,
   onReorder,
   voiceProfiles,
+  engineCaps = { xtts: true, f5: false },
 }: {
   project: Project
   activeScriptId: string | null
@@ -44,6 +45,7 @@ export function WorkspacePage({
   onDeleteScript: (id: string) => void
   onReorder: (scripts: Script[]) => void
   voiceProfiles: VoiceProfile[]
+  engineCaps?: EngineCaps
 }) {
   const activeScript = project.scripts.find(s => s.id === activeScriptId) ?? null
 
@@ -73,6 +75,9 @@ export function WorkspacePage({
 
   const isMobile =
     typeof window !== 'undefined' && window.innerWidth < 768
+
+  // Is the currently selected engine actually available on the server?
+  const currentEngineAvailable = engine === 'f5' ? engineCaps.f5 : engineCaps.xtts
 
   // ── Reset editor when active script changes ───────────────────────
   useEffect(() => {
@@ -249,6 +254,15 @@ export function WorkspacePage({
       setSynthErr('Engine URL is not configured. Check your .env file.')
       return
     }
+    // Guard: surface engine unavailability immediately rather than waiting for a 503
+    if (!currentEngineAvailable) {
+      setSynthErr(
+        engine === 'f5'
+          ? 'F5-TTS is not installed on this server. Switch to XTTS v2 or run: pip install f5-tts'
+          : 'XTTS v2 is not available on this server.'
+      )
+      return
+    }
 
     synthAbortRef.current?.abort()
     const controller = new AbortController()
@@ -284,6 +298,14 @@ export function WorkspacePage({
     if (!pending.length) { alert('All scripts already have audio.'); return }
     if (!voiceProfiles.length) { alert('No voice profile found. Record one in Voice Profiles first.'); return }
     if (!ENGINE_URL) { alert('Engine URL is not configured. Check your .env file.'); return }
+    if (!currentEngineAvailable) {
+      alert(
+        engine === 'f5'
+          ? 'F5-TTS is not installed on this server. Switch to XTTS v2 in the engine selector.'
+          : 'XTTS v2 is not available on this server.'
+      )
+      return
+    }
 
     synthAbortRef.current?.abort()
     const controller = new AbortController()
@@ -364,6 +386,17 @@ export function WorkspacePage({
         style={{ gap: 5, paddingRight: 8 }}
       >
         <EngineBadge engine={engine} />
+        {/* Warning dot when selected engine is unavailable */}
+        {!currentEngineAvailable && (
+          <span
+            title={`${engine === 'f5' ? 'F5-TTS' : 'XTTS v2'} is not available on this server`}
+            style={{
+              width: 7, height: 7, borderRadius: '50%',
+              background: 'var(--warn)', flexShrink: 0,
+              boxShadow: '0 0 0 2px var(--warn-lt)',
+            }}
+          />
+        )}
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"
           style={{ width: 10, height: 10, opacity: 0.5 }}>
           <path d="M5 8l5 5 5-5" />
@@ -381,25 +414,27 @@ export function WorkspacePage({
             position: 'absolute', bottom: '100%', right: 0, marginBottom: 6,
             background: 'var(--surface)', border: '1px solid var(--border-2)',
             borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)',
-            zIndex: 200, minWidth: 210, overflow: 'hidden',
+            zIndex: 200, minWidth: 230, overflow: 'hidden',
           }}>
             <div style={{ padding: '8px 12px 6px', fontSize: 10, fontWeight: 700,
               textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)' }}>
               TTS Engine
             </div>
 
-            {([ 
+            {([
               {
                 id: 'xtts' as TTSEngine,
                 label: 'XTTS v2',
                 desc: '16 languages · multilingual · fast',
                 color: 'var(--accent)',
+                available: engineCaps.xtts,
               },
               {
                 id: 'f5' as TTSEngine,
                 label: 'F5-TTS',
                 desc: 'Flow-matching · natural prosody · English-first',
                 color: '#4278c9',
+                available: engineCaps.f5,
               },
             ] as const).map(opt => (
               <button
@@ -411,17 +446,28 @@ export function WorkspacePage({
                   background: engine === opt.id ? `${opt.color}10` : 'transparent',
                   cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s',
                   borderLeft: engine === opt.id ? `3px solid ${opt.color}` : '3px solid transparent',
+                  opacity: opt.available ? 1 : 0.55,
                 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)',
-                    display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{
+                    fontSize: 13, fontWeight: 600, color: 'var(--text-1)',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
                     {opt.label}
                     {engine === opt.id && (
-                      <span style={{ width: 14, height: 14, color: opt.color }}>
-                        {icons.check}
-                      </span>
+                      <span style={{ width: 14, height: 14, color: opt.color }}>{icons.check}</span>
                     )}
+                    {/* Availability pill */}
+                    <span style={{
+                      fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 99,
+                      background: opt.available ? 'var(--ok-lt)' : 'var(--warn-lt)',
+                      color: opt.available ? 'var(--ok)' : 'var(--warn)',
+                      border: `1px solid ${opt.available ? 'rgba(59,125,99,0.25)' : 'rgba(160,117,48,0.25)'}`,
+                      letterSpacing: '0.3px',
+                    }}>
+                      {opt.available ? 'Ready' : 'Not installed'}
+                    </span>
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 1 }}>
                     {opt.desc}
@@ -430,8 +476,10 @@ export function WorkspacePage({
               </button>
             ))}
 
-            <div style={{ padding: '6px 12px 8px', fontSize: 11, color: 'var(--text-3)',
-              borderTop: '1px solid var(--border)', lineHeight: 1.5, marginTop: 2 }}>
+            <div style={{
+              padding: '6px 12px 8px', fontSize: 11, color: 'var(--text-3)',
+              borderTop: '1px solid var(--border)', lineHeight: 1.5, marginTop: 2,
+            }}>
               Applies to all future generations in this session.
             </div>
           </div>
@@ -470,16 +518,10 @@ export function WorkspacePage({
               </button>
             )}
             {bulkGenerating && (
-              <span
-                style={{
-                  fontSize: 11,
-                  color: 'var(--accent)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  padding: '0 6px',
-                }}
-              >
+              <span style={{
+                fontSize: 11, color: 'var(--accent)',
+                display: 'flex', alignItems: 'center', gap: 4, padding: '0 6px',
+              }}>
                 <span className="spinner" />{bulkProgress}/{bulkTotal}
               </span>
             )}
@@ -561,6 +603,9 @@ export function WorkspacePage({
 
             {!bulkGenerating && bulkErrors.length > 0 && (
               <div className="msg msg--err" style={{ marginTop: 8, fontSize: 11, lineHeight: 1.5 }}>
+                {engine === 'f5' && !engineCaps.f5
+                  ? 'F5-TTS not installed — '
+                  : ''}
                 Failed: {bulkErrors.join(', ')}
               </div>
             )}
@@ -658,15 +703,11 @@ export function WorkspacePage({
               />
 
               {/* Save indicator */}
-              <span
-                style={{
-                  fontSize: 11,
-                  color: saveState === 'saved' ? 'var(--ok)' : 'var(--text-3)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 3,
-                }}
-              >
+              <span style={{
+                fontSize: 11,
+                color: saveState === 'saved' ? 'var(--ok)' : 'var(--text-3)',
+                display: 'flex', alignItems: 'center', gap: 3,
+              }}>
                 {saveState === 'saving' ? (
                   <span className="spinner" />
                 ) : saveState === 'saved' ? (
@@ -698,6 +739,15 @@ export function WorkspacePage({
                 placeholder="Write your script here… or use the mic button to transcribe audio."
               />
             </div>
+
+            {/* Engine-unavailable warning banner */}
+            {!currentEngineAvailable && (
+              <div className="msg msg--warn" style={{ margin: '8px 14px 0' }}>
+                {engine === 'f5'
+                  ? 'F5-TTS is not installed on this server. Switch to XTTS v2 or run: pip install f5-tts'
+                  : 'XTTS v2 is not available on this server.'}
+              </div>
+            )}
 
             {/* Synthesis error */}
             {synthErr && (
@@ -761,13 +811,21 @@ export function WorkspacePage({
                 </span>
               </div>
 
-              {/* Language (only meaningfully affects XTTS) */}
+              {/*
+                Language — disabled for F5-TTS (English-first; the backend accepts
+                the field but ignores it, so we surface that clearly in the UI).
+              */}
               <select
                 className="profile-select"
                 value={activeScript.language || 'en'}
                 onChange={e => onUpdateScript(activeScript.id, { language: e.target.value })}
-                title={engine === 'f5' ? 'Language (XTTS v2 only — F5-TTS is English-first)' : 'Language'}
-                style={{ opacity: engine === 'f5' ? 0.5 : 1 }}
+                disabled={engine === 'f5'}
+                title={
+                  engine === 'f5'
+                    ? 'Language selection is only used by XTTS v2. F5-TTS is English-first.'
+                    : 'Language'
+                }
+                style={{ opacity: engine === 'f5' ? 0.45 : 1 }}
               >
                 {LANGUAGES.map(l => (
                   <option key={l.code} value={l.code}>{l.label}</option>

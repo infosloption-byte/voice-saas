@@ -14,12 +14,14 @@ import {
 } from './AppPages'
 import { WorkspacePage } from './WorkspacePage'
 import { AssemblyPage } from './AssemblyPage'
-import type { Page, WorkspaceTab, VoiceProfile, EngineStatus } from './types'
+import type { Page, WorkspaceTab, VoiceProfile, EngineStatus, EngineCaps } from './types'
 
 export default function App() {
   const [page, setPage] = useState<Page>('landing')
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('scripts')
   const [engineStatus, setEngineStatus] = useState<EngineStatus>('checking')
+  // Per-engine availability reported by GET /
+  const [engineCaps, setEngineCaps] = useState<EngineCaps>({ xtts: false, f5: false })
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('vo_dark')
     if (saved !== null) return saved === 'true'
@@ -57,15 +59,25 @@ export default function App() {
         loadProjects()
         setPage('dashboard')
       }
-      // authLoading is set to false inside checkUser regardless
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Engine status ─────────────────────────────────────────────────
+  // ── Engine status + capability probe ─────────────────────────────
   useEffect(() => {
     api.get('/')
-      .then(() => setEngineStatus('online'))
-      .catch(() => setEngineStatus('offline'))
+      .then((data: unknown) => {
+        setEngineStatus('online')
+        const d = data as Record<string, unknown>
+        const engines = (d?.engines ?? {}) as Partial<EngineCaps>
+        setEngineCaps({
+          xtts: engines.xtts === true,
+          f5:   engines.f5   === true,
+        })
+      })
+      .catch(() => {
+        setEngineStatus('offline')
+        setEngineCaps({ xtts: false, f5: false })
+      })
   }, [])
 
   // ── Voice profiles ────────────────────────────────────────────────
@@ -177,6 +189,18 @@ export default function App() {
     { key: 'profiles',  label: 'Voice Profiles',  icon: icons.profiles  },
   ]
 
+  // ── Engine pill label ─────────────────────────────────────────────
+  const enginePillLabel =
+    engineStatus === 'checking'
+      ? 'Connecting…'
+      : engineStatus === 'offline'
+        ? 'Engine Offline'
+        : engineCaps.xtts && engineCaps.f5
+          ? 'XTTS + F5-TTS Online'
+          : engineCaps.xtts
+            ? 'XTTS v2 Online'
+            : 'Engine Online'
+
   // ── Main app shell ────────────────────────────────────────────────
   return (
     <div className="shell">
@@ -283,11 +307,7 @@ export default function App() {
 
           <div className={`engine-pill engine-pill--${engineStatus}`}>
             <span className="engine-pill__dot" />
-            {engineStatus === 'checking'
-              ? 'Connecting…'
-              : engineStatus === 'online'
-                ? 'AI Engine Online'
-                : 'Engine Offline'}
+            {enginePillLabel}
           </div>
         </div>
       </aside>
@@ -399,6 +419,7 @@ export default function App() {
               onDeleteScript={(sid) => deleteScript(activeProject.id, sid)}
               onReorder={(scripts) => reorderScripts(activeProject.id, scripts)}
               voiceProfiles={voiceProfiles}
+              engineCaps={engineCaps}
             />
           )}
 
@@ -420,7 +441,11 @@ export default function App() {
           )}
 
           {page === 'profiles' && (
-            <ProfilesPage profiles={voiceProfiles} onRefresh={loadProfiles} />
+            <ProfilesPage
+              profiles={voiceProfiles}
+              onRefresh={loadProfiles}
+              engineCaps={engineCaps}
+            />
           )}
 
           {page === 'settings' && (
@@ -428,6 +453,7 @@ export default function App() {
               darkMode={darkMode}
               onToggleDark={() => setDarkMode(v => !v)}
               onSignOut={signOut}
+              engineCaps={engineCaps}
               user={user
                 ? { name: user.name, email: user.email }
                 : { name: '', email: '' }}

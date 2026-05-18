@@ -74,6 +74,15 @@ export interface HistoryState {
   future: string[]
 }
 
+/**
+ * Mirrors the `engines` object returned by the AI engine's GET / endpoint.
+ * { xtts: true, f5: false } means XTTS is loaded but F5-TTS is not installed.
+ */
+export interface EngineCaps {
+  xtts: boolean
+  f5: boolean
+}
+
 // ── API response shapes ────────────────────────────────────────────
 export interface SynthesisResult {
   warning?: string
