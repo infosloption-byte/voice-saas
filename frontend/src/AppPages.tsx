@@ -3,7 +3,7 @@ import { api } from './api'
 import { icons, EMOJIS } from './constants'
 import { fmt, uid, useAudioRecorder } from './audio'
 import { useTTSEngine } from './hooks/useTTSEngine'
-import type { Project, Script, VoiceProfile } from './types'
+import type { Project, Script, VoiceProfile, VoiceProfileSaveResult, EngineCaps } from './types'
 
 // ── Wave visualiser ────────────────────────────────────────────────
 export function WaveVisualiser({ active }: { active: boolean }) {
@@ -201,7 +201,11 @@ export function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
 }
 
 // ── Voice Profiles ─────────────────────────────────────────────────
-export function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]; onRefresh: () => void }) {
+export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps }: {
+  profiles: VoiceProfile[]
+  onRefresh: () => void
+  engineCaps?: EngineCaps
+}) {
   const recorder = useAudioRecorder()
 
   // Read current engine preference so preview uses the same engine as synthesis
@@ -221,8 +225,9 @@ export function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]
     setMsg(''); setMsgWarn('')
     try {
       await recorder.start(noiseSuppression, gainVal)
-    } catch (e: any) {
-      setMsg(`Error: Could not access microphone. ${e.message ?? ''}`)
+    } catch (e: unknown) {
+      const err = e as Error
+      setMsg(`Error: Could not access microphone. ${err.message ?? ''}`)
     }
   }
 
@@ -258,12 +263,14 @@ export function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]
     fd.append('status', 'ready')
 
     try {
-      const data = await api.post('/voice-profiles', fd)
+      const raw = await api.post('/voice-profiles', fd)
+      const data = raw as VoiceProfileSaveResult
       if (data?.warning) setMsgWarn(`⚠ ${data.warning}`)
       setMsg(`✓ Profile "${data.profile_id ?? profileName}" saved${data.duration_seconds ? ` — ${data.duration_seconds}s` : ''}`)
       onRefresh()
-    } catch (e: any) {
-      setMsg(`Error: ${e.message ?? 'Save failed. Is the AI engine running?'}`)
+    } catch (e: unknown) {
+      const err = e as Error
+      setMsg(`Error: ${err.message ?? 'Save failed. Is the AI engine running?'}`)
     } finally {
       setSaving(false)
     }
@@ -274,8 +281,9 @@ export function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]
     try {
       await api.delete(`/voice-profiles/${profile_id}`)
       onRefresh()
-    } catch (e: any) {
-      alert('Delete failed: ' + (e?.message ?? 'Unknown error'))
+    } catch (e: unknown) {
+      const err = e as Error
+      alert('Delete failed: ' + (err?.message ?? 'Unknown error'))
     }
   }
 
@@ -288,10 +296,11 @@ export function ProfilesPage({ profiles, onRefresh }: { profiles: VoiceProfile[]
     fd.append('language', 'en')
     fd.append('tts_engine', engine)   // ← use whichever engine is currently selected
     try {
-      const blob = await api.enginePost('/synthesize', fd)
-      const audio = new Audio(URL.createObjectURL(blob))
+      const raw = await api.enginePost('/synthesize', fd)
+      const audioBlob = raw as Blob
+      const audio = new Audio(URL.createObjectURL(audioBlob))
       audio.play()
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Preview failed:', e)
       alert('Preview failed. Is the AI engine running?')
     } finally {
