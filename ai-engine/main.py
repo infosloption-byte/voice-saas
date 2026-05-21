@@ -555,3 +555,29 @@ async def clone(
         for p in [raw_path, ref_path] + chunk_paths:
             if os.path.exists(p):
                 os.remove(p)
+
+
+@app.post("/export/mp3")
+async def export_mp3(file: UploadFile = File(...)):
+    """Convert an uploaded WAV file to MP3 using ffmpeg."""
+    wav_path = tmp_path("export_in", ".wav")
+    mp3_path = tmp_path("export_out", ".mp3")
+    try:
+        with open(wav_path, "wb") as f:
+            f.write(await file.read())
+
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", wav_path, "-q:a", "4", mp3_path],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            raise HTTPException(500, f"ffmpeg error: {result.stderr.decode()[:200]}")
+
+        return FileResponse(mp3_path, media_type="audio/mpeg", filename="export.mp3")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"MP3 export failed: {e}")
+    finally:
+        if os.path.exists(wav_path):
+            os.remove(wav_path)

@@ -4,6 +4,20 @@ import { loadAudioBlob, saveAudioBlob, deleteAudioBlob, historyReducer, fmt } fr
 import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
 import type { Project, Script, VoiceProfile, SaveState, EngineCaps } from './types'
 
+const SCRIPT_TEMPLATES = [
+  { id: 'blank',         label: 'Blank Script',    emoji: '📄', description: 'Start from scratch', title: 'Untitled Script', content: '' },
+  { id: 'podcast-intro', label: 'Podcast Intro',   emoji: '🎙', description: '~30 second welcome hook', title: 'Podcast Intro',
+    content: "Welcome back to [Podcast Name]! I'm your host [Name], and today we're diving into [Topic]. Whether you're a longtime listener or just joining us for the first time — you're in the right place. Let's get started." },
+  { id: 'youtube-outro', label: 'YouTube Outro',   emoji: '▶️', description: 'Subscribe & engage CTA', title: 'YouTube Outro',
+    content: "Thanks for watching! If you found this video helpful, please hit that like button and subscribe for more content like this. Drop your questions in the comments — I read every single one. See you in the next video!" },
+  { id: 'product-demo',  label: 'Product Demo',    emoji: '🚀', description: 'Feature highlight script', title: 'Product Demo',
+    content: "Today I want to show you [Product Name] — the easiest way to [solve problem]. In just [time], you'll be able to [key benefit]. Let me walk you through exactly how it works." },
+  { id: 'ad-spot',       label: 'Ad Spot',         emoji: '📢', description: '15–30 second advertisement', title: 'Advertisement',
+    content: "Tired of [problem]? Introducing [Product] — the solution that [main benefit]. Try it risk-free for [X] days. Visit [website] to get started today." },
+  { id: 'news-report',   label: 'News Report',     emoji: '📰', description: 'Breaking news format', title: 'News Report',
+    content: "Breaking: [Headline]. According to [Source], [details]. This comes after [context]. More information is expected to emerge in the coming hours. Stay tuned for updates." },
+]
+
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL as string | undefined
 
 // ── Small engine badge shown in the footer ─────────────────────────
@@ -40,7 +54,7 @@ export function WorkspacePage({
   project: Project
   activeScriptId: string | null
   setActiveScriptId: (id: string | null) => void
-  onAddScript: () => void
+  onAddScript: (template?: { title?: string; content?: string }) => void
   onUpdateScript: (id: string, upd: Partial<Script>) => void
   onDeleteScript: (id: string) => void
   onReorder: (scripts: Script[]) => void
@@ -64,6 +78,8 @@ export function WorkspacePage({
   const [showScriptList, setShowScriptList] = useState(true)
   const [transcribing, setTranscribing]     = useState(false)
   const [showEngineMenu, setShowEngineMenu] = useState(false)
+  const [showTemplateModal, setShowTemplateModal] = useState(false)
+  const [pendingTranscription, setPendingTranscription] = useState<string | null>(null)
 
   // TTS engine preference (persisted in localStorage)
   const { engine, setEngine } = useTTSEngine()
@@ -332,7 +348,6 @@ export function WorkspacePage({
 
   // ── Audio transcription ───────────────────────────────────────────
   async function handleAudioTranscribe(file: File) {
-    if (!activeScript) return
     if (!ENGINE_URL) { alert('Engine URL is not configured. Check your .env file.'); return }
 
     setTranscribing(true)
@@ -342,7 +357,12 @@ export function WorkspacePage({
       const res = await fetch(`${ENGINE_URL}/transcribe`, { method: 'POST', body: fd })
       if (!res.ok) { alert('Transcription failed. Is the AI engine running?'); return }
       const data = await res.json() as { text?: string }
-      dispatch({ type: 'SET', value: data.text ?? '' })
+      const text = data.text ?? ''
+      if (activeScript) {
+        setPendingTranscription(text)
+      } else {
+        onAddScript({ title: 'Transcribed Script', content: text })
+      }
     } catch {
       alert('Connection error. Is the AI engine running?')
     } finally {
@@ -491,6 +511,60 @@ export function WorkspacePage({
   // ─────────────────────────────────────────────────────────────────
   return (
     <div className="workspace">
+      {/* Script template modal */}
+      {showTemplateModal && (
+        <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && setShowTemplateModal(false)}>
+          <div className="modal" style={{ maxWidth: 500 }}>
+            <div className="modal__title">New Script</div>
+            <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 14 }}>Choose a template or start blank.</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {SCRIPT_TEMPLATES.map(tpl => (
+                <button key={tpl.id} onClick={() => {
+                  onAddScript({ title: tpl.title, content: tpl.content })
+                  setShowTemplateModal(false)
+                }} style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '10px 12px', border: '1px solid var(--border-2)', borderRadius: 8, background: 'var(--surface)', cursor: 'pointer', textAlign: 'left', transition: 'border-color 0.1s' }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border-2)')}>
+                  <span style={{ fontSize: 18 }}>{tpl.emoji}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>{tpl.label}</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{tpl.description}</span>
+                </button>
+              ))}
+            </div>
+            <div className="modal__actions">
+              <button className="btn btn--ghost" onClick={() => setShowTemplateModal(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Transcription choice modal */}
+      {pendingTranscription !== null && (
+        <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && setPendingTranscription(null)}>
+          <div className="modal" style={{ maxWidth: 400 }}>
+            <div className="modal__title">Transcription Complete</div>
+            <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 4 }}>What would you like to do with the transcribed text?</p>
+            <div style={{ padding: '8px 12px', background: 'var(--bg-2)', borderRadius: 6, fontSize: 12, color: 'var(--text-2)', maxHeight: 120, overflowY: 'auto', lineHeight: 1.6, marginBottom: 14, fontStyle: 'italic' }}>
+              "{pendingTranscription.slice(0, 200)}{pendingTranscription.length > 200 ? '…' : ''}"
+            </div>
+            <div className="modal__actions">
+              <button className="btn btn--ghost" onClick={() => setPendingTranscription(null)}>Cancel</button>
+              <button className="btn" onClick={() => {
+                onAddScript({ title: 'Transcribed Script', content: pendingTranscription })
+                setPendingTranscription(null)
+              }}>
+                {icons.newScript} New Script
+              </button>
+              <button className="btn btn--primary" onClick={() => {
+                if (activeScript) dispatch({ type: 'SET', value: pendingTranscription })
+                setPendingTranscription(null)
+              }} disabled={!activeScript}>
+                {icons.check} Replace Current
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Script list panel ── */}
       <div className={`script-panel ${!showScriptList ? 'script-panel--hidden' : ''}`}>
@@ -525,7 +599,7 @@ export function WorkspacePage({
                 <span className="spinner" />{bulkProgress}/{bulkTotal}
               </span>
             )}
-            <button className="btn btn--sm btn--primary" onClick={onAddScript}>
+            <button className="btn btn--sm btn--primary" onClick={() => setShowTemplateModal(true)} title="New script">
               {icons.plus}
             </button>
           </div>

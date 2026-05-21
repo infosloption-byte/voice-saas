@@ -41,8 +41,9 @@ export default function App() {
     updateProject, deleteProject,
     addScript: addScriptBase,
     updateScript, deleteScript, reorderScripts,
+    saveTimeline,
   } = useProjects()
-  const { mergedUrl, merging, mergeError, mergeSelected, resetMerge } = useAudio()
+  const { mergedUrl, mergedBlob, merging, mergeError, mergeSelected, resetMerge, exportZip } = useAudio()
 
   const activeProject = projects.find(p => p.id === activeProjectId) ?? null
 
@@ -117,8 +118,8 @@ export default function App() {
     }
   }
 
-  async function addScript(projectId: string) {
-    const script = await addScriptBase(projectId)
+  async function addScript(projectId: string, template?: { title?: string; content?: string }) {
+    const script = await addScriptBase(projectId, template)
     if (script) setActiveScriptId(script.id)
   }
 
@@ -357,8 +358,8 @@ export default function App() {
               </button>
               <button
                 className="btn btn--sm btn--ghost"
-                onClick={() => alert('ZIP export: install jszip to enable.')}
-                title="Export ZIP"
+                onClick={() => activeProject && exportZip(activeProject.scripts, activeProject.name)}
+                title="Export all audio clips as ZIP"
               >
                 {icons.zip}
               </button>
@@ -414,7 +415,7 @@ export default function App() {
               project={activeProject}
               activeScriptId={activeScriptId}
               setActiveScriptId={setActiveScriptId}
-              onAddScript={() => addScript(activeProject.id)}
+              onAddScript={(tpl) => addScript(activeProject.id, tpl)}
               onUpdateScript={(sid, upd) => updateScript(activeProject.id, sid, upd)}
               onDeleteScript={(sid) => deleteScript(activeProject.id, sid)}
               onReorder={(scripts) => reorderScripts(activeProject.id, scripts)}
@@ -433,9 +434,11 @@ export default function App() {
               <AssemblyPage
                 project={activeProject}
                 mergedUrl={mergedUrl}
+                mergedBlob={mergedBlob}
                 merging={merging}
-                onMerge={mergeSelected}
+                onMerge={(clips, bg) => mergeSelected(clips, bg)}
                 onReorder={(scripts) => reorderScripts(activeProject.id, scripts)}
+                onSaveTimeline={(clips) => saveTimeline(activeProject.id, clips)}
               />
             </>
           )}
