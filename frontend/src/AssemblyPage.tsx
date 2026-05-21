@@ -1,21 +1,30 @@
-import { useState, useEffect, useRef, useReducer } from 'react'
+import { useState, useEffect, useRef, useReducer, useCallback } from 'react'
 import { icons, CLIP_COLORS, CLIP_LIGHTS } from './constants'
-import { loadAudioBlob, loadAudioRawBlob, timelineReducer, uid, fmt } from './audio'
+import { loadAudioBlob, loadAudioRawBlob, saveAudioBlob, deleteAudioBlob, timelineReducer, uid, fmt } from './audio'
 import type { Project, Script, TimelineClip, TimelineHistory } from './types'
 
-export function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }: {
+const ENGINE_URL = import.meta.env.VITE_ENGINE_URL as string | undefined
+
+interface BgMusic { blob: Blob; volume: number }
+
+export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge, onReorder, onSaveTimeline }: {
   project: Project
   mergedUrl: string | null
+  mergedBlob: Blob | null
   merging: boolean
-  onMerge: (orderedClips: TimelineClip[]) => void
+  onMerge: (orderedClips: TimelineClip[], bgMusic?: BgMusic) => void
   onReorder: (scripts: Script[]) => void
+  onSaveTimeline: (clips: TimelineClip[]) => void
 }) {
   const withAudio = project.scripts.filter(s => s.hasAudio)
 
   const [zoom, setZoom] = useState(80)
   const [playhead, setPlayhead] = useState(0)
   const [playing, setPlaying] = useState(false)
-  const [tlHistory, dispatchTl] = useReducer(timelineReducer, { past: [], present: [], future: [] } as TimelineHistory)
+  const [tlHistory, dispatchTl] = useReducer(
+    timelineReducer,
+    { past: [], present: project.timelineClips ?? [], future: [] } as TimelineHistory
+  )
   const timelineClips = tlHistory.present
   const setTimelineClips = (clips: TimelineClip[]) => dispatchTl({ type: 'SET', clips })
   const [dragAssetId, setDragAssetId] = useState<string | null>(null)
@@ -30,6 +39,15 @@ export function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }
   const [showGapDialog, setShowGapDialog] = useState(false)
   const [gapDuration, setGapDuration] = useState(1)
 
+  // Background music state
+  const [bgMusicName, setBgMusicName] = useState<string | null>(null)
+  const [bgMusicBlob, setBgMusicBlob] = useState<Blob | null>(null)
+  const [bgMusicVolume, setBgMusicVolume] = useState(0.2)
+  const bgMusicInputRef = useRef<HTMLInputElement>(null)
+
+  // MP3 export state
+  const [exportingMp3, setExportingMp3] = useState(false)
+
   const timelineRef = useRef<HTMLDivElement>(null)
   const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const audioBuffersRef = useRef<Record<string, AudioBuffer>>({})
@@ -37,6 +55,8 @@ export function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }
   const audioCtxRef = useRef<AudioContext | null>(null)
   const playStartCtxTimeRef = useRef<number>(0)
   const playheadAtStartRef = useRef<number>(0)
+  const saveTimelineRef = useRef(onSaveTimeline)
+  saveTimelineRef.current = onSaveTimeline
 
   // Load audio URLs from IndexedDB
   useEffect(() => {
@@ -53,6 +73,25 @@ export function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }
       }
     })
   }, [project.scripts])
+
+  // Load persisted bg music from IndexedDB on mount
+  useEffect(() => {
+    loadAudioRawBlob(`bg_${project.id}`).then(blob => {
+      if (blob) {
+        setBgMusicBlob(blob)
+        const stored = localStorage.getItem(`bg_name_${project.id}`)
+        if (stored) setBgMusicName(stored)
+      }
+    })
+  }, [project.id])
+
+  // Debounced timeline persistence
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      saveTimelineRef.current(timelineClips)
+    }, 1200)
+    return () => clearTimeout(timer)
+  }, [timelineClips])
 
   useEffect(() => () => { if (playIntervalRef.current) clearInterval(playIntervalRef.current) }, [])
 
@@ -173,7 +212,45 @@ export function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }
 
   function handleMerge() {
     const ordered = [...timelineClips].sort((a, b) => a.start - b.start)
-    onMerge(ordered)
+    const bg = bgMusicBlob ? { blob: bgMusicBlob, volume: bgMusicVolume } : undefined
+    onMerge(ordered, bg)
+  }
+
+  async function handleExportMp3() {
+    if (!mergedBlob || !ENGINE_URL) return
+    setExportingMp3(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', mergedBlob, 'audio.wav')
+      const res = await fetch(`${ENGINE_URL}/export/mp3`, { method: 'POST', body: fd })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'final.mp3'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      alert('MP3 export failed: ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setExportingMp3(false)
+    }
+  }
+
+  async function handleBgMusicUpload(file: File) {
+    const blob = new Blob([await file.arrayBuffer()], { type: file.type })
+    await saveAudioBlob(`bg_${project.id}`, blob)
+    localStorage.setItem(`bg_name_${project.id}`, file.name)
+    setBgMusicBlob(blob)
+    setBgMusicName(file.name)
+  }
+
+  async function removeBgMusic() {
+    await deleteAudioBlob(`bg_${project.id}`)
+    localStorage.removeItem(`bg_name_${project.id}`)
+    setBgMusicBlob(null)
+    setBgMusicName(null)
   }
 
   function fitToView() {
@@ -261,7 +338,8 @@ export function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }
     timelineArea:  { flex: 1, display: 'flex', flexDirection: 'column' as const, overflow: 'hidden' } as React.CSSProperties,
     timelineScroll:{ flex: 1, overflowX: 'auto' as const, overflowY: 'hidden' as const, cursor: dragClipId || resizingClip ? 'grabbing' : draggingPlayhead ? 'ew-resize' : 'default', userSelect: 'none' as const } as React.CSSProperties,
     ruler:         { height: 30, background: 'var(--bg-3)', borderBottom: '1px solid var(--border-2)', position: 'sticky' as const, top: 0, zIndex: 10, overflow: 'hidden' } as React.CSSProperties,
-    track:         { height: 80, background: 'var(--bg-2)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', margin: '14px 0', position: 'relative' as const } as React.CSSProperties,
+    track:         { height: 80, background: 'var(--bg-2)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', margin: '14px 0 4px', position: 'relative' as const } as React.CSSProperties,
+    musicTrack:    { height: 40, background: 'var(--bg-3)', borderBottom: '1px solid var(--border)', position: 'relative' as const } as React.CSSProperties,
     footer:        { padding: '7px 14px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-2)', flexShrink: 0, flexWrap: 'wrap' as const } as React.CSSProperties,
   }
 
@@ -320,7 +398,16 @@ export function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }
 
         {mergedUrl && <audio src={mergedUrl} controls style={{ height: 28, width: 180, accentColor: 'var(--accent)' }} />}
         {mergedUrl && (
-          <a href={mergedUrl} download="final.wav" className="btn btn--sm btn--primary">{icons.download} Download</a>
+          <a href={mergedUrl} download="final.wav" style={tBtn()}>
+            <span style={{ display: 'flex', width: 14, height: 14 }}>{icons.download}</span>
+            <span style={{ fontSize: 11 }}>WAV</span>
+          </a>
+        )}
+        {mergedBlob && ENGINE_URL && (
+          <button onClick={handleExportMp3} disabled={exportingMp3} style={tBtn({ opacity: exportingMp3 ? 0.6 : 1 })} title="Export as MP3">
+            {exportingMp3 ? <span className="spinner" /> : <span style={{ display: 'flex', width: 14, height: 14 }}>{icons.mp3}</span>}
+            <span style={{ fontSize: 11 }}>MP3</span>
+          </button>
         )}
         <button onClick={handleMerge} disabled={timelineClips.length < 1 || merging}
           style={tBtn({ background: mergedUrl ? 'var(--ok)' : 'var(--accent)', color: '#fff', border: 'none', padding: '6px 14px', opacity: timelineClips.length < 1 || merging ? 0.5 : 1 })}>
@@ -364,9 +451,39 @@ export function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }
               )
             })}
           </div>
+
+          {/* Background music panel */}
+          <div style={{ padding: '8px 10px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.7px', marginBottom: 6 }}>Background Music</div>
+            {bgMusicBlob ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ display: 'flex', width: 12, height: 12, color: 'var(--accent)', flexShrink: 0 }}>{icons.music}</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-1)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bgMusicName}</span>
+                  <button onClick={removeBgMusic} style={{ padding: '2px 4px', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: 12, borderRadius: 3 }} title="Remove music">×</button>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 10, color: 'var(--text-3)', flexShrink: 0 }}>Vol</span>
+                  <input type="range" min="0" max="1" step="0.05" value={bgMusicVolume}
+                    onChange={e => setBgMusicVolume(parseFloat(e.target.value))}
+                    style={{ flex: 1, accentColor: 'var(--accent)' }} />
+                  <span style={{ fontSize: 10, color: 'var(--accent)', fontFamily: 'var(--mono)', width: 28 }}>{Math.round(bgMusicVolume * 100)}%</span>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => bgMusicInputRef.current?.click()}
+                style={{ width: '100%', padding: '6px', border: '1px dashed var(--border-2)', borderRadius: 6, background: 'transparent', cursor: 'pointer', color: 'var(--text-3)', fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                <span style={{ display: 'flex', width: 12, height: 12 }}>{icons.music}</span>
+                Add background music
+              </button>
+            )}
+            <input ref={bgMusicInputRef} type="file" accept="audio/*" style={{ display: 'none' }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleBgMusicUpload(f); e.target.value = '' }} />
+          </div>
+
           {withAudio.length > 0 && (
-            <div style={{ padding: '8px 10px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
-              <p style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>Drag clips onto the timeline. Right-drag clip edges to trim. Use Space to play/pause.</p>
+            <div style={{ padding: '6px 10px 8px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+              <p style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>Drag clips onto the timeline. Drag edges to trim. Space to play.</p>
             </div>
           )}
         </div>
@@ -407,7 +524,12 @@ export function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }
                 </div>
               </div>
 
-              {/* Track lane */}
+              {/* Track label */}
+              <div style={{ padding: '4px 10px 0' }}>
+                <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Track 1 · Voiceover</span>
+              </div>
+
+              {/* Voice track lane */}
               <div style={{ ...S.track, outline: dropActive ? '2px dashed var(--accent)' : 'none', outlineOffset: -3 }}
                 onDragOver={onTimelineDragOver}
                 onDragLeave={onTimelineDragLeave}
@@ -523,9 +645,26 @@ export function AssemblyPage({ project, mergedUrl, merging, onMerge, onReorder }
                 <div style={{ position: 'absolute', left: playhead * zoom, top: 0, bottom: 0, width: 2, background: 'var(--accent)', zIndex: 50, pointerEvents: 'none', opacity: 0.7 }} />
               </div>
 
-              <div style={{ padding: '4px 10px' }}>
-                <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Track 1 · Voiceover</span>
-              </div>
+              {/* Music track */}
+              {bgMusicBlob && (
+                <>
+                  <div style={{ padding: '4px 10px 0' }}>
+                    <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Track 2 · Background Music · {Math.round(bgMusicVolume * 100)}%
+                    </span>
+                  </div>
+                  <div style={S.musicTrack}>
+                    {ticks.map(t => (
+                      <div key={t} style={{ position: 'absolute', left: t * zoom, top: 0, bottom: 0, width: 1, background: 'var(--border-3)' }} />
+                    ))}
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', paddingLeft: 10, gap: 6 }}>
+                      <span style={{ display: 'flex', width: 12, height: 12, color: 'var(--accent)', opacity: 0.6 }}>{icons.music}</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bgMusicName} — loops to fill timeline</span>
+                    </div>
+                    <div style={{ position: 'absolute', left: playhead * zoom, top: 0, bottom: 0, width: 2, background: 'var(--accent)', zIndex: 50, pointerEvents: 'none', opacity: 0.7 }} />
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
