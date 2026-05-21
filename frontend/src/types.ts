@@ -21,6 +21,7 @@ export interface Project {
   description: string
   createdAt: string
   scripts: Script[]
+  timelineClips?: TimelineClip[]
 }
 
 export interface Script {

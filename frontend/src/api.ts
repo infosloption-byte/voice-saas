@@ -194,5 +194,6 @@ export function mapProject(raw: Record<string, unknown>) {
     description: (raw.description as string) ?? '',
     createdAt: (raw.created_at as string) ?? (raw.createdAt as string) ?? new Date().toISOString(),
     scripts: ((raw.scripts as Record<string, unknown>[]) ?? []).map(mapScript),
+    timelineClips: (raw.timeline_clips as import('./types').TimelineClip[] | undefined) ?? undefined,
   }
 }
