@@ -1,17 +1,23 @@
 import { useState, useCallback, useRef } from 'react'
+import JSZip from 'jszip'
 import { loadAudioRawBlob, audioBufferToWav } from '../audio'
-import type { TimelineClip } from '../types'
+import type { TimelineClip, Script } from '../types'
+
+interface BgMusic { blob: Blob; volume: number }
 
 interface UseAudioReturn {
   mergedUrl: string | null
+  mergedBlob: Blob | null
   merging: boolean
   mergeError: string | null
-  mergeSelected: (orderedClips: TimelineClip[]) => Promise<void>
+  mergeSelected: (orderedClips: TimelineClip[], bgMusic?: BgMusic) => Promise<void>
   resetMerge: () => void
+  exportZip: (scripts: Script[], projectName: string) => Promise<void>
 }
 
 export function useAudio(): UseAudioReturn {
   const [mergedUrl, setMergedUrl] = useState<string | null>(null)
+  const [mergedBlob, setMergedBlob] = useState<Blob | null>(null)
   const [merging, setMerging] = useState(false)
   const [mergeError, setMergeError] = useState<string | null>(null)
   const prevMergedUrl = useRef<string | null>(null)
@@ -22,10 +28,11 @@ export function useAudio(): UseAudioReturn {
       prevMergedUrl.current = null
     }
     setMergedUrl(null)
+    setMergedBlob(null)
     setMergeError(null)
   }, [])
 
-  const mergeSelected = useCallback(async (orderedClips: TimelineClip[]): Promise<void> => {
+  const mergeSelected = useCallback(async (orderedClips: TimelineClip[], bgMusic?: BgMusic): Promise<void> => {
     if (!orderedClips.length) return
     setMerging(true)
     setMergeError(null)
@@ -92,10 +99,26 @@ export function useAudio(): UseAudioReturn {
         offset += durSamples
       }
 
+      // Mix in background music
+      if (bgMusic) {
+        try {
+          const bgArr = await bgMusic.blob.arrayBuffer()
+          const bgBuf = await ctx.decodeAudioData(bgArr)
+          const bgSrc = bgBuf.getChannelData(0)
+          const bgSr = bgBuf.sampleRate
+
+          for (let i = 0; i < totalSamples; i++) {
+            const bgIdx = Math.floor(i * (bgSr / sr)) % bgSrc.length
+            out[i] = Math.max(-1, Math.min(1, out[i] + bgSrc[bgIdx] * bgMusic.volume))
+          }
+        } catch (e) {
+          console.warn('[useAudio] Background music mixing failed, skipping:', e)
+        }
+      }
+
       const wav = audioBufferToWav(merged)
       const blob = new Blob([wav], { type: 'audio/wav' })
 
-      // Revoke previous URL to avoid memory leak
       if (prevMergedUrl.current) {
         URL.revokeObjectURL(prevMergedUrl.current)
       }
@@ -103,6 +126,7 @@ export function useAudio(): UseAudioReturn {
       const url = URL.createObjectURL(blob)
       prevMergedUrl.current = url
       setMergedUrl(url)
+      setMergedBlob(blob)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       setMergeError(msg)
@@ -115,5 +139,42 @@ export function useAudio(): UseAudioReturn {
     }
   }, [])
 
-  return { mergedUrl, merging, mergeError, mergeSelected, resetMerge }
+  const exportZip = useCallback(async (scripts: Script[], projectName: string): Promise<void> => {
+    const zip = new JSZip()
+    const audioFolder = zip.folder('audio')!
+    let added = 0
+
+    for (const script of scripts) {
+      if (!script.hasAudio) continue
+      const raw = await loadAudioRawBlob(`audio_${script.id}`)
+      if (!raw) continue
+      const safeName = script.title.replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || `script_${script.id}`
+      audioFolder.file(`${safeName}.wav`, raw)
+      added++
+    }
+
+    if (added === 0) {
+      alert('No audio clips to export. Generate audio for your scripts first.')
+      return
+    }
+
+    const meta = {
+      project: projectName,
+      exportedAt: new Date().toISOString(),
+      scripts: scripts
+        .filter(s => s.hasAudio)
+        .map(s => ({ id: s.id, title: s.title, duration: s.duration, language: s.language })),
+    }
+    zip.file('metadata.json', JSON.stringify(meta, null, 2))
+
+    const blob = await zip.generateAsync({ type: 'blob' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${projectName.replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'project'}.zip`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [])
+
+  return { mergedUrl, mergedBlob, merging, mergeError, mergeSelected, resetMerge, exportZip }
 }

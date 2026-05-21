@@ -11,10 +11,11 @@ interface UseProjectsReturn {
   addProject: (name: string, emoji: string, description: string) => Promise<Project>
   updateProject: (id: string, update: Partial<Project>) => Promise<void>
   deleteProject: (id: string) => Promise<void>
-  addScript: (projectId: string) => Promise<Script | null>
+  addScript: (projectId: string, template?: { title?: string; content?: string }) => Promise<Script | null>
   updateScript: (projectId: string, scriptId: string, update: Partial<Script>) => Promise<void>
   deleteScript: (projectId: string, scriptId: string) => Promise<void>
   reorderScripts: (projectId: string, scripts: Script[]) => Promise<void>
+  saveTimeline: (projectId: string, clips: import('../types').TimelineClip[]) => Promise<void>
 }
 
 export function useProjects(): UseProjectsReturn {
@@ -108,11 +109,11 @@ export function useProjects(): UseProjectsReturn {
 
   // ── Scripts ───────────────────────────────────────────────────────
 
-  const addScript = useCallback(async (projectId: string): Promise<Script | null> => {
+  const addScript = useCallback(async (projectId: string, template?: { title?: string; content?: string }): Promise<Script | null> => {
     const script: Script = {
       id: uid(),
-      title: 'Untitled Script',
-      content: '',
+      title: template?.title ?? 'Untitled Script',
+      content: template?.content ?? '',
       hasAudio: false,
       profileId: null,
       language: 'en',
@@ -218,10 +219,25 @@ export function useProjects(): UseProjectsReturn {
     }
   }, [])
 
+  const saveTimeline = useCallback(async (
+    projectId: string,
+    clips: import('../types').TimelineClip[]
+  ): Promise<void> => {
+    setProjects(prev => prev.map(p =>
+      p.id === projectId ? { ...p, timelineClips: clips } : p
+    ))
+    try {
+      await api.put(`/projects/${projectId}`, { timeline_clips: clips })
+    } catch (e) {
+      console.error('[useProjects] saveTimeline:', e)
+    }
+  }, [])
+
   return {
     projects, loading, error,
     loadProjects,
     addProject, updateProject, deleteProject,
     addScript, updateScript, deleteScript, reorderScripts,
+    saveTimeline,
   }
 }
