@@ -244,23 +244,16 @@ async def lifespan(app):
 app = FastAPI(lifespan=lifespan)
 
 # ── CORS ───────────────────────────────────────────────────────────
-ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    # Production EC2 origins (nginx proxies the browser → this engine)
-    "https://3.83.53.113",
-    "http://3.83.53.113",
-    "http://3.83.53.113:3000",
-]
+import os as _os
+_raw_origins = _os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173")
+ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "Accept"],
 )
 
 

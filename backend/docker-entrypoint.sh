@@ -13,8 +13,10 @@ fi
 sed -i 's/DB_HOST=127.0.0.1/DB_HOST=db/' .env 2>/dev/null || true
 sed -i 's/DB_HOST=localhost/DB_HOST=db/' .env 2>/dev/null || true
 
-# Generate app key if APP_KEY is empty
-php artisan key:generate --force
+# Generate app key only if not already set
+if grep -q '^APP_KEY=$' .env 2>/dev/null || ! grep -q '^APP_KEY=' .env 2>/dev/null; then
+    php artisan key:generate --no-interaction
+fi
 
 # Run migrations
 echo "Waiting for database..."
