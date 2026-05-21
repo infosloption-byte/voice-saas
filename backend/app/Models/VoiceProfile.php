@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class VoiceProfile extends Model
 {
-    protected $guarded = [];
+    protected $fillable = ['user_id', 'profile_id', 'name', 'status', 'duration'];
 
     protected $casts = [
         'duration' => 'float',

@@ -8,7 +8,7 @@ class Project extends Model
 {
     protected $keyType = 'string';
     public $incrementing = false;
-    protected $guarded = [];
+    protected $fillable = ['id', 'user_id', 'name', 'emoji', 'description', 'timeline_clips'];
     protected $casts = [
         'timeline_clips' => 'array',
     ];

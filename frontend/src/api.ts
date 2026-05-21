@@ -2,8 +2,9 @@
 const ENGINE_API_BASE = import.meta.env.VITE_ENGINE_URL as string | undefined
 const LARAVEL_API_BASE = import.meta.env.VITE_API_URL as string | undefined
 
-if (!ENGINE_API_BASE) console.error('[api] VITE_ENGINE_URL is not set in .env')
-if (!LARAVEL_API_BASE) console.error('[api] VITE_API_URL is not set in .env')
+if (!ENGINE_API_BASE || !LARAVEL_API_BASE) {
+  throw new Error('[api] VITE_ENGINE_URL and VITE_API_URL must be set in .env')
+}
 
 const ENGINE_BASE = ENGINE_API_BASE ?? ''
 const LARAVEL_BASE = LARAVEL_API_BASE?.replace(/\/api\/?$/, '') ?? ''

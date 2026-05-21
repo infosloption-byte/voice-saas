@@ -1,0 +1,9 @@
+# Environment files with secrets — never commit these
+.env
+frontend/.env
+backend/.env
+
+# Keep example files
+!.env.example
+!frontend/.env.example
+!backend/.env.example

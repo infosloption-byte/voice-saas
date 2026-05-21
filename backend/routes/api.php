@@ -8,8 +8,10 @@ use App\Http\Controllers\ScriptController;
 use App\Http\Controllers\VoiceProfileController;
 
 // ── Public auth routes ────────────────────────────────────────────────
-Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login',    [AuthController::class, 'login']);
+Route::middleware('throttle:10,1')->group(function () {
+    Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/login',    [AuthController::class, 'login']);
+});
 Route::post('/logout',   [AuthController::class, 'logout'])->middleware('auth:sanctum');
 
 // ── Authenticated routes ──────────────────────────────────────────────
