@@ -108,16 +108,31 @@ export function DashboardPage({ projects, voiceProfiles, onOpenProject, onGoProj
   onGoProjects: () => void
   onGoProfiles: () => void
 }) {
-  const totalScripts = projects.reduce((a, p) => a + p.scripts.length, 0)
-  const totalVoiceovers = projects.reduce((a, p) => a + p.scripts.filter(s => s.hasAudio).length, 0)
+  const allScripts    = projects.flatMap(p => p.scripts)
+  const audioScripts  = allScripts.filter(s => s.hasAudio)
+  const totalScripts  = allScripts.length
+  const totalAudio    = audioScripts.length
+  const totalChars    = audioScripts.reduce((a, s) => a + s.content.length, 0)
+  const totalDurSec   = audioScripts.reduce((a, s) => a + (s.duration ?? 0), 0)
+  const completionPct = totalScripts > 0 ? Math.round((totalAudio / totalScripts) * 100) : 0
+
+  const fmtDuration = (sec: number) => {
+    if (sec < 60)  return `${Math.round(sec)}s`
+    if (sec < 3600) return `${Math.floor(sec / 60)}m ${Math.round(sec % 60)}s`
+    return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`
+  }
+
+  const fmtChars = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+
   return (
     <div>
+      {/* ── Stat cards ── */}
       <div className="dash-stats">
         {[
-          { label: 'Projects',   icon: icons.projects,  value: projects.length,      sub: 'Workspaces' },
-          { label: 'Scripts',    icon: icons.scripts,   value: totalScripts,          sub: 'Across all projects' },
-          { label: 'Voiceovers', icon: icons.play,      value: totalVoiceovers,       sub: 'Generated audio' },
-          { label: 'Profiles',   icon: icons.profiles,  value: voiceProfiles.length,  sub: 'Voice models' },
+          { label: 'Projects',      icon: icons.projects,  value: projects.length,          sub: 'Workspaces' },
+          { label: 'Scripts',       icon: icons.scripts,   value: totalScripts,              sub: 'Across all projects' },
+          { label: 'Audio minutes', icon: icons.play,      value: fmtDuration(totalDurSec),  sub: 'Generated voiceovers' },
+          { label: 'Voices',        icon: icons.profiles,  value: voiceProfiles.length,      sub: 'Voice profiles' },
         ].map(({ label, icon, value, sub }) => (
           <div key={label} className="stat-card">
             <div className="stat-card__label">{icon} {label}</div>
@@ -126,38 +141,109 @@ export function DashboardPage({ projects, voiceProfiles, onOpenProject, onGoProj
           </div>
         ))}
       </div>
+
+      {/* ── Usage summary bar ── */}
+      <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 220px', background: 'var(--bg-2)', border: '1px solid var(--border-1)', borderRadius: 10, padding: '14px 18px' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', letterSpacing: '0.05em', marginBottom: 6, textTransform: 'uppercase' }}>Synthesis Completion</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <div style={{ flex: 1, height: 6, background: 'var(--bg-3)', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ width: `${completionPct}%`, height: '100%', background: 'var(--accent)', borderRadius: 3, transition: 'width 0.4s' }} />
+            </div>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)', minWidth: 36 }}>{completionPct}%</span>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{totalAudio} of {totalScripts} scripts have audio</div>
+        </div>
+
+        <div style={{ flex: '1 1 220px', background: 'var(--bg-2)', border: '1px solid var(--border-1)', borderRadius: 10, padding: '14px 18px' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', letterSpacing: '0.05em', marginBottom: 6, textTransform: 'uppercase' }}>Characters Synthesised</div>
+          <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-1)', lineHeight: 1 }}>{fmtChars(totalChars)}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>across {totalAudio} voiceover{totalAudio !== 1 ? 's' : ''}</div>
+        </div>
+
+        <div style={{ flex: '1 1 220px', background: 'var(--bg-2)', border: '1px solid var(--border-1)', borderRadius: 10, padding: '14px 18px' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', letterSpacing: '0.05em', marginBottom: 6, textTransform: 'uppercase' }}>Total Audio Duration</div>
+          <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-1)', lineHeight: 1 }}>{fmtDuration(totalDurSec)}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>of synthesised speech</div>
+        </div>
+      </div>
+
       <div className="dash-grid">
+        {/* ── Recent projects with per-project progress ── */}
         <div>
-          <div className="section-head"><div><h2>Recent Projects</h2></div><button className="btn btn--ghost btn--sm" onClick={onGoProjects}>View all</button></div>
+          <div className="section-head">
+            <div><h2>Recent Projects</h2></div>
+            <button className="btn btn--ghost btn--sm" onClick={onGoProjects}>View all</button>
+          </div>
           {projects.length === 0
-            ? <div className="empty-state" style={{ padding: '30px 0' }}>{icons.projects}<p>No projects yet</p><button className="btn btn--primary btn--sm" onClick={onGoProjects}>Create first project</button></div>
-            : projects.slice(0, 4).map(p => (
-              <div key={p.id} className="project-card" onClick={() => onOpenProject(p.id)} style={{ marginBottom: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div className="project-card__icon">{p.emoji}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="project-card__name">{p.name}</div>
-                    <div className="project-card__meta"><span>{p.scripts.length} scripts</span><span>{p.scripts.filter(s => s.hasAudio).length} voiceovers</span></div>
-                  </div>
-                  {p.scripts.some(s => s.hasAudio) && <span className="tag tag--ok">Audio</span>}
-                </div>
+            ? (
+              <div className="empty-state" style={{ padding: '30px 0' }}>
+                {icons.projects}<p>No projects yet</p>
+                <button className="btn btn--primary btn--sm" onClick={onGoProjects}>Create first project</button>
               </div>
-            ))
+            )
+            : projects.slice(0, 5).map(p => {
+              const pTotal   = p.scripts.length
+              const pAudio   = p.scripts.filter(s => s.hasAudio).length
+              const pDur     = p.scripts.reduce((a, s) => a + (s.duration ?? 0), 0)
+              const pPct     = pTotal > 0 ? Math.round((pAudio / pTotal) * 100) : 0
+              return (
+                <div key={p.id} className="project-card" onClick={() => onOpenProject(p.id)} style={{ marginBottom: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div className="project-card__icon">{p.emoji}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="project-card__name">{p.name}</div>
+                      <div className="project-card__meta">
+                        <span>{pTotal} scripts</span>
+                        <span>{pAudio} audio</span>
+                        {pDur > 0 && <span>{fmtDuration(pDur)}</span>}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: pPct === 100 ? 'var(--ok)' : 'var(--accent)', minWidth: 32, textAlign: 'right' }}>{pPct}%</span>
+                  </div>
+                  {pTotal > 0 && (
+                    <div style={{ height: 3, background: 'var(--bg-3)', borderRadius: 2, marginTop: 8, overflow: 'hidden' }}>
+                      <div style={{ width: `${pPct}%`, height: '100%', background: pPct === 100 ? 'var(--ok)' : 'var(--accent)', borderRadius: 2, transition: 'width 0.4s' }} />
+                    </div>
+                  )}
+                </div>
+              )
+            })
           }
         </div>
+
+        {/* ── Voice Profiles ── */}
         <div>
-          <div className="section-head"><div><h2>Voice Profiles</h2></div><button className="btn btn--ghost btn--sm" onClick={onGoProfiles}>Manage</button></div>
+          <div className="section-head">
+            <div><h2>Voice Profiles</h2></div>
+            <button className="btn btn--ghost btn--sm" onClick={onGoProfiles}>Manage</button>
+          </div>
           {voiceProfiles.length === 0
-            ? <div className="empty-state" style={{ padding: '30px 0' }}>{icons.profiles}<p>No voice profiles yet</p><button className="btn btn--primary btn--sm" onClick={onGoProfiles}>Record a voice</button></div>
-            : voiceProfiles.slice(0, 4).map(vp => (
-              <div key={vp.profile_id} className="project-card" style={{ marginBottom: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div className="profile-avatar" style={{ width: 36, height: 36, fontSize: 14 }}>{vp.profile_id[0].toUpperCase()}</div>
-                  <div><div style={{ fontWeight: 500, fontSize: 14 }}>{vp.profile_id}</div><div style={{ fontSize: 12, color: 'var(--text-3)' }}>Voice profile ready</div></div>
-                  <span className="tag tag--ok" style={{ marginLeft: 'auto' }}>Ready</span>
-                </div>
+            ? (
+              <div className="empty-state" style={{ padding: '30px 0' }}>
+                {icons.profiles}<p>No voice profiles yet</p>
+                <button className="btn btn--primary btn--sm" onClick={onGoProfiles}>Record a voice</button>
               </div>
-            ))
+            )
+            : voiceProfiles.slice(0, 5).map(vp => {
+              const usedBy = projects.reduce((a, p) =>
+                a + p.scripts.filter(s => s.profileId === vp.profile_id && s.hasAudio).length, 0)
+              return (
+                <div key={vp.profile_id} className="project-card" style={{ marginBottom: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div className="profile-avatar" style={{ width: 36, height: 36, fontSize: 14 }}>{vp.name[0]?.toUpperCase() ?? '?'}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 500, fontSize: 14 }}>{vp.name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                        {vp.duration ? `${vp.duration.toFixed(1)}s sample` : 'Voice profile'}
+                        {usedBy > 0 && ` · ${usedBy} voiceover${usedBy !== 1 ? 's' : ''}`}
+                      </div>
+                    </div>
+                    <span className="tag tag--ok">Ready</span>
+                  </div>
+                </div>
+              )
+            })
           }
         </div>
       </div>
