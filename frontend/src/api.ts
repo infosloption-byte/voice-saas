@@ -181,6 +181,8 @@ export function mapScript(raw: Record<string, unknown>) {
     language: (raw.language as string) ?? 'en',
     duration: (raw.duration as number | null) ?? null,
     speed: (raw.speed as number) ?? 1.0,
+    tone: (raw.tone as string) ?? 'natural',
+    speakerMap: (raw.speaker_map as Record<string, string> | undefined) ?? undefined,
     waveformPeaks: (raw.waveform_peaks as number[] | undefined) ?? undefined,
     orderIndex: (raw.order_index as number) ?? 0,
   }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useReducer, useCallback } from 'react'
-import { icons, LANGUAGES } from './constants'
+import { icons, LANGUAGES, TONE_PRESETS, type TonePreset } from './constants'
 import { loadAudioBlob, saveAudioBlob, deleteAudioBlob, historyReducer, fmt } from './audio'
 import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
 import type { Project, Script, VoiceProfile, SaveState, EngineCaps } from './types'
@@ -19,6 +19,11 @@ const SCRIPT_TEMPLATES = [
 ]
 
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL as string | undefined
+
+function parseSpeakers(text: string): string[] {
+  const matches = [...text.matchAll(/^\[SPEAKER:([^\]]+)\]/gim)]
+  return [...new Set(matches.map(m => m[1].trim()))].filter(Boolean)
+}
 
 // ── Small engine badge shown in the footer ─────────────────────────
 function EngineBadge({ engine }: { engine: TTSEngine }) {
@@ -181,17 +186,25 @@ export function WorkspacePage({
       const pid = script.profileId || voiceProfiles[0]?.profile_id
       if (!pid || !text.trim()) return false
 
+      const tone = (script.tone ?? 'natural') as TonePreset
+      const toneParams = TONE_PRESETS[tone] ?? TONE_PRESETS.natural
+
       const fd = new FormData()
       fd.append('text',        text.trim())
       fd.append('profile_id',  pid)
       fd.append('language',    script.language || 'en')
       fd.append('speed',       String(Math.max(0.5, Math.min(2.0, script.speed ?? 1.0))))
       fd.append('tts_engine',  ttsEngine)
-      // XTTS-specific knobs (backend ignores them for F5-TTS)
-      fd.append('temperature', '0.65')
-      fd.append('top_k',       '50')
-      fd.append('top_p',       '0.85')
+      // XTTS-specific knobs derived from tone preset (ignored by F5-TTS)
+      fd.append('temperature', String(toneParams.temperature))
+      fd.append('top_k',       String(toneParams.top_k))
+      fd.append('top_p',       String(toneParams.top_p))
       fd.append('gap_ms',      '60')
+
+      // Multi-voice speaker map (if script uses [SPEAKER:name] markers)
+      if (script.speakerMap && Object.keys(script.speakerMap).length > 0) {
+        fd.append('speaker_map', JSON.stringify(script.speakerMap))
+      }
 
       try {
         const res = await fetch(`${ENGINE_URL}/synthesize`, {
@@ -856,6 +869,36 @@ export function WorkspacePage({
               </div>
             )}
 
+            {/* Multi-voice speaker mapping panel */}
+            {(() => {
+              const speakers = parseSpeakers(histState.present)
+              if (!speakers.length || !voiceProfiles.length) return null
+              return (
+                <div style={{ margin: '0 14px 0', padding: '8px 12px', background: 'var(--bg-2)', borderRadius: 8, border: '1px solid var(--border)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', flexShrink: 0 }}>👥 Multi-voice:</span>
+                  {speakers.map(spk => {
+                    const currentId = activeScript.speakerMap?.[spk] ?? voiceProfiles[0]?.profile_id ?? ''
+                    return (
+                      <div key={spk} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{ fontSize: 11, color: 'var(--accent)', fontFamily: 'var(--mono)', background: 'var(--accent-lt)', padding: '1px 6px', borderRadius: 4 }}>{spk}</span>
+                        <span style={{ fontSize: 10, color: 'var(--text-3)' }}>→</span>
+                        <select className="profile-select" style={{ fontSize: 11, padding: '2px 4px' }}
+                          value={currentId}
+                          onChange={e => {
+                            const newMap = { ...(activeScript.speakerMap ?? {}), [spk]: e.target.value }
+                            onUpdateScript(activeScript.id, { speakerMap: newMap })
+                          }}>
+                          {voiceProfiles.map(vp => (
+                            <option key={vp.profile_id} value={vp.profile_id}>{vp.profile_id}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+
             {/* Footer controls */}
             <div className="editor-footer">
               <span className="word-count">
@@ -863,6 +906,23 @@ export function WorkspacePage({
               </span>
 
               <div style={{ flex: 1 }} />
+
+              {/* Tone preset (XTTS only) */}
+              {engine !== 'f5' && (
+                <div style={{ display: 'flex', gap: 2 }}>
+                  {(Object.entries(TONE_PRESETS) as [TonePreset, typeof TONE_PRESETS[TonePreset]][]).map(([key, preset]) => {
+                    const active = (activeScript.tone ?? 'natural') === key
+                    return (
+                      <button key={key} title={preset.label}
+                        onClick={() => onUpdateScript(activeScript.id, { tone: key })}
+                        style={{ padding: '3px 7px', borderRadius: 5, border: `1px solid ${active ? 'var(--accent)' : 'var(--border-2)'}`, background: active ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', fontSize: 13, lineHeight: 1, color: active ? 'var(--accent)' : 'var(--text-3)' }}
+                        aria-pressed={active}>
+                        {preset.emoji}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
 
               {/* Speed */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

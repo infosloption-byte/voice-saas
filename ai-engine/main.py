@@ -412,7 +412,60 @@ async def list_voice_profiles():
     return {"profiles": profiles}
 
 
-# ── FEATURE 4: SYNTHESIZE (XTTS v2 or F5-TTS) ────────────────────
+# ── Multi-voice helpers ────────────────────────────────────────────
+def parse_speaker_segments(text: str) -> list[tuple[str, str]]:
+    """
+    Split text on [SPEAKER:name] markers.
+    Returns list of (speaker_label, text_segment) tuples.
+    Segments before the first marker use speaker label "".
+    """
+    pattern = re.compile(r'\[SPEAKER:([^\]]+)\]', re.IGNORECASE)
+    segments: list[tuple[str, str]] = []
+    last_end = 0
+    current_speaker = ""
+
+    for m in pattern.finditer(text):
+        before = text[last_end:m.start()].strip()
+        if before:
+            segments.append((current_speaker, before))
+        current_speaker = m.group(1).strip()
+        last_end = m.end()
+
+    tail = text[last_end:].strip()
+    if tail:
+        segments.append((current_speaker, tail))
+
+    return segments
+
+
+def synthesize_segment(text: str, ref_wav: str, engine: str,
+                        language: str, temperature: float,
+                        top_k: int, top_p: float,
+                        speed: float, gap_ms: int) -> list[str]:
+    """Synthesize one segment (may span multiple chunks). Returns list of chunk paths."""
+    chunks = split_into_chunks(text)
+    chunk_paths: list[str] = []
+    for i, chunk in enumerate(chunks):
+        chunk_path = tmp_path(f"seg_chunk_{i}", ".wav")
+        chunk_paths.append(chunk_path)
+        if engine == "f5":
+            synthesize_chunk_f5(chunk=chunk, ref_wav=ref_wav, speed=speed, chunk_path=chunk_path)
+        else:
+            models["xtts"].tts_to_file(
+                text=chunk,
+                speaker_wav=ref_wav,
+                language=language,
+                file_path=chunk_path,
+                temperature=max(0.1, min(1.0, temperature)),
+                top_k=max(1, min(100, top_k)),
+                top_p=max(0.1, min(1.0, top_p)),
+                speed=max(0.5, min(2.0, speed)),
+                enable_text_splitting=False,
+            )
+    return chunk_paths
+
+
+# ── FEATURE 4: SYNTHESIZE (XTTS v2 or F5-TTS, single- or multi-voice) ──
 @app.post("/synthesize")
 async def synthesize(
     text: str          = Form(...),
@@ -425,20 +478,16 @@ async def synthesize(
     top_p: float       = Form(default=0.85),
     speed: float       = Form(default=1.0),
     gap_ms: int        = Form(default=60),
+    # Multi-voice: JSON string mapping speaker label → profile_id
+    speaker_map: str   = Form(default=""),
 ):
-    ref_wav = os.path.join(VOICES_DIR, f"{profile_id}.wav")
-    if not os.path.exists(ref_wav):
-        raise HTTPException(404, f"Voice profile '{profile_id}' not found.")
-
-    chunks = split_into_chunks(text.strip())
-    if not chunks:
-        raise HTTPException(400, "No text to synthesise.")
+    import json as _json
+    import shutil
 
     engine = tts_engine.lower().strip()
     if engine not in ("xtts", "f5"):
         engine = "xtts"
 
-    # Guard: check the requested engine is available
     if engine == "f5" and not models["f5tts"]:
         raise HTTPException(
             503,
@@ -448,43 +497,95 @@ async def synthesize(
     if engine == "xtts" and not models["xtts"]:
         raise HTTPException(503, "XTTS v2 model is not available.")
 
-    chunk_paths: list[str] = []
+    # Parse speaker_map if provided
+    spk_map: dict[str, str] = {}
+    if speaker_map.strip():
+        try:
+            spk_map = _json.loads(speaker_map)
+        except Exception:
+            pass  # malformed — fall back to single-voice
+
+    # Detect multi-voice: text contains [SPEAKER:...] AND we have a map
+    segments = parse_speaker_segments(text.strip())
+    is_multi = bool(spk_map) and any(spk for spk, _ in segments)
+
+    all_chunk_paths: list[str] = []
     out_path = tmp_path("synth_final", ".wav")
 
     try:
-        for i, chunk in enumerate(chunks):
-            chunk_path = tmp_path(f"synth_chunk_{i}", ".wav")
-            chunk_paths.append(chunk_path)
+        if is_multi:
+            # ── Multi-voice path ─────────────────────────────────
+            seg_wavs: list[str] = []
+            for spk_label, seg_text in segments:
+                if not seg_text.strip():
+                    continue
+                # Resolve profile: use map, fall back to default profile_id
+                pid = spk_map.get(spk_label, profile_id)
+                ref_wav = os.path.join(VOICES_DIR, f"{pid}.wav")
+                if not os.path.exists(ref_wav):
+                    # Fall back to default voice if mapped profile missing
+                    ref_wav = os.path.join(VOICES_DIR, f"{profile_id}.wav")
+                if not os.path.exists(ref_wav):
+                    raise HTTPException(404, f"Voice profile '{pid}' not found.")
 
-            if engine == "f5":
-                # ── F5-TTS path ──────────────────────────────────
-                synthesize_chunk_f5(
-                    chunk=chunk,
-                    ref_wav=ref_wav,
-                    speed=speed,
-                    chunk_path=chunk_path,
+                seg_chunks = synthesize_segment(
+                    text=seg_text, ref_wav=ref_wav, engine=engine,
+                    language=language, temperature=temperature,
+                    top_k=top_k, top_p=top_p, speed=speed, gap_ms=gap_ms,
                 )
+                all_chunk_paths.extend(seg_chunks)
+
+                # Merge this segment's chunks into one wav
+                seg_out = tmp_path("seg_merged", ".wav")
+                seg_wavs.append(seg_out)
+                if len(seg_chunks) == 1:
+                    shutil.copy(seg_chunks[0], seg_out)
+                else:
+                    if not concatenate_wavs(seg_chunks, seg_out, gap_ms=gap_ms):
+                        raise HTTPException(500, "Failed to merge segment chunks.")
+
+            # Concatenate all segments (longer pause between speakers)
+            if len(seg_wavs) == 1:
+                shutil.copy(seg_wavs[0], out_path)
             else:
-                # ── XTTS v2 path ─────────────────────────────────
-                models["xtts"].tts_to_file(
-                    text=chunk,
-                    speaker_wav=ref_wav,
-                    language=language,
-                    file_path=chunk_path,
-                    temperature=max(0.1, min(1.0, temperature)),
-                    top_k=max(1, min(100, top_k)),
-                    top_p=max(0.1, min(1.0, top_p)),
-                    speed=max(0.5, min(2.0, speed)),
-                    enable_text_splitting=False,
-                )
+                if not concatenate_wavs(seg_wavs, out_path, gap_ms=max(gap_ms, 200)):
+                    raise HTTPException(500, "Failed to merge speaker segments.")
+            all_chunk_paths.extend(seg_wavs)
 
-        # Merge chunks
-        if len(chunk_paths) == 1:
-            import shutil
-            shutil.copy(chunk_paths[0], out_path)
         else:
-            if not concatenate_wavs(chunk_paths, out_path, gap_ms=gap_ms):
-                raise HTTPException(500, "Failed to merge audio chunks.")
+            # ── Single-voice path (original behaviour) ────────────
+            ref_wav = os.path.join(VOICES_DIR, f"{profile_id}.wav")
+            if not os.path.exists(ref_wav):
+                raise HTTPException(404, f"Voice profile '{profile_id}' not found.")
+
+            chunks = split_into_chunks(text.strip())
+            if not chunks:
+                raise HTTPException(400, "No text to synthesise.")
+
+            for i, chunk in enumerate(chunks):
+                chunk_path = tmp_path(f"synth_chunk_{i}", ".wav")
+                all_chunk_paths.append(chunk_path)
+
+                if engine == "f5":
+                    synthesize_chunk_f5(chunk=chunk, ref_wav=ref_wav, speed=speed, chunk_path=chunk_path)
+                else:
+                    models["xtts"].tts_to_file(
+                        text=chunk,
+                        speaker_wav=ref_wav,
+                        language=language,
+                        file_path=chunk_path,
+                        temperature=max(0.1, min(1.0, temperature)),
+                        top_k=max(1, min(100, top_k)),
+                        top_p=max(0.1, min(1.0, top_p)),
+                        speed=max(0.5, min(2.0, speed)),
+                        enable_text_splitting=False,
+                    )
+
+            if len(all_chunk_paths) == 1:
+                shutil.copy(all_chunk_paths[0], out_path)
+            else:
+                if not concatenate_wavs(all_chunk_paths, out_path, gap_ms=gap_ms):
+                    raise HTTPException(500, "Failed to merge audio chunks.")
 
         return FileResponse(
             out_path,
@@ -497,7 +598,7 @@ async def synthesize(
         print(f"Synthesis error [{engine}]: {e}")
         raise HTTPException(500, f"Synthesis failed ({engine}): {e}")
     finally:
-        for p in chunk_paths:
+        for p in all_chunk_paths:
             if os.path.exists(p):
                 os.remove(p)
 
