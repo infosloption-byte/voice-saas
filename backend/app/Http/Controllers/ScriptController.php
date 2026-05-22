@@ -21,6 +21,8 @@ class ScriptController extends Controller
             'language' => 'string',
             'duration' => 'nullable|numeric',
             'speed' => 'numeric',
+            'tone' => 'nullable|string',
+            'speaker_map' => 'nullable|array',
             'waveform_peaks' => 'nullable|array',
             'order_index' => 'integer',
         ]);
@@ -42,6 +44,8 @@ class ScriptController extends Controller
             'language'       => 'string',
             'duration'       => 'nullable|numeric',
             'speed'          => 'numeric',
+            'tone'           => 'nullable|string',
+            'speaker_map'    => 'nullable|array',
             'waveform_peaks' => 'nullable|array',
             'order_index'    => 'integer',
         ]);
@@ -67,6 +71,8 @@ class ScriptController extends Controller
             'language' => 'string',
             'duration' => 'nullable|numeric',
             'speed' => 'numeric',
+            'tone' => 'nullable|string',
+            'speaker_map' => 'nullable|array',
             'waveform_peaks' => 'nullable|array',
             'order_index' => 'integer',
         ]);
