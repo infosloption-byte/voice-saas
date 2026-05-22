@@ -33,6 +33,8 @@ export interface Script {
   language: string
   duration: number | null
   speed: number          // 0.5–2.0
+  tone: string           // 'natural' | 'expressive' | 'calm' | 'energetic'
+  speakerMap?: Record<string, string>  // speaker label → profile_id
   waveformPeaks?: number[]
 }
 

@@ -22,6 +22,14 @@ export const LANGUAGES = [
 
 export const EMOJIS = ['🎬', '🎙', '📹', '🎤', '🎵', '📺', '🌟', '🚀', '💡', '🎯', '📚', '🎧']
 
+export const TONE_PRESETS = {
+  natural:    { label: 'Natural',    emoji: '🎙', temperature: 0.65, top_k: 50, top_p: 0.85 },
+  expressive: { label: 'Expressive', emoji: '🎭', temperature: 0.85, top_k: 80, top_p: 0.95 },
+  calm:       { label: 'Calm',       emoji: '😌', temperature: 0.40, top_k: 30, top_p: 0.70 },
+  energetic:  { label: 'Energetic',  emoji: '⚡', temperature: 0.90, top_k: 90, top_p: 0.98 },
+} as const
+export type TonePreset = keyof typeof TONE_PRESETS
+
 export const icons = {
   dashboard: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="2" y="2" width="7" height="7" rx="1.5" /><rect x="11" y="2" width="7" height="7" rx="1.5" /><rect x="2" y="11" width="7" height="7" rx="1.5" /><rect x="11" y="11" width="7" height="7" rx="1.5" /></svg>,
   projects:  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M3 7a2 2 0 0 1 2-2h2l2 2h6a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" /></svg>,

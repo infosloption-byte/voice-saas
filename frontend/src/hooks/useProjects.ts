@@ -119,6 +119,7 @@ export function useProjects(): UseProjectsReturn {
       language: 'en',
       duration: null,
       speed: 1.0,
+      tone: 'natural',
     }
 
     let orderIndex = 0
@@ -175,6 +176,8 @@ export function useProjects(): UseProjectsReturn {
     if ('language'      in update) payload.language       = update.language
     if ('duration'      in update) payload.duration       = update.duration
     if ('speed'         in update) payload.speed          = update.speed
+    if ('tone'          in update) payload.tone           = update.tone
+    if ('speakerMap'    in update) payload.speaker_map    = update.speakerMap
     if ('waveformPeaks' in update) payload.waveform_peaks = update.waveformPeaks
 
     try {
