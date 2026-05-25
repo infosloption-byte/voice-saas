@@ -19,8 +19,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Current user
     Route::get('/user',          fn (Request $request) => $request->user());
-    Route::put('/user',          [AuthController::class, 'updateProfile']);
+    Route::put('/user',           [AuthController::class, 'updateProfile']);
     Route::post('/user/password', [AuthController::class, 'changePassword']);
+    Route::delete('/user',        [AuthController::class, 'deleteAccount']);
 
     // Projects
     Route::apiResource('projects', ProjectController::class);
