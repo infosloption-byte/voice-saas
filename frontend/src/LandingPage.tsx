@@ -20,9 +20,10 @@ export function LogoMark({ size = 28 }: { size?: number }) {
 interface LandingPageProps {
   onSignIn?: () => void
   onSignUp?: () => void
+  onTryNow?: () => void
 }
 
-export function LandingPage({ onSignIn, onSignUp }: LandingPageProps) {
+export function LandingPage({ onSignIn, onSignUp, onTryNow }: LandingPageProps) {
   const features = [
     {
       icon: icons.mic,
@@ -87,7 +88,7 @@ export function LandingPage({ onSignIn, onSignUp }: LandingPageProps) {
           Features
         </a>
         <button className="btn btn--ghost" style={{ fontSize: 13 }} onClick={onSignIn}>Sign in</button>
-        <button className="btn btn--primary" style={{ fontSize: 13 }} onClick={onSignUp}>Get started</button>
+        <button className="btn btn--primary" style={{ fontSize: 13 }} onClick={onSignUp}>Subscribe</button>
       </nav>
 
       {/* ── Hero ── */}
@@ -126,12 +127,22 @@ export function LandingPage({ onSignIn, onSignUp }: LandingPageProps) {
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
           <button className="btn btn--primary" style={{ padding: '11px 24px', fontSize: 14, gap: 7 }} onClick={onSignUp}>
-            {icons.bolt} Start for free
+            {icons.bolt} Subscribe & Get Full Access
           </button>
           <button className="btn btn--ghost" style={{ padding: '11px 24px', fontSize: 14 }} onClick={onSignIn}>
-            Sign in to your workspace
+            Sign in
           </button>
         </div>
+        <button
+          onClick={onTryNow}
+          style={{
+            marginTop: 4, background: 'none', border: 'none', cursor: 'pointer',
+            fontSize: 13, color: 'var(--text-3)',
+            textDecoration: 'underline', textUnderlineOffset: 3,
+          }}
+        >
+          Try it first — no account needed →
+        </button>
 
         {/* Waveform illustration */}
         <div className="landing__hero-wave" style={{
