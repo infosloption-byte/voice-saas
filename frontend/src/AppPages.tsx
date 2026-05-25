@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api } from './api'
+import { toast } from './toast'
 import { icons, EMOJIS } from './constants'
 import { fmt, uid, useAudioRecorder } from './audio'
 import { useTTSEngine } from './hooks/useTTSEngine'
@@ -258,6 +259,9 @@ export function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
   onDelete: (id: string) => void
   onNew: () => void
 }) {
+  const [confirmId, setConfirmId] = useState<string | null>(null)
+  const confirmProject = projects.find(p => p.id === confirmId)
+
   return (
     <div>
       <div className="section-head" style={{ marginBottom: 20 }}><div><h2>All Projects</h2><p>Manage your voiceover workspaces</p></div></div>
@@ -266,7 +270,7 @@ export function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
         {projects.map(p => (
           <div key={p.id} className="project-card" onClick={() => onOpen(p.id)}>
             <div className="project-card__actions">
-              <button className="btn btn--sm btn--danger" onClick={e => { e.stopPropagation(); onDelete(p.id) }}>{icons.trash}</button>
+              <button className="btn btn--sm btn--danger" onClick={e => { e.stopPropagation(); setConfirmId(p.id) }}>{icons.trash}</button>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div className="project-card__icon">{p.emoji}</div>
@@ -282,6 +286,27 @@ export function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
           </div>
         ))}
       </div>
+
+      {confirmId && confirmProject && (
+        <div className="modal-backdrop" onClick={() => setConfirmId(null)}>
+          <div className="modal" style={{ maxWidth: 380 }} onClick={e => e.stopPropagation()}>
+            <div className="modal__title">Delete project?</div>
+            <div className="modal__body">
+              <p style={{ fontSize: 14, color: 'var(--text-2)', marginBottom: 8 }}>
+                <strong>{confirmProject.emoji} {confirmProject.name}</strong> and all{' '}
+                {confirmProject.scripts.length} script{confirmProject.scripts.length !== 1 ? 's' : ''} will be
+                permanently deleted. This cannot be undone.
+              </p>
+            </div>
+            <div className="modal__actions">
+              <button className="btn btn--ghost" onClick={() => setConfirmId(null)}>Cancel</button>
+              <button className="btn btn--danger" onClick={() => { onDelete(confirmId); setConfirmId(null) }}>
+                {icons.trash} Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -369,12 +394,12 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps }: {
       onRefresh()
     } catch (e: unknown) {
       const err = e as Error
-      alert('Delete failed: ' + (err?.message ?? 'Unknown error'))
+      toast.err('Delete failed: ' + (err?.message ?? 'Unknown error'))
     }
   }
 
   async function handlePreview(profile_id: string) {
-    if (!previewText.trim()) { alert('Enter some preview text first.'); return }
+    if (!previewText.trim()) { toast.info('Enter some preview text first.'); return }
     setPreviewing(true); setPreviewId(profile_id)
     const fd = new FormData()
     fd.append('text', previewText)
@@ -388,7 +413,7 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps }: {
       audio.play()
     } catch (e: unknown) {
       console.error('Preview failed:', e)
-      alert('Preview failed. Is the AI engine running?')
+      toast.err('Preview failed. Is the AI engine running?')
     } finally {
       setPreviewing(false); setPreviewId(null)
     }

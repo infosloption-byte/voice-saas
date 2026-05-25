@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react'
 import JSZip from 'jszip'
+import { toast } from '../toast'
 import { loadAudioRawBlob, audioBufferToWav } from '../audio'
 import type { TimelineClip, Script } from '../types'
 
@@ -154,7 +155,7 @@ export function useAudio(): UseAudioReturn {
     }
 
     if (added === 0) {
-      alert('No audio clips to export. Generate audio for your scripts first.')
+      toast.info('No audio clips to export. Generate audio for your scripts first.')
       return
     }
 
