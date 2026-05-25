@@ -8,7 +8,13 @@ import { toast, subscribeToast, type ToastItem } from './toast'
 import { useAuth } from './hooks/useAuth'
 import { useProjects } from './hooks/useProjects'
 import { useAudio } from './hooks/useAudio'
+import { useGuestSession, type GateType } from './hooks/useGuestSession'
+import { useGuestProject } from './hooks/useGuestProject'
+import { useGuestVoiceProfiles } from './hooks/useGuestVoiceProfiles'
+import { GuestBanner } from './GuestBanner'
+import { GuestUpgradeModal } from './GuestUpgradeModal'
 import { icons } from './constants'
+import { loadAudioRawBlob, uid } from './audio'
 import {
   DashboardPage, ProjectsPage, ProfilesPage,
   NewProjectModal, ShortcutsModal,
@@ -77,6 +83,14 @@ export default function App() {
   } = useProjects()
   const { mergedUrl, mergedBlob, merging, mergeError, mergeSelected, resetMerge, exportZip } = useAudio()
 
+  // ── Guest mode ────────────────────────────────────────────────────
+  const [guestMode, setGuestMode]         = useState(false)
+  const [guestGateType, setGuestGateType] = useState<GateType | null>(null)
+
+  const guestSession  = useGuestSession()
+  const guestProject  = useGuestProject(guestSession.session)
+  const guestProfiles = useGuestVoiceProfiles(guestSession.session)
+
   const activeProject = projects.find(p => p.id === activeProjectId) ?? null
 
   // ── Dark mode ─────────────────────────────────────────────────────
@@ -91,6 +105,11 @@ export default function App() {
       if (userData) {
         loadProjects()
         setPage('dashboard')
+      } else if (guestSession.session) {
+        // Resume existing valid guest session
+        setGuestMode(true)
+        guestProject.ensureProject()
+        setPage('workspace')
       }
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -128,6 +147,61 @@ export default function App() {
   useEffect(() => {
     setSidebarOpen(false)
   }, [page, activeProjectId])
+
+  // ── Guest actions ─────────────────────────────────────────────────
+
+  function enterGuestMode() {
+    const session = guestSession.session ?? guestSession.initSession()
+    setGuestMode(true)
+    const proj = guestProject.ensureProject()
+    setActiveProjectId(proj.id)
+    setActiveScriptId(proj.scripts[0]?.id ?? null)
+    setPage('workspace')
+    // Suppress unused-session warning
+    void session
+  }
+
+  async function migrateGuestData() {
+    const proj = guestProject.project
+    try {
+      if (proj) {
+        const newProj = await addProjectBase(proj.name, proj.emoji, proj.description || '')
+        for (let i = 0; i < proj.scripts.length; i++) {
+          const s = proj.scripts[i]
+          await api.post(`/projects/${newProj.id}/scripts`, {
+            id: uid(), title: s.title, content: s.content,
+            has_audio: false, profile_id: null,
+            language: s.language, duration: null,
+            speed: s.speed, order_index: i,
+          })
+        }
+        setActiveProjectId(newProj.id)
+      }
+    } catch (e) {
+      console.error('[Guest migration] project failed:', e)
+    }
+
+    for (const vp of guestProfiles.profiles) {
+      try {
+        const blob = await loadAudioRawBlob(`guest_voice_${vp.profile_id}`)
+        if (!blob) continue
+        const fd = new FormData()
+        fd.append('file', blob, 'voice.wav')
+        fd.append('profile_id', vp.profile_id)
+        fd.append('name', vp.name)
+        fd.append('status', 'ready')
+        await api.post('/voice-profiles', fd)
+      } catch (e) {
+        console.error('[Guest migration] profile failed:', vp.profile_id, e)
+      }
+    }
+
+    guestSession.clearSession()
+    guestProject.clearProject()
+    guestProfiles.clearProfiles()
+    setGuestMode(false)
+    toast.ok('Your guest project has been saved to your account!')
+  }
 
   // ── Actions ───────────────────────────────────────────────────────
 
@@ -168,6 +242,8 @@ export default function App() {
     await authSignOut()
     setActiveProjectId(null)
     setActiveScriptId(null)
+    setGuestMode(false)
+    setGuestGateType(null)
     setPage('landing')
   }
 
@@ -188,13 +264,18 @@ export default function App() {
 
   // ── Public pages ──────────────────────────────────────────────────
   if (page === 'landing') return (
-    <LandingPage onSignIn={() => setPage('signin')} onSignUp={() => setPage('signup')} />
+    <LandingPage
+      onSignIn={() => setPage('signin')}
+      onSignUp={() => setPage('signup')}
+      onTryNow={enterGuestMode}
+    />
   )
 
   if (page === 'signin') return (
     <SignInPage
       onSignIn={async (email, password) => {
         await signIn(email, password)
+        if (guestMode) await migrateGuestData()
         await loadProjects()
         setPage('dashboard')
       }}
@@ -207,6 +288,7 @@ export default function App() {
     <SignUpPage
       onSignUp={async (name, email, password) => {
         await signUp(name, email, password)
+        if (guestMode) await migrateGuestData()
         await loadProjects()
         setPage('dashboard')
       }}
@@ -346,6 +428,16 @@ export default function App() {
       </aside>
 
       <div className="page">
+        {/* Guest session countdown banner */}
+        {guestMode && (
+          <GuestBanner
+            daysRemaining={guestSession.daysRemaining}
+            hoursRemaining={guestSession.hoursRemaining}
+            onSignUp={() => setPage('signup')}
+            onSignIn={() => setPage('signin')}
+          />
+        )}
+
         {/* Topbar */}
         <div className="topbar">
           <button
@@ -442,19 +534,46 @@ export default function App() {
             />
           )}
 
-          {page === 'workspace' && activeProject && workspaceTab === 'scripts' && (
-            <WorkspacePage
-              project={activeProject}
-              activeScriptId={activeScriptId}
-              setActiveScriptId={setActiveScriptId}
-              onAddScript={(tpl) => addScript(activeProject.id, tpl)}
-              onUpdateScript={(sid, upd) => updateScript(activeProject.id, sid, upd)}
-              onDeleteScript={(sid) => deleteScript(activeProject.id, sid)}
-              onReorder={(scripts) => reorderScripts(activeProject.id, scripts)}
-              voiceProfiles={voiceProfiles}
-              engineCaps={engineCaps}
-            />
-          )}
+          {page === 'workspace' && workspaceTab === 'scripts' && (() => {
+            const wsProject = guestMode ? guestProject.project : activeProject
+            if (!wsProject) return null
+            const wsProfiles = guestMode ? guestProfiles.asVoiceProfiles : voiceProfiles
+            return (
+              <WorkspacePage
+                project={wsProject}
+                activeScriptId={activeScriptId}
+                setActiveScriptId={setActiveScriptId}
+                onAddScript={tpl => {
+                  if (guestMode) {
+                    const s = guestProject.addScript(tpl)
+                    if (!s) { setGuestGateType('script_limit'); return }
+                    setActiveScriptId(s.id)
+                  } else {
+                    addScript(wsProject.id, tpl)
+                  }
+                }}
+                onUpdateScript={(sid, upd) => {
+                  if (guestMode) guestProject.updateScript(sid, upd)
+                  else updateScript(wsProject.id, sid, upd)
+                }}
+                onDeleteScript={sid => {
+                  if (guestMode) guestProject.deleteScript(sid)
+                  else deleteScript(wsProject.id, sid)
+                }}
+                onReorder={scripts => {
+                  if (guestMode) guestProject.reorderScripts(scripts)
+                  else reorderScripts(wsProject.id, scripts)
+                }}
+                voiceProfiles={wsProfiles}
+                engineCaps={engineCaps}
+                isGuest={guestMode}
+                guestUsage={guestSession.session?.usage}
+                getGuestVoiceBlob={pid => guestProfiles.getAudioBlob(pid)}
+                onGuestGate={type => setGuestGateType(type)}
+                onGuestSynthesisUsed={() => guestSession.updateUsage('synthesesUsed')}
+              />
+            )
+          })()}
 
           {page === 'workspace' && activeProject && workspaceTab === 'assembly' && (
             <>
@@ -477,9 +596,20 @@ export default function App() {
 
           {page === 'profiles' && (
             <ProfilesPage
-              profiles={voiceProfiles}
-              onRefresh={loadProfiles}
+              profiles={guestMode ? guestProfiles.asVoiceProfiles : voiceProfiles}
+              onRefresh={guestMode ? () => {} : loadProfiles}
               engineCaps={engineCaps}
+              isGuest={guestMode}
+              guestProfilesCount={guestProfiles.profiles.length}
+              guestPreviewsUsed={guestSession.session?.usage.previewsUsed ?? 0}
+              onGuestSave={async (name, blob, dur) => {
+                const ok = await guestProfiles.saveProfile(name, blob, dur)
+                if (!ok) setGuestGateType('profile_limit')
+                return ok
+              }}
+              onGuestDelete={pid => guestProfiles.deleteProfile(pid)}
+              onGuestGate={type => setGuestGateType(type)}
+              onIncrementPreview={() => guestSession.updateUsage('previewsUsed')}
             />
           )}
 
@@ -516,6 +646,14 @@ export default function App() {
       )}
       {showShortcuts && (
         <ShortcutsModal onClose={() => setShowShortcuts(false)} />
+      )}
+      {guestGateType && (
+        <GuestUpgradeModal
+          type={guestGateType}
+          onSignUp={() => { setGuestGateType(null); setPage('signup') }}
+          onSignIn={() => { setGuestGateType(null); setPage('signin') }}
+          onClose={() => setGuestGateType(null)}
+        />
       )}
       <ToastContainer />
     </div>
