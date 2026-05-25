@@ -624,7 +624,7 @@ export function WorkspacePage({
             <div className="empty-state" style={{ padding: '24px 12px' }}>
               {icons.edit}
               <p>No scripts yet</p>
-              <button className="btn btn--sm btn--primary" onClick={onAddScript}>
+              <button className="btn btn--sm btn--primary" onClick={() => onAddScript()}>
                 Add Script
               </button>
             </div>
