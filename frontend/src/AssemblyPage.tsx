@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useReducer, useCallback } from 'react'
+import { toast } from './toast'
 import { icons, CLIP_COLORS, CLIP_LIGHTS } from './constants'
 import { loadAudioBlob, loadAudioRawBlob, saveAudioBlob, deleteAudioBlob, timelineReducer, uid, fmt } from './audio'
 import type { Project, Script, TimelineClip, TimelineHistory } from './types'
@@ -232,7 +233,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
       a.click()
       URL.revokeObjectURL(url)
     } catch (e) {
-      alert('MP3 export failed: ' + (e instanceof Error ? e.message : String(e)))
+      toast.err('MP3 export failed: ' + (e instanceof Error ? e.message : String(e)))
     } finally {
       setExportingMp3(false)
     }
