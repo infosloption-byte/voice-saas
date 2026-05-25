@@ -108,7 +108,9 @@ export default function App() {
       } else if (guestSession.session) {
         // Resume existing valid guest session
         setGuestMode(true)
-        guestProject.ensureProject()
+        const proj = guestProject.ensureProject(guestSession.session)
+        setActiveProjectId(proj.id)
+        setActiveScriptId(proj.scripts[0]?.id ?? null)
         setPage('workspace')
       }
     })
@@ -151,14 +153,14 @@ export default function App() {
   // ── Guest actions ─────────────────────────────────────────────────
 
   function enterGuestMode() {
-    const session = guestSession.session ?? guestSession.initSession()
+    const sess = guestSession.session ?? guestSession.initSession()
     setGuestMode(true)
-    const proj = guestProject.ensureProject()
+    // Pass sess directly so ensureProject can write to localStorage even
+    // before the React state update for guestSession propagates.
+    const proj = guestProject.ensureProject(sess)
     setActiveProjectId(proj.id)
     setActiveScriptId(proj.scripts[0]?.id ?? null)
     setPage('workspace')
-    // Suppress unused-session warning
-    void session
   }
 
   async function migrateGuestData() {
@@ -447,18 +449,23 @@ export default function App() {
             {icons.menu}
           </button>
 
-          {page === 'workspace' && activeProject ? (
-            <>
-              <button className="btn btn--ghost btn--sm" onClick={() => setPage('projects')}>
-                {icons.back}
-                <span className="topbar__back-label">Projects</span>
-              </button>
-              <span className="topbar__sep">›</span>
-              <span className="topbar__title topbar__title--project">
-                {activeProject.emoji} {activeProject.name}
-              </span>
-            </>
-          ) : (
+          {page === 'workspace' && (activeProject || (guestMode && guestProject.project)) ? (() => {
+            const p = guestMode ? guestProject.project! : activeProject!
+            return (
+              <>
+                {!guestMode && (
+                  <button className="btn btn--ghost btn--sm" onClick={() => setPage('projects')}>
+                    {icons.back}
+                    <span className="topbar__back-label">Projects</span>
+                  </button>
+                )}
+                {!guestMode && <span className="topbar__sep">›</span>}
+                <span className="topbar__title topbar__title--project">
+                  {p.emoji} {p.name}
+                </span>
+              </>
+            )
+          })() : (
             <span className="topbar__title">
               {page === 'dashboard'  ? 'Dashboard'
                 : page === 'projects'  ? 'Projects'
@@ -475,20 +482,34 @@ export default function App() {
               {icons.plus}<span className="btn__label"> New Project</span>
             </button>
           )}
-          {page === 'workspace' && activeProject && (
-            <>
-              <button className="btn btn--sm" onClick={() => addScript(activeProject.id)}>
-                {icons.plus}<span className="btn__label"> Script</span>
-              </button>
-              <button
-                className="btn btn--sm btn--ghost"
-                onClick={() => activeProject && exportZip(activeProject.scripts, activeProject.name)}
-                title="Export all audio clips as ZIP"
-              >
-                {icons.zip}
-              </button>
-            </>
-          )}
+          {page === 'workspace' && (activeProject || guestMode) && (() => {
+            const p = guestMode ? guestProject.project : activeProject
+            if (!p) return null
+            return (
+              <>
+                <button className="btn btn--sm" onClick={() => {
+                  if (guestMode) {
+                    const s = guestProject.addScript()
+                    if (!s) setGuestGateType('script_limit')
+                    else setActiveScriptId(s.id)
+                  } else {
+                    addScript(p.id)
+                  }
+                }}>
+                  {icons.plus}<span className="btn__label"> Script</span>
+                </button>
+                {!guestMode && (
+                  <button
+                    className="btn btn--sm btn--ghost"
+                    onClick={() => exportZip(p.scripts, p.name)}
+                    title="Export all audio clips as ZIP"
+                  >
+                    {icons.zip}
+                  </button>
+                )}
+              </>
+            )
+          })()}
         </div>
 
         {/* Workspace tabs */}
@@ -575,26 +596,30 @@ export default function App() {
             )
           })()}
 
-          {page === 'workspace' && activeProject && workspaceTab === 'assembly' && (
-            <>
-              {mergeError && (
-                <div className="msg msg--err" style={{ margin: '8px 16px 0' }}>
-                  Export failed: {mergeError}
-                </div>
-              )}
-              <AssemblyPage
-                project={activeProject}
-                mergedUrl={mergedUrl}
-                mergedBlob={mergedBlob}
-                merging={merging}
-                onMerge={(clips, bg) => mergeSelected(clips, bg)}
-                onReorder={(scripts) => reorderScripts(activeProject.id, scripts)}
-                onSaveTimeline={(clips) => saveTimeline(activeProject.id, clips)}
-                isGuest={guestMode}
-                onGuestGate={type => setGuestGateType(type)}
-              />
-            </>
-          )}
+          {page === 'workspace' && workspaceTab === 'assembly' && (() => {
+            const p = guestMode ? guestProject.project : activeProject
+            if (!p) return null
+            return (
+              <>
+                {mergeError && (
+                  <div className="msg msg--err" style={{ margin: '8px 16px 0' }}>
+                    Export failed: {mergeError}
+                  </div>
+                )}
+                <AssemblyPage
+                  project={p}
+                  mergedUrl={mergedUrl}
+                  mergedBlob={mergedBlob}
+                  merging={merging}
+                  onMerge={(clips, bg) => mergeSelected(clips, bg)}
+                  onReorder={(scripts) => guestMode ? guestProject.reorderScripts(scripts) : reorderScripts(p.id, scripts)}
+                  onSaveTimeline={(clips) => { if (!guestMode) saveTimeline(p.id, clips) }}
+                  isGuest={guestMode}
+                  onGuestGate={type => setGuestGateType(type)}
+                />
+              </>
+            )
+          })()}
 
           {page === 'profiles' && (
             <ProfilesPage
@@ -628,7 +653,7 @@ export default function App() {
             />
           )}
 
-          {page === 'workspace' && !activeProject && (
+          {page === 'workspace' && !activeProject && !guestMode && (
             <div className="empty-state">
               {icons.projects}
               <p>No project selected.</p>
