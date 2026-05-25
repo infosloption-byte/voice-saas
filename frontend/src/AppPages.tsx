@@ -342,6 +342,7 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [previewText, setPreviewText] = useState('Hello, this is a preview of my voice profile.')
   const [previewing, setPreviewing] = useState(false)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   async function handleStart() {
     setMsg(''); setMsgWarn('')
@@ -419,7 +420,6 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
   }
 
   async function handleDelete(profile_id: string) {
-    if (!confirm(`Delete profile "${profile_id}"?`)) return
     if (isGuest && onGuestDelete) {
       onGuestDelete(profile_id)
       onRefresh()
@@ -588,7 +588,7 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
                   </button>
                   <button
                     className="btn btn--sm btn--danger"
-                    onClick={() => handleDelete(vp.profile_id)}
+                    onClick={() => setDeleteConfirmId(vp.profile_id)}
                     title="Delete"
                   >
                     {icons.trash}
@@ -599,6 +599,24 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
           </div>
         </div>
       </div>
+
+      {deleteConfirmId && (
+        <div className="modal-backdrop" onClick={() => setDeleteConfirmId(null)}>
+          <div className="modal" style={{ maxWidth: 380 }} onClick={e => e.stopPropagation()}>
+            <div className="modal__title">Delete voice profile?</div>
+            <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 14 }}>
+              This voice profile will be permanently deleted. This cannot be undone.
+            </p>
+            <div className="modal__actions">
+              <button className="btn btn--ghost" onClick={() => setDeleteConfirmId(null)}>Cancel</button>
+              <button className="btn btn--danger" onClick={() => {
+                handleDelete(deleteConfirmId)
+                setDeleteConfirmId(null)
+              }}>{icons.trash} Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -68,11 +68,25 @@ class AuthController extends Controller
         $validated = $request->validate([
             'name'  => 'sometimes|string|max:255',
             'email' => 'sometimes|string|email|max:255|unique:users,email,' . $request->user()->id,
+            'bio'   => 'sometimes|nullable|string|max:500',
         ]);
 
         $request->user()->update($validated);
 
         return response()->json(['user' => $request->user()->fresh()]);
+    }
+
+    public function deleteAccount(Request $request)
+    {
+        $user = $request->user();
+
+        Auth::guard('web')->logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        $user->delete();
+
+        return response()->json(['message' => 'Account deleted successfully']);
     }
 
     public function changePassword(Request $request)

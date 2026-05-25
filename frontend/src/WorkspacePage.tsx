@@ -97,6 +97,8 @@ export function WorkspacePage({
   const [showEngineMenu, setShowEngineMenu] = useState(false)
   const [showTemplateModal, setShowTemplateModal] = useState(false)
   const [pendingTranscription, setPendingTranscription] = useState<string | null>(null)
+  const [importParagraphs, setImportParagraphs] = useState<string[] | null>(null)
+  const [deleteScriptPending, setDeleteScriptPending] = useState(false)
 
   // TTS engine preference (persisted in localStorage)
   const { engine, setEngine } = useTTSEngine()
@@ -463,12 +465,7 @@ export function WorkspacePage({
     if (paragraphs.length <= 1) {
       if (activeScript) dispatch({ type: 'SET', value: text.trim() })
     } else {
-      const confirmed = confirm(
-        `Found ${paragraphs.length} paragraphs. Import first paragraph into this script?`
-      )
-      if (confirmed && activeScript) {
-        dispatch({ type: 'SET', value: paragraphs[0] })
-      }
+      setImportParagraphs(paragraphs)
     }
   }
 
@@ -646,6 +643,45 @@ export function WorkspacePage({
               }} disabled={!activeScript}>
                 {icons.check} Replace Current
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* File import confirm modal */}
+      {importParagraphs && (
+        <div className="modal-backdrop" onClick={() => setImportParagraphs(null)}>
+          <div className="modal" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
+            <div className="modal__title">Import paragraphs</div>
+            <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 14 }}>
+              Found <strong>{importParagraphs.length} paragraphs</strong>. Import the first one into this script?
+            </p>
+            <div className="modal__actions">
+              <button className="btn btn--ghost" onClick={() => setImportParagraphs(null)}>Cancel</button>
+              <button className="btn btn--primary" onClick={() => {
+                if (activeScript) dispatch({ type: 'SET', value: importParagraphs[0] })
+                setImportParagraphs(null)
+              }}>Import first paragraph</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete script confirm modal */}
+      {deleteScriptPending && activeScript && (
+        <div className="modal-backdrop" onClick={() => setDeleteScriptPending(false)}>
+          <div className="modal" style={{ maxWidth: 380 }} onClick={e => e.stopPropagation()}>
+            <div className="modal__title">Delete script?</div>
+            <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 14 }}>
+              <strong>"{activeScript.title}"</strong> will be permanently deleted. This cannot be undone.
+            </p>
+            <div className="modal__actions">
+              <button className="btn btn--ghost" onClick={() => setDeleteScriptPending(false)}>Cancel</button>
+              <button className="btn btn--danger" onClick={() => {
+                onDeleteScript(activeScript.id)
+                setShowScriptList(true)
+                setDeleteScriptPending(false)
+              }}>{icons.trash} Delete</button>
             </div>
           </div>
         </div>
@@ -877,12 +913,7 @@ export function WorkspacePage({
 
               <button
                 className="btn btn--sm btn--danger"
-                onClick={() => {
-                  if (confirm(`Delete script "${activeScript.title}"?`)) {
-                    onDeleteScript(activeScript.id)
-                    setShowScriptList(true)
-                  }
-                }}
+                onClick={() => setDeleteScriptPending(true)}
                 title="Delete script"
               >
                 {icons.trash}

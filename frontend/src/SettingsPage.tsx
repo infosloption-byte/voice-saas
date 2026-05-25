@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { clearAllAudio } from './audio'
 import { api } from './api'
 import { toast } from './toast'
 import { icons } from './constants'
@@ -20,6 +21,7 @@ interface SettingsPageProps {
   darkMode?: boolean
   onToggleDark?: () => void
   onSignOut?: () => void
+  onDeleteAccount?: () => void
   onProfileSaved?: () => void
   user?: { name: string; email: string }
   engineCaps?: EngineCaps
@@ -29,6 +31,7 @@ export function SettingsPage({
   darkMode = false,
   onToggleDark,
   onSignOut,
+  onDeleteAccount,
   onProfileSaved,
   user = { name: '', email: '' },
   engineCaps = { xtts: false, f5: false },
@@ -145,7 +148,7 @@ export function SettingsPage({
           )}
           {section === 'notifications' && <NotificationSettings                  onSave={handleSave} />}
           {section === 'api'           && <ApiSettings                           onSave={handleSave} />}
-          {section === 'danger'        && <DangerSettings        onSignOut={onSignOut} />}
+          {section === 'danger'        && <DangerSettings        onSignOut={onSignOut} onDeleteAccount={onDeleteAccount} />}
         </div>
       </div>
     </div>
@@ -227,7 +230,7 @@ function ProfileSettings({ user, onSave, onProfileSaved }: {
   async function handleSubmit() {
     setSaving(true)
     try {
-      await api.put('/user', { name: name.trim(), email: email.trim() })
+      await api.put('/user', { name: name.trim(), email: email.trim(), bio: bio.trim() || undefined })
       onSave()
       onProfileSaved?.()
       toast.ok('Profile updated')
@@ -256,10 +259,7 @@ function ProfileSettings({ user, onSave, onProfileSaved }: {
         </div>
         <div>
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)' }}>{name}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 8 }}>{email}</div>
-          <button className="btn btn--ghost btn--sm" style={{ gap: 5, fontSize: 12 }}>
-            {icons.edit} Change avatar
-          </button>
+          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{email}</div>
         </div>
       </div>
 
@@ -607,11 +607,23 @@ function AppearanceSettings({ darkMode, onToggleDark, onSave }: {
 
 // ── Notifications ────────────────────────────────────────────────────
 
+const NOTIF_KEY = 'vs_notif_prefs'
+function loadNotifPrefs() {
+  try { return JSON.parse(localStorage.getItem(NOTIF_KEY) ?? '{}') } catch { return {} }
+}
+
 function NotificationSettings({ onSave }: { onSave: () => void }) {
-  const [synth, setSynth]     = useState(true)
-  const [exports, setExports] = useState(true)
-  const [errors, setErrors]   = useState(true)
-  const [updates, setUpdates] = useState(false)
+  const prefs = loadNotifPrefs()
+  const [synth, setSynth]     = useState<boolean>(prefs.synth    ?? true)
+  const [exports, setExports] = useState<boolean>(prefs.exports  ?? true)
+  const [errors, setErrors]   = useState<boolean>(prefs.errors   ?? true)
+  const [updates, setUpdates] = useState<boolean>(prefs.updates  ?? false)
+
+  function handleSave() {
+    localStorage.setItem(NOTIF_KEY, JSON.stringify({ synth, exports, errors, updates }))
+    onSave()
+    toast.ok('Notification preferences saved')
+  }
 
   return (
     <div>
@@ -628,7 +640,7 @@ function NotificationSettings({ onSave }: { onSave: () => void }) {
       <SettingsRow label="Product updates" hint="Occasional announcements about new features.">
         <Toggle checked={updates} onChange={setUpdates} />
       </SettingsRow>
-      <button className="btn btn--primary" onClick={onSave} style={{ gap: 6 }}>
+      <button className="btn btn--primary" onClick={handleSave} style={{ gap: 6 }}>
         {icons.check} Save preferences
       </button>
     </div>
@@ -637,13 +649,23 @@ function NotificationSettings({ onSave }: { onSave: () => void }) {
 
 // ── API & Engine ─────────────────────────────────────────────────────
 
+const API_SETTINGS_KEY = 'vs_api_settings'
+function loadApiSettings() {
+  try { return JSON.parse(localStorage.getItem(API_SETTINGS_KEY) ?? '{}') } catch { return {} }
+}
+
 function ApiSettings({ onSave }: { onSave: () => void }) {
-  const [endpoint, setEndpoint] = useState(
-    import.meta.env.VITE_ENGINE_URL ?? 'http://localhost:8000'
+  const saved = loadApiSettings()
+  const [endpoint, setEndpoint] = useState<string>(
+    saved.endpoint ?? import.meta.env.VITE_ENGINE_URL ?? 'http://localhost:8000'
   )
-  const [timeout, setTimeout_] = useState(30)
-  const [showKey, setShowKey]  = useState(false)
-  const [apiKey, setApiKey]    = useState('vs_live_xxxxxxxxxxxxxxxxxxxxx')
+  const [timeout, setTimeout_] = useState<number>(saved.timeout ?? 30)
+
+  function handleSave() {
+    localStorage.setItem(API_SETTINGS_KEY, JSON.stringify({ endpoint, timeout }))
+    onSave()
+    toast.ok('Connection settings saved')
+  }
 
   return (
     <div>
@@ -659,7 +681,7 @@ function ApiSettings({ onSave }: { onSave: () => void }) {
             style={{ fontFamily: 'var(--mono)', fontSize: 12.5 }}
           />
           <span style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>
-            The URL where your XTTS backend is running.
+            The URL where your XTTS backend is running. Requires a page reload to take effect.
           </span>
         </div>
 
@@ -676,37 +698,9 @@ function ApiSettings({ onSave }: { onSave: () => void }) {
             </span>
           </div>
         </div>
-
-        <div className="field">
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>
-            API key <span style={{ fontWeight: 400, color: 'var(--text-3)' }}>(optional)</span>
-          </label>
-          <div style={{ position: 'relative' }}>
-            <input
-              className="full-input" type={showKey ? 'text' : 'password'} value={apiKey}
-              onChange={e => setApiKey(e.target.value)}
-              style={{ fontFamily: 'var(--mono)', fontSize: 12, paddingRight: 38 }}
-            />
-            <button
-              onClick={() => setShowKey(v => !v)}
-              style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', width: 16, height: 16, padding: 0 }}
-            >
-              {showKey ? icons.eyeOff : icons.eye}
-            </button>
-          </div>
-        </div>
       </div>
 
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
-        background: 'var(--bg-2)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', marginBottom: 20,
-      }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--ok)', boxShadow: '0 0 0 2px var(--ok-lt)', animation: 'blink 2.5s infinite', flexShrink: 0 }} />
-        <span style={{ fontSize: 12.5, color: 'var(--ok)', fontWeight: 500 }}>Engine connected</span>
-        <span style={{ fontSize: 12, color: 'var(--text-3)', marginLeft: 'auto' }}>XTTS v2.0.3</span>
-      </div>
-
-      <button className="btn btn--primary" onClick={onSave} style={{ gap: 6 }}>
+      <button className="btn btn--primary" onClick={handleSave} style={{ gap: 6 }}>
         {icons.check} Save connection
       </button>
     </div>
@@ -715,8 +709,35 @@ function ApiSettings({ onSave }: { onSave: () => void }) {
 
 // ── Danger Zone ──────────────────────────────────────────────────────
 
-function DangerSettings({ onSignOut }: { onSignOut?: () => void }) {
+function DangerSettings({ onSignOut, onDeleteAccount }: { onSignOut?: () => void; onDeleteAccount?: () => void }) {
   const [confirmDelete, setConfirmDelete] = useState('')
+  const [clearing, setClearing] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  async function handleClearCache() {
+    setClearing(true)
+    try {
+      await clearAllAudio()
+      toast.ok('Audio cache cleared')
+    } catch {
+      toast.err('Failed to clear cache')
+    } finally {
+      setClearing(false)
+    }
+  }
+
+  async function handleDeleteAccount() {
+    setDeleting(true)
+    try {
+      await api.delete('/user')
+      toast.ok('Account deleted')
+      onDeleteAccount?.()
+    } catch (e) {
+      toast.err(e instanceof Error ? e.message : 'Failed to delete account')
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   return (
     <div>
@@ -739,7 +760,14 @@ function DangerSettings({ onSignOut }: { onSignOut?: () => void }) {
               <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text-1)', marginBottom: 3 }}>Clear all cached audio</div>
               <div style={{ fontSize: 12, color: 'var(--text-2)' }}>Removes all stored audio blobs from IndexedDB. Scripts are unaffected.</div>
             </div>
-            <button className="btn btn--ghost btn--sm" style={{ color: 'var(--warn)', borderColor: 'rgba(160,117,48,0.35)', flexShrink: 0 }}>Clear cache</button>
+            <button
+              className="btn btn--ghost btn--sm"
+              style={{ color: 'var(--warn)', borderColor: 'rgba(160,117,48,0.35)', flexShrink: 0 }}
+              onClick={handleClearCache}
+              disabled={clearing}
+            >
+              {clearing ? <span className="spinner" /> : null} Clear cache
+            </button>
           </div>
         </div>
 
@@ -755,8 +783,13 @@ function DangerSettings({ onSignOut }: { onSignOut?: () => void }) {
               placeholder='Type "delete" to confirm'
               style={{ flex: 1, borderColor: 'rgba(192,57,43,0.35)' }}
             />
-            <button className="btn btn--danger btn--sm" disabled={confirmDelete !== 'delete'} style={{ flexShrink: 0 }}>
-              {icons.trash} Delete account
+            <button
+              className="btn btn--danger btn--sm"
+              disabled={confirmDelete !== 'delete' || deleting}
+              style={{ flexShrink: 0 }}
+              onClick={handleDeleteAccount}
+            >
+              {deleting ? <span className="spinner" /> : icons.trash} Delete account
             </button>
           </div>
         </div>
