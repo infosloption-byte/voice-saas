@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { api } from './api'
+import { toast } from './toast'
 import { icons } from './constants'
 import { LogoMark } from './LandingPage'
 import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
@@ -18,6 +20,7 @@ interface SettingsPageProps {
   darkMode?: boolean
   onToggleDark?: () => void
   onSignOut?: () => void
+  onProfileSaved?: () => void
   user?: { name: string; email: string }
   engineCaps?: EngineCaps
 }
@@ -26,7 +29,8 @@ export function SettingsPage({
   darkMode = false,
   onToggleDark,
   onSignOut,
-  user = { name: 'Alex Smith', email: 'alex@example.com' },
+  onProfileSaved,
+  user = { name: '', email: '' },
   engineCaps = { xtts: false, f5: false },
 }: SettingsPageProps) {
   const [section, setSection] = useState<SettingsSection>('profile')
@@ -124,7 +128,7 @@ export function SettingsPage({
 
         {/* Content */}
         <div className="settings-content" style={{ padding: '32px 40px', maxWidth: 640 }}>
-          {section === 'profile'       && <ProfileSettings       user={user}     onSave={handleSave} />}
+          {section === 'profile'       && <ProfileSettings       user={user}     onSave={handleSave} onProfileSaved={onProfileSaved} />}
           {section === 'account'       && <AccountSettings                       onSave={handleSave} />}
           {section === 'audio'         && (
             <AudioSettings
@@ -210,10 +214,29 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 
 // ── Profile ──────────────────────────────────────────────────────────
 
-function ProfileSettings({ user, onSave }: { user: { name: string; email: string }; onSave: () => void }) {
-  const [name, setName]   = useState(user.name)
-  const [email, setEmail] = useState(user.email)
-  const [bio, setBio]     = useState('')
+function ProfileSettings({ user, onSave, onProfileSaved }: {
+  user: { name: string; email: string }
+  onSave: () => void
+  onProfileSaved?: () => void
+}) {
+  const [name, setName]     = useState(user.name)
+  const [email, setEmail]   = useState(user.email)
+  const [bio, setBio]       = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function handleSubmit() {
+    setSaving(true)
+    try {
+      await api.put('/user', { name: name.trim(), email: email.trim() })
+      onSave()
+      onProfileSaved?.()
+      toast.ok('Profile updated')
+    } catch (e) {
+      toast.err(e instanceof Error ? e.message : 'Failed to update profile')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div>
@@ -261,8 +284,8 @@ function ProfileSettings({ user, onSave }: { user: { name: string; email: string
         </div>
       </div>
 
-      <button className="btn btn--primary" onClick={onSave} style={{ gap: 6 }}>
-        {icons.check} Save profile
+      <button className="btn btn--primary" onClick={handleSubmit} disabled={saving} style={{ gap: 6 }}>
+        {saving ? <><span className="spinner" /> Saving…</> : <>{icons.check} Save profile</>}
       </button>
     </div>
   )
@@ -276,6 +299,37 @@ function AccountSettings({ onSave }: { onSave: () => void }) {
   const [confirmPw, setConfirmPw] = useState('')
   const [twoFa, setTwoFa]         = useState(false)
   const [sessions, setSessions]   = useState(true)
+  const [saving, setSaving]       = useState(false)
+
+  async function handleChangePassword() {
+    if (!currentPw || !newPw || !confirmPw) {
+      toast.info('Fill in all password fields')
+      return
+    }
+    if (newPw !== confirmPw) {
+      toast.err('New passwords do not match')
+      return
+    }
+    if (newPw.length < 8) {
+      toast.err('New password must be at least 8 characters')
+      return
+    }
+    setSaving(true)
+    try {
+      await api.post('/user/password', {
+        current_password: currentPw,
+        password:         newPw,
+        password_confirmation: confirmPw,
+      })
+      setCurrentPw(''); setNewPw(''); setConfirmPw('')
+      onSave()
+      toast.ok('Password updated')
+    } catch (e) {
+      toast.err(e instanceof Error ? e.message : 'Failed to change password')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div>
@@ -309,8 +363,8 @@ function AccountSettings({ onSave }: { onSave: () => void }) {
         </div>
       </div>
 
-      <button className="btn btn--primary" onClick={onSave} style={{ gap: 6, marginTop: 8 }}>
-        {icons.check} Update security
+      <button className="btn btn--primary" onClick={handleChangePassword} disabled={saving} style={{ gap: 6, marginTop: 8 }}>
+        {saving ? <><span className="spinner" /> Saving…</> : <>{icons.check} Update password</>}
       </button>
     </div>
   )

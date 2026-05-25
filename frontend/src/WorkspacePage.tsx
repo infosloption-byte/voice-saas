@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useReducer, useCallback } from 'react'
+import { toast } from './toast'
 import { icons, LANGUAGES, TONE_PRESETS, type TonePreset } from './constants'
 import { loadAudioBlob, saveAudioBlob, deleteAudioBlob, historyReducer, fmt } from './audio'
 import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
@@ -324,11 +325,11 @@ export function WorkspacePage({
   // ── Bulk synthesis ────────────────────────────────────────────────
   async function handleBulkGenerate() {
     const pending = project.scripts.filter(s => s.content.trim() && !s.hasAudio)
-    if (!pending.length) { alert('All scripts already have audio.'); return }
-    if (!voiceProfiles.length) { alert('No voice profile found. Record one in Voice Profiles first.'); return }
-    if (!ENGINE_URL) { alert('Engine URL is not configured. Check your .env file.'); return }
+    if (!pending.length) { toast.info('All scripts already have audio.'); return }
+    if (!voiceProfiles.length) { toast.err('No voice profile found. Record one in Voice Profiles first.'); return }
+    if (!ENGINE_URL) { toast.err('Engine URL is not configured. Check your .env file.'); return }
     if (!currentEngineAvailable) {
-      alert(
+      toast.err(
         engine === 'f5'
           ? 'F5-TTS is not installed on this server. Switch to XTTS v2 in the engine selector.'
           : 'XTTS v2 is not available on this server.'
@@ -361,14 +362,14 @@ export function WorkspacePage({
 
   // ── Audio transcription ───────────────────────────────────────────
   async function handleAudioTranscribe(file: File) {
-    if (!ENGINE_URL) { alert('Engine URL is not configured. Check your .env file.'); return }
+    if (!ENGINE_URL) { toast.err('Engine URL is not configured. Check your .env file.'); return }
 
     setTranscribing(true)
     const fd = new FormData()
     fd.append('file', file, file.name)
     try {
       const res = await fetch(`${ENGINE_URL}/transcribe`, { method: 'POST', body: fd })
-      if (!res.ok) { alert('Transcription failed. Is the AI engine running?'); return }
+      if (!res.ok) { toast.err('Transcription failed. Is the AI engine running?'); return }
       const data = await res.json() as { text?: string }
       const text = data.text ?? ''
       if (activeScript) {
@@ -377,7 +378,7 @@ export function WorkspacePage({
         onAddScript({ title: 'Transcribed Script', content: text })
       }
     } catch {
-      alert('Connection error. Is the AI engine running?')
+      toast.err('Connection error. Is the AI engine running?')
     } finally {
       setTranscribing(false)
     }
