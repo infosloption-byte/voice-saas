@@ -3,12 +3,13 @@ import { toast } from './toast'
 import { icons, CLIP_COLORS, CLIP_LIGHTS } from './constants'
 import { loadAudioBlob, loadAudioRawBlob, saveAudioBlob, deleteAudioBlob, timelineReducer, uid, fmt } from './audio'
 import type { Project, Script, TimelineClip, TimelineHistory } from './types'
+import type { GateType } from './hooks/useGuestSession'
 
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL as string | undefined
 
 interface BgMusic { blob: Blob; volume: number }
 
-export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge, onReorder, onSaveTimeline }: {
+export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge, onReorder, onSaveTimeline, isGuest, onGuestGate }: {
   project: Project
   mergedUrl: string | null
   mergedBlob: Blob | null
@@ -16,6 +17,8 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
   onMerge: (orderedClips: TimelineClip[], bgMusic?: BgMusic) => void
   onReorder: (scripts: Script[]) => void
   onSaveTimeline: (clips: TimelineClip[]) => void
+  isGuest?: boolean
+  onGuestGate?: (type: GateType) => void
 }) {
   const withAudio = project.scripts.filter(s => s.hasAudio)
 
@@ -399,20 +402,34 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
 
         {mergedUrl && <audio src={mergedUrl} controls style={{ height: 28, width: 180, accentColor: 'var(--accent)' }} />}
         {mergedUrl && (
-          <a href={mergedUrl} download="final.wav" style={tBtn()}>
-            <span style={{ display: 'flex', width: 14, height: 14 }}>{icons.download}</span>
-            <span style={{ fontSize: 11 }}>WAV</span>
-          </a>
+          isGuest ? (
+            <button onClick={() => onGuestGate?.('assembly_export')} style={tBtn()}>
+              <span style={{ display: 'flex', width: 14, height: 14 }}>{icons.download}</span>
+              <span style={{ fontSize: 11 }}>WAV</span>
+            </button>
+          ) : (
+            <a href={mergedUrl} download="final.wav" style={tBtn()}>
+              <span style={{ display: 'flex', width: 14, height: 14 }}>{icons.download}</span>
+              <span style={{ fontSize: 11 }}>WAV</span>
+            </a>
+          )
         )}
         {mergedBlob && ENGINE_URL && (
-          <button onClick={handleExportMp3} disabled={exportingMp3} style={tBtn({ opacity: exportingMp3 ? 0.6 : 1 })} title="Export as MP3">
-            {exportingMp3 ? <span className="spinner" /> : <span style={{ display: 'flex', width: 14, height: 14 }}>{icons.mp3}</span>}
+          <button
+            onClick={isGuest ? () => onGuestGate?.('assembly_export') : handleExportMp3}
+            disabled={!isGuest && exportingMp3}
+            style={tBtn({ opacity: (!isGuest && exportingMp3) ? 0.6 : 1 })}
+            title="Export as MP3"
+          >
+            {(!isGuest && exportingMp3) ? <span className="spinner" /> : <span style={{ display: 'flex', width: 14, height: 14 }}>{icons.mp3}</span>}
             <span style={{ fontSize: 11 }}>MP3</span>
           </button>
         )}
-        <button onClick={handleMerge} disabled={timelineClips.length < 1 || merging}
-          style={tBtn({ background: mergedUrl ? 'var(--ok)' : 'var(--accent)', color: '#fff', border: 'none', padding: '6px 14px', opacity: timelineClips.length < 1 || merging ? 0.5 : 1 })}>
-          {merging ? <><span className="spinner" /> Merging…</> : mergedUrl ? <>{icons.check} Re-export</> : <>{icons.merge} Export WAV</>}
+        <button
+          onClick={isGuest ? () => onGuestGate?.('assembly_export') : handleMerge}
+          disabled={!isGuest && (timelineClips.length < 1 || merging)}
+          style={tBtn({ background: mergedUrl ? 'var(--ok)' : 'var(--accent)', color: '#fff', border: 'none', padding: '6px 14px', opacity: (!isGuest && (timelineClips.length < 1 || merging)) ? 0.5 : 1 })}>
+          {(!isGuest && merging) ? <><span className="spinner" /> Merging…</> : mergedUrl ? <>{icons.check} Re-export</> : <>{icons.merge} Export WAV</>}
         </button>
       </div>
 
