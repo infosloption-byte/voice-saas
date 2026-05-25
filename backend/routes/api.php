@@ -18,7 +18,9 @@ Route::post('/logout',   [AuthController::class, 'logout'])->middleware('auth:sa
 Route::middleware('auth:sanctum')->group(function () {
 
     // Current user
-    Route::get('/user', fn (Request $request) => $request->user());
+    Route::get('/user',          fn (Request $request) => $request->user());
+    Route::put('/user',          [AuthController::class, 'updateProfile']);
+    Route::post('/user/password', [AuthController::class, 'changePassword']);
 
     // Projects
     Route::apiResource('projects', ProjectController::class);

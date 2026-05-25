@@ -4,6 +4,7 @@ import { LandingPage } from './LandingPage'
 import { SignInPage, SignUpPage } from './AuthPages'
 import { SettingsPage } from './SettingsPage'
 import { api } from './api'
+import { toast, subscribeToast, type ToastItem } from './toast'
 import { useAuth } from './hooks/useAuth'
 import { useProjects } from './hooks/useProjects'
 import { useAudio } from './hooks/useAudio'
@@ -15,6 +16,37 @@ import {
 import { WorkspacePage } from './WorkspacePage'
 import { AssemblyPage } from './AssemblyPage'
 import type { Page, WorkspaceTab, VoiceProfile, EngineStatus, EngineCaps } from './types'
+
+function ToastContainer() {
+  const [toasts, setToasts] = useState<ToastItem[]>([])
+
+  useEffect(() => subscribeToast(t => {
+    setToasts(prev => [...prev, t])
+    setTimeout(() => setToasts(prev => prev.filter(x => x.id !== t.id)), 4000)
+  }), [])
+
+  if (!toasts.length) return null
+  return (
+    <div style={{
+      position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
+      display: 'flex', flexDirection: 'column', gap: 8,
+      maxWidth: 380, pointerEvents: 'none',
+    }}>
+      {toasts.map(t => (
+        <div key={t.id} className={`msg msg--${t.kind}`} style={{
+          pointerEvents: 'all', animation: 'modal-in 0.2s ease',
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '10px 14px', boxShadow: 'var(--shadow-lg)',
+        }}>
+          <span style={{ flex: 1, fontSize: 13 }}>{t.msg}</span>
+          <button style={{ background: 'none', border: 'none', cursor: 'pointer',
+            color: 'inherit', opacity: 0.5, padding: '0 2px', lineHeight: 1, fontSize: 16 }}
+            onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))}>×</button>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export default function App() {
   const [page, setPage] = useState<Page>('landing')
@@ -106,7 +138,7 @@ export default function App() {
       setWorkspaceTab('scripts')
       setPage('workspace')
     } catch (e) {
-      alert('Failed to create project: ' + (e instanceof Error ? e.message : 'Unknown error'))
+      toast.err('Failed to create project: ' + (e instanceof Error ? e.message : 'Unknown error'))
     }
   }
 
@@ -456,6 +488,7 @@ export default function App() {
               darkMode={darkMode}
               onToggleDark={() => setDarkMode(v => !v)}
               onSignOut={signOut}
+              onProfileSaved={checkUser}
               engineCaps={engineCaps}
               user={user
                 ? { name: user.name, email: user.email }
@@ -484,6 +517,7 @@ export default function App() {
       {showShortcuts && (
         <ShortcutsModal onClose={() => setShowShortcuts(false)} />
       )}
+      <ToastContainer />
     </div>
   )
 }
