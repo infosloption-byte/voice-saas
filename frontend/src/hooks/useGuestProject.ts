@@ -19,14 +19,28 @@ export function useGuestProject(session: GuestSession | null) {
     }
   }, [session?.guestId])
 
-  function persist(p: Project) {
-    if (!session) return
-    localStorage.setItem(key(session.guestId), JSON.stringify(p))
+  function persist(p: Project, sessOverride?: GuestSession) {
+    const sess = sessOverride ?? session
+    if (!sess) return
+    localStorage.setItem(key(sess.guestId), JSON.stringify(p))
     setProject(p)
   }
 
-  function ensureProject(): Project {
-    if (project) return project
+  // sessOverride lets callers pass a freshly-created session before React
+  // state has propagated (avoids the timing gap in enterGuestMode).
+  function ensureProject(sessOverride?: GuestSession): Project {
+    const sess = sessOverride ?? session
+    if (project && (!sessOverride || sessOverride.guestId === session?.guestId)) return project
+    if (sess) {
+      try {
+        const raw = localStorage.getItem(key(sess.guestId))
+        if (raw) {
+          const existing = JSON.parse(raw) as Project
+          setProject(existing)
+          return existing
+        }
+      } catch { /* fall through to create */ }
+    }
     const p: Project = {
       id:          uid(),
       name:        'My Guest Project',
@@ -35,7 +49,7 @@ export function useGuestProject(session: GuestSession | null) {
       createdAt:   new Date().toISOString(),
       scripts:     [],
     }
-    persist(p)
+    persist(p, sess ?? undefined)
     return p
   }
 
