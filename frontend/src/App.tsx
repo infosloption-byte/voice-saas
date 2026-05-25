@@ -365,21 +365,33 @@ export default function App() {
             </button>
           </div>
 
-          {projects.length > 0 && (
+          {(guestMode ? guestProject.project != null : projects.length > 0) && (
             <div className="nav-section">
               <div className="nav-section__label">Recent Projects</div>
-              {projects.slice(0, 5).map(p => (
+              {guestMode && guestProject.project ? (
                 <button
-                  key={p.id}
-                  className={`nav-item ${activeProjectId === p.id && page === 'workspace' ? 'nav-item--active' : ''}`}
-                  onClick={() => openProject(p.id)}
+                  className={`nav-item ${page === 'workspace' ? 'nav-item--active' : ''}`}
+                  onClick={() => setPage('workspace')}
                 >
-                  <span style={{ fontSize: 15 }}>{p.emoji}</span>
+                  <span style={{ fontSize: 15 }}>{guestProject.project!.emoji}</span>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {p.name}
+                    {guestProject.project!.name}
                   </span>
                 </button>
-              ))}
+              ) : (
+                projects.slice(0, 5).map(p => (
+                  <button
+                    key={p.id}
+                    className={`nav-item ${activeProjectId === p.id && page === 'workspace' ? 'nav-item--active' : ''}`}
+                    onClick={() => openProject(p.id)}
+                  >
+                    <span style={{ fontSize: 15 }}>{p.emoji}</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {p.name}
+                    </span>
+                  </button>
+                ))
+              )}
             </div>
           )}
         </nav>
@@ -538,9 +550,9 @@ export default function App() {
         <div className={workspaceTab === 'assembly' && page === 'workspace' ? '' : 'content'}>
           {page === 'dashboard' && (
             <DashboardPage
-              projects={projects}
-              voiceProfiles={voiceProfiles}
-              onOpenProject={openProject}
+              projects={guestMode && guestProject.project ? [guestProject.project] : projects}
+              voiceProfiles={guestMode ? guestProfiles.asVoiceProfiles : voiceProfiles}
+              onOpenProject={guestMode ? () => setPage('workspace') : openProject}
               onGoProjects={() => setPage('projects')}
               onGoProfiles={() => setPage('profiles')}
             />
@@ -548,10 +560,10 @@ export default function App() {
 
           {page === 'projects' && (
             <ProjectsPage
-              projects={projects}
-              onOpen={openProject}
-              onDelete={handleDeleteProject}
-              onNew={() => setShowNewProject(true)}
+              projects={guestMode && guestProject.project ? [guestProject.project] : projects}
+              onOpen={guestMode ? () => setPage('workspace') : openProject}
+              onDelete={guestMode ? () => {} : handleDeleteProject}
+              onNew={guestMode ? () => setGuestGateType('script_limit') : () => setShowNewProject(true)}
             />
           )}
 
@@ -645,6 +657,7 @@ export default function App() {
               darkMode={darkMode}
               onToggleDark={() => setDarkMode(v => !v)}
               onSignOut={signOut}
+              onDeleteAccount={signOut}
               onProfileSaved={checkUser}
               engineCaps={engineCaps}
               user={user

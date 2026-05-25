@@ -53,6 +53,15 @@ export async function deleteAudioBlob(key: string): Promise<void> {
   })
 }
 
+export async function clearAllAudio(): Promise<void> {
+  const db = await openDB()
+  return new Promise((res) => {
+    const tx = db.transaction(STORE, 'readwrite')
+    tx.objectStore(STORE).clear()
+    tx.oncomplete = () => res()
+  })
+}
+
 // ── Small utilities ────────────────────────────────────────────────
 export function fmt(s: number) {
   return `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
