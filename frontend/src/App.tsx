@@ -590,6 +590,8 @@ export default function App() {
                 onMerge={(clips, bg) => mergeSelected(clips, bg)}
                 onReorder={(scripts) => reorderScripts(activeProject.id, scripts)}
                 onSaveTimeline={(clips) => saveTimeline(activeProject.id, clips)}
+                isGuest={guestMode}
+                onGuestGate={type => setGuestGateType(type)}
               />
             </>
           )}
