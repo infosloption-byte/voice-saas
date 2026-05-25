@@ -3,6 +3,7 @@ import { toast } from './toast'
 import { icons, LANGUAGES, TONE_PRESETS, type TonePreset } from './constants'
 import { loadAudioBlob, saveAudioBlob, deleteAudioBlob, historyReducer, fmt } from './audio'
 import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
+import { GUEST_WORD_LIMIT, GUEST_SYNTH_LIMIT, type GateType, type GuestUsage } from './hooks/useGuestSession'
 import type { Project, Script, VoiceProfile, SaveState, EngineCaps } from './types'
 
 const SCRIPT_TEMPLATES = [
@@ -56,6 +57,11 @@ export function WorkspacePage({
   onReorder,
   voiceProfiles,
   engineCaps = { xtts: true, f5: false },
+  isGuest = false,
+  guestUsage,
+  getGuestVoiceBlob,
+  onGuestGate,
+  onGuestSynthesisUsed,
 }: {
   project: Project
   activeScriptId: string | null
@@ -66,6 +72,11 @@ export function WorkspacePage({
   onReorder: (scripts: Script[]) => void
   voiceProfiles: VoiceProfile[]
   engineCaps?: EngineCaps
+  isGuest?: boolean
+  guestUsage?: GuestUsage
+  getGuestVoiceBlob?: (profileId: string) => Promise<Blob | null>
+  onGuestGate?: (type: GateType) => void
+  onGuestSynthesisUsed?: () => void
 }) {
   const activeScript = project.scripts.find(s => s.id === activeScriptId) ?? null
 
@@ -270,8 +281,68 @@ export function WorkspacePage({
     [voiceProfiles, onUpdateScript]
   )
 
+  // ── Guest synthesis (one-shot via /clone-voice, no engine profile needed) ──
+  async function handleGuestGenerate() {
+    if (!activeScript || !histState.present.trim()) {
+      setSynthErr('Write some script content first.')
+      return
+    }
+    if (!voiceProfiles.length) {
+      setSynthErr('Record a voice profile first.')
+      return
+    }
+
+    const wc = histState.present.trim().split(/\s+/).length
+    if (wc > GUEST_WORD_LIMIT) {
+      onGuestGate?.('word_limit')
+      return
+    }
+
+    const used = guestUsage?.synthesesUsed ?? 0
+    if (used >= GUEST_SYNTH_LIMIT) {
+      onGuestGate?.('synth_limit')
+      return
+    }
+
+    if (!ENGINE_URL) {
+      setSynthErr('Engine URL is not configured. Check your .env file.')
+      return
+    }
+
+    const profileId = activeScript.profileId || voiceProfiles[0]?.profile_id
+    if (!profileId) { setSynthErr('No voice profile selected.'); return }
+
+    const voiceBlob = await getGuestVoiceBlob?.(profileId)
+    if (!voiceBlob) {
+      setSynthErr('Voice profile audio not found. Please re-record your voice.')
+      return
+    }
+
+    setSynthesizing(true)
+    setSynthErr('')
+    try {
+      const fd = new FormData()
+      fd.append('text', histState.present.trim())
+      fd.append('file', voiceBlob, 'voice.wav')
+
+      const res = await fetch(`${ENGINE_URL}/clone-voice`, { method: 'POST', body: fd })
+      if (!res.ok) { setSynthErr('Synthesis failed. Is the AI engine running?'); return }
+
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      setAudioUrl(url)
+      onGuestSynthesisUsed?.()
+    } catch {
+      setSynthErr('Synthesis failed. Is the AI engine running?')
+    } finally {
+      setSynthesizing(false)
+    }
+  }
+
   // ── Single-script synthesis ───────────────────────────────────────
   async function handleGenerateSingle() {
+    if (isGuest) { await handleGuestGenerate(); return }
+
     if (!activeScript || !histState.present.trim()) {
       setSynthErr('Write some script content first.')
       return
@@ -849,13 +920,23 @@ export function WorkspacePage({
               <div className="vo-audio-row">
                 <span className="vo-ready-label">✓ Ready</span>
                 <audio src={audioUrl} controls />
-                <a
-                  href={audioUrl}
-                  download={`${activeScript.title}.wav`}
-                  className="btn btn--sm"
-                >
-                  {icons.download}
-                </a>
+                {isGuest ? (
+                  <button
+                    className="btn btn--sm"
+                    title="Subscribe to download"
+                    onClick={() => onGuestGate?.('download')}
+                  >
+                    {icons.download}
+                  </button>
+                ) : (
+                  <a
+                    href={audioUrl}
+                    download={`${activeScript.title}.wav`}
+                    className="btn btn--sm"
+                  >
+                    {icons.download}
+                  </a>
+                )}
                 <button
                   className="btn btn--sm btn--danger"
                   onClick={() => {
@@ -904,6 +985,15 @@ export function WorkspacePage({
             <div className="editor-footer">
               <span className="word-count">
                 {wordCount} words · ~{Math.ceil(wordCount / 130)}m
+                {isGuest && (
+                  <span style={{
+                    marginLeft: 6,
+                    color: wordCount > GUEST_WORD_LIMIT ? 'var(--err)' : 'var(--text-3)',
+                    fontSize: 10,
+                  }}>
+                    ({wordCount}/{GUEST_WORD_LIMIT} guest limit)
+                  </span>
+                )}
               </span>
 
               <div style={{ flex: 1 }} />

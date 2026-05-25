@@ -4,6 +4,7 @@ import { toast } from './toast'
 import { icons, EMOJIS } from './constants'
 import { fmt, uid, useAudioRecorder } from './audio'
 import { useTTSEngine } from './hooks/useTTSEngine'
+import { GUEST_PROFILE_LIMIT, GUEST_PREVIEW_LIMIT, type GateType } from './hooks/useGuestSession'
 import type { Project, Script, VoiceProfile, VoiceProfileSaveResult, EngineCaps } from './types'
 
 // ── Wave visualiser ────────────────────────────────────────────────
@@ -312,10 +313,20 @@ export function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
 }
 
 // ── Voice Profiles ─────────────────────────────────────────────────
-export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps }: {
+export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
+  isGuest, guestProfilesCount, guestPreviewsUsed,
+  onGuestSave, onGuestDelete, onGuestGate, onIncrementPreview,
+}: {
   profiles: VoiceProfile[]
   onRefresh: () => void
   engineCaps?: EngineCaps
+  isGuest?: boolean
+  guestProfilesCount?: number
+  guestPreviewsUsed?: number
+  onGuestSave?: (name: string, blob: Blob, durationSecs: number) => Promise<boolean>
+  onGuestDelete?: (profileId: string) => void
+  onGuestGate?: (type: GateType) => void
+  onIncrementPreview?: () => void
 }) {
   const recorder = useAudioRecorder()
 
@@ -365,6 +376,26 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps }: {
       )
     }
 
+    // ── Guest save path (IndexedDB only, no engine call) ──────────
+    if (isGuest && onGuestSave) {
+      const pCount = guestProfilesCount ?? 0
+      if (pCount >= GUEST_PROFILE_LIMIT) {
+        onGuestGate?.('profile_limit')
+        setSaving(false)
+        return
+      }
+      const ok = await onGuestSave(profileName.trim() || 'my-voice', blob, secs)
+      if (ok) {
+        setMsg(`✓ Profile "${profileName}" saved locally`)
+        onRefresh()
+      } else {
+        onGuestGate?.('profile_limit')
+      }
+      setSaving(false)
+      return
+    }
+
+    // ── Registered user save path ──────────────────────────────────
     const fd = new FormData()
     const mime = blob.type.includes('wav') ? 'audio/wav' : 'audio/webm'
     const ext  = blob.type.includes('wav') ? 'wav' : 'webm'
@@ -389,6 +420,11 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps }: {
 
   async function handleDelete(profile_id: string) {
     if (!confirm(`Delete profile "${profile_id}"?`)) return
+    if (isGuest && onGuestDelete) {
+      onGuestDelete(profile_id)
+      onRefresh()
+      return
+    }
     try {
       await api.delete(`/voice-profiles/${profile_id}`)
       onRefresh()
@@ -400,17 +436,28 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps }: {
 
   async function handlePreview(profile_id: string) {
     if (!previewText.trim()) { toast.info('Enter some preview text first.'); return }
+
+    // Guest preview limit check
+    if (isGuest) {
+      const used = guestPreviewsUsed ?? 0
+      if (used >= GUEST_PREVIEW_LIMIT) {
+        onGuestGate?.('preview_limit')
+        return
+      }
+    }
+
     setPreviewing(true); setPreviewId(profile_id)
     const fd = new FormData()
     fd.append('text', previewText)
     fd.append('profile_id', profile_id)
     fd.append('language', 'en')
-    fd.append('tts_engine', engine)   // ← use whichever engine is currently selected
+    fd.append('tts_engine', engine)
     try {
       const raw = await api.enginePost('/synthesize', fd)
       const audioBlob = raw as Blob
       const audio = new Audio(URL.createObjectURL(audioBlob))
       audio.play()
+      if (isGuest) onIncrementPreview?.()
     } catch (e: unknown) {
       console.error('Preview failed:', e)
       toast.err('Preview failed. Is the AI engine running?')
@@ -519,7 +566,14 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps }: {
                 <div key={vp.profile_id} className="profile-card">
                   <div className="profile-avatar">{(vp.profile_id?.[0] ?? '?').toUpperCase()}</div>
                   <div style={{ flex: 1 }}>
-                    <div className="profile-card__name">{vp.profile_id}</div>
+                    <div className="profile-card__name" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {vp.profile_id}
+                      {isGuest && (
+                        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, background: 'var(--warn-lt)', color: 'var(--warn)', border: '1px solid rgba(160,117,48,0.3)', fontWeight: 600 }}>
+                          Local only
+                        </span>
+                      )}
+                    </div>
                     <div className="profile-card__meta">
                       Voice profile · Ready{vp.duration ? ` · ${vp.duration.toFixed(1)}s` : ''}
                     </div>
