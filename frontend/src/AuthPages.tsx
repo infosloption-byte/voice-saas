@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { api } from './api'
 import { icons } from './constants'
 import { LogoMark } from './LandingPage'
 
@@ -85,9 +86,10 @@ interface SignInPageProps {
   onSignIn?: (email: string, password: string) => Promise<void>
   onSignUp?: () => void
   onBack?: () => void
+  onForgotPassword?: () => void
 }
 
-export function SignInPage({ onSignIn, onSignUp, onBack }: SignInPageProps) {
+export function SignInPage({ onSignIn, onSignUp, onBack, onForgotPassword }: SignInPageProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
@@ -147,7 +149,11 @@ export function SignInPage({ onSignIn, onSignUp, onBack }: SignInPageProps) {
         <div className="field">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>Password</label>
-            <button style={{ fontSize: 12, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+            <button
+              type="button"
+              style={{ fontSize: 12, color: 'var(--accent)', background: 'none', border: 'none', cursor: onForgotPassword ? 'pointer' : 'default', padding: 0 }}
+              onClick={onForgotPassword}
+            >
               Forgot password?
             </button>
           </div>
@@ -200,9 +206,11 @@ interface SignUpPageProps {
   onSignUp?: (name: string, email: string, password: string) => Promise<void>
   onSignIn?: () => void
   onBack?: () => void
+  onTerms?: () => void
+  onPrivacy?: () => void
 }
 
-export function SignUpPage({ onSignUp, onSignIn, onBack }: SignUpPageProps) {
+export function SignUpPage({ onSignUp, onSignIn, onBack, onTerms, onPrivacy }: SignUpPageProps) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -318,9 +326,9 @@ export function SignUpPage({ onSignUp, onSignIn, onBack }: SignUpPageProps) {
         <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer', fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5 }}>
           <input type="checkbox" checked={agreed} onChange={e => { setAgreed(e.target.checked); setError('') }} style={{ marginTop: 2 }} />
           I agree to the{' '}
-          <button style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12.5, padding: 0 }}>Terms of Service</button>
+          <button type="button" style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12.5, padding: 0 }} onClick={onTerms}>Terms of Service</button>
           {' '}and{' '}
-          <button style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12.5, padding: 0 }}>Privacy Policy</button>
+          <button type="button" style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12.5, padding: 0 }} onClick={onPrivacy}>Privacy Policy</button>
         </label>
 
         {error && <div className="msg msg--err">{error}</div>}
@@ -341,6 +349,179 @@ export function SignUpPage({ onSignUp, onSignIn, onBack }: SignUpPageProps) {
           Sign in
         </button>
       </div>
+    </AuthShell>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FORGOT PASSWORD PAGE
+// ═══════════════════════════════════════════════════════════════════
+export function ForgotPasswordPage({ onBack }: { onBack?: () => void }) {
+  const [email, setEmail]       = useState('')
+  const [loading, setLoading]   = useState(false)
+  const [sent, setSent]         = useState(false)
+  const [error, setError]       = useState('')
+
+  async function handleSubmit() {
+    if (!email.trim()) { setError('Please enter your email address.'); return }
+    setError(''); setLoading(true)
+    try {
+      await api.post('/forgot-password', { email: email.trim() })
+      setSent(true)
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to send reset link. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <AuthShell visual={<AuthVisualContent />}>
+      <div className="auth-brand" style={{ marginBottom: 40 }}>
+        <button style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: onBack ? 'pointer' : 'default', padding: 0 }} onClick={onBack}>
+          <LogoMark size={28} />
+          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)' }}>VoiceStudio</span>
+        </button>
+      </div>
+
+      {sent ? (
+        <div>
+          <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'var(--ok-lt)', border: '1px solid rgba(59,125,99,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+            <span style={{ width: 24, height: 24, color: 'var(--ok)' }}>{icons.mail}</span>
+          </div>
+          <h1 style={{ fontFamily: 'var(--serif)', fontSize: 26, fontWeight: 400, color: 'var(--text-1)', letterSpacing: '-0.5px', marginBottom: 10 }}>
+            Check your email
+          </h1>
+          <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.7, marginBottom: 24 }}>
+            If <strong>{email}</strong> has an account with us, we've sent a password reset link.
+            The link expires in 60 minutes.
+          </p>
+          <button className="btn btn--ghost" onClick={onBack} style={{ gap: 6 }}>
+            {icons.back} Back to sign in
+          </button>
+        </div>
+      ) : (
+        <>
+          <div style={{ marginBottom: 28 }}>
+            <h1 style={{ fontFamily: 'var(--serif)', fontSize: 28, fontWeight: 400, color: 'var(--text-1)', letterSpacing: '-0.5px', marginBottom: 6 }}>
+              Reset your password
+            </h1>
+            <p style={{ fontSize: 13.5, color: 'var(--text-2)' }}>
+              Enter your email and we'll send you a reset link.
+            </p>
+          </div>
+
+          <form onSubmit={e => { e.preventDefault(); handleSubmit() }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="field">
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>Email address</label>
+              <div style={{ position: 'relative' }}>
+                <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', width: 15, height: 15, display: 'flex' }}>{icons.mail}</span>
+                <input
+                  className="full-input"
+                  type="email"
+                  value={email}
+                  onChange={e => { setEmail(e.target.value); setError('') }}
+                  placeholder="you@example.com"
+                  style={{ paddingLeft: 35 }}
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            {error && <div className="msg msg--err">{error}</div>}
+
+            <button className="btn btn--primary" onClick={handleSubmit} disabled={loading}
+              style={{ width: '100%', padding: '11px', fontSize: 14, marginTop: 4, justifyContent: 'center' }}>
+              {loading ? <span className="spinner" /> : 'Send reset link'}
+            </button>
+          </form>
+
+          <div style={{ marginTop: 20, textAlign: 'center', fontSize: 13, color: 'var(--text-2)' }}>
+            Remember your password?{' '}
+            <button style={{ color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13 }} onClick={onBack}>
+              Sign in
+            </button>
+          </div>
+        </>
+      )}
+    </AuthShell>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RESET PASSWORD PAGE
+// ═══════════════════════════════════════════════════════════════════
+export function ResetPasswordPage({ token, email: initialEmail, onSuccess, onBack }: {
+  token: string
+  email: string
+  onSuccess?: () => void
+  onBack?: () => void
+}) {
+  const [email, setEmail]       = useState(initialEmail)
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm]   = useState('')
+  const [loading, setLoading]   = useState(false)
+  const [error, setError]       = useState('')
+
+  async function handleSubmit() {
+    if (!password || !confirm) { setError('Please fill in all fields.'); return }
+    if (password.length < 8) { setError('Password must be at least 8 characters.'); return }
+    if (password !== confirm) { setError('Passwords do not match.'); return }
+    setError(''); setLoading(true)
+    try {
+      await api.post('/reset-password', {
+        token,
+        email: email.trim(),
+        password,
+        password_confirmation: confirm,
+      })
+      onSuccess?.()
+    } catch (e: any) {
+      setError(e?.message ?? 'Reset failed. The link may have expired — request a new one.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <AuthShell visual={<AuthVisualContent />}>
+      <div className="auth-brand" style={{ marginBottom: 40 }}>
+        <button style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: onBack ? 'pointer' : 'default', padding: 0 }} onClick={onBack}>
+          <LogoMark size={28} />
+          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)' }}>VoiceStudio</span>
+        </button>
+      </div>
+
+      <div style={{ marginBottom: 28 }}>
+        <h1 style={{ fontFamily: 'var(--serif)', fontSize: 28, fontWeight: 400, color: 'var(--text-1)', letterSpacing: '-0.5px', marginBottom: 6 }}>
+          Set a new password
+        </h1>
+        <p style={{ fontSize: 13.5, color: 'var(--text-2)' }}>
+          Choose a strong password for your account.
+        </p>
+      </div>
+
+      <form onSubmit={e => { e.preventDefault(); handleSubmit() }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="field">
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>Email address</label>
+          <input className="full-input" type="email" value={email} onChange={e => setEmail(e.target.value)} />
+        </div>
+        <div className="field">
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>New password</label>
+          <input className="full-input" type="password" value={password} onChange={e => { setPassword(e.target.value); setError('') }} placeholder="Min. 8 characters" />
+        </div>
+        <div className="field">
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>Confirm new password</label>
+          <input className="full-input" type="password" value={confirm} onChange={e => { setConfirm(e.target.value); setError('') }} placeholder="Re-enter password" />
+        </div>
+
+        {error && <div className="msg msg--err">{error}</div>}
+
+        <button className="btn btn--primary" onClick={handleSubmit} disabled={loading}
+          style={{ width: '100%', padding: '11px', fontSize: 14, marginTop: 4, justifyContent: 'center' }}>
+          {loading ? <span className="spinner" /> : 'Reset password'}
+        </button>
+      </form>
     </AuthShell>
   )
 }

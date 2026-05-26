@@ -1,8 +1,12 @@
 // ── Shared types for VoiceStudio ──────────────────────────────────
 
+export type Plan = 'free' | 'starter' | 'pro'
+
 export type Page =
   | 'landing' | 'signin' | 'signup'
+  | 'forgot-password' | 'reset-password'
   | 'dashboard' | 'projects' | 'workspace' | 'profiles' | 'settings'
+  | 'pricing' | 'privacy' | 'terms'
 
 export type WorkspaceTab = 'scripts' | 'assembly'
 export type SaveState = 'saved' | 'saving' | 'unsaved'
@@ -12,6 +16,15 @@ export interface User {
   id: string | number
   name: string
   email: string
+  email_verified_at?: string | null
+  plan_name?: Plan
+}
+
+export interface Subscription {
+  plan: Plan
+  status: string
+  current_period_end?: string | null
+  paypal_subscription_id?: string | null
 }
 
 export interface Project {
