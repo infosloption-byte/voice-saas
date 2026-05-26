@@ -5,12 +5,13 @@ import { toast } from './toast'
 import { icons } from './constants'
 import { LogoMark } from './LandingPage'
 import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
-import type { EngineCaps } from './types'
+import type { EngineCaps, Subscription, Plan } from './types'
 
 // ═══════════════════════════════════════════════════════════════════
 type SettingsSection =
   | 'profile'
   | 'account'
+  | 'billing'
   | 'audio'
   | 'appearance'
   | 'notifications'
@@ -23,8 +24,9 @@ interface SettingsPageProps {
   onSignOut?: () => void
   onDeleteAccount?: () => void
   onProfileSaved?: () => void
-  user?: { name: string; email: string }
+  user?: { name: string; email: string; email_verified_at?: string | null; plan_name?: Plan }
   engineCaps?: EngineCaps
+  onGoPricing?: () => void
 }
 
 export function SettingsPage({
@@ -35,6 +37,7 @@ export function SettingsPage({
   onProfileSaved,
   user = { name: '', email: '' },
   engineCaps = { xtts: false, f5: false },
+  onGoPricing,
 }: SettingsPageProps) {
   const [section, setSection] = useState<SettingsSection>('profile')
   const [saved, setSaved] = useState(false)
@@ -42,6 +45,7 @@ export function SettingsPage({
   const navItems: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
     { id: 'profile',       label: 'Profile',            icon: icons.user    },
     { id: 'account',       label: 'Account & Security', icon: icons.shield  },
+    { id: 'billing',       label: 'Billing & Plan',     icon: icons.star    },
     { id: 'audio',         label: 'Audio & Synthesis',  icon: icons.volume  },
     { id: 'appearance',    label: 'Appearance',          icon: icons.light   },
     { id: 'notifications', label: 'Notifications',       icon: icons.bell    },
@@ -133,6 +137,7 @@ export function SettingsPage({
         <div className="settings-content" style={{ padding: '32px 40px', maxWidth: 640 }}>
           {section === 'profile'       && <ProfileSettings       user={user}     onSave={handleSave} onProfileSaved={onProfileSaved} />}
           {section === 'account'       && <AccountSettings                       onSave={handleSave} />}
+          {section === 'billing'       && <BillingSettings currentPlan={user.plan_name ?? 'free'} onGoPricing={onGoPricing} />}
           {section === 'audio'         && (
             <AudioSettings
               engineCaps={engineCaps}
@@ -703,6 +708,149 @@ function ApiSettings({ onSave }: { onSave: () => void }) {
       <button className="btn btn--primary" onClick={handleSave} style={{ gap: 6 }}>
         {icons.check} Save connection
       </button>
+    </div>
+  )
+}
+
+// ── Billing & Plan ───────────────────────────────────────────────────
+
+const PLAN_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+  free:    { label: 'Free',    color: 'var(--text-3)', bg: 'var(--bg-3)' },
+  starter: { label: 'Starter', color: 'var(--accent)', bg: 'var(--accent-lt)' },
+  pro:     { label: 'Pro',     color: '#4278c9',        bg: 'rgba(66,120,201,0.10)' },
+}
+
+function BillingSettings({ currentPlan, onGoPricing }: { currentPlan: Plan; onGoPricing?: () => void }) {
+  const [sub, setSub]           = useState<Subscription | null>(null)
+  const [loading, setLoading]   = useState(true)
+  const [cancelling, setCancelling] = useState(false)
+  const [exporting, setExporting]   = useState(false)
+
+  useEffect(() => {
+    api.get('/subscription')
+      .then(d => setSub(d as Subscription))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  async function handleCancel() {
+    if (!sub?.paypal_subscription_id) return
+    setCancelling(true)
+    try {
+      await api.post('/subscription/cancel', {})
+      setSub(s => s ? { ...s, status: 'cancelled' } : s)
+      toast.ok('Subscription cancelled — active until end of billing period')
+    } catch (e) {
+      toast.err(e instanceof Error ? e.message : 'Failed to cancel subscription')
+    } finally {
+      setCancelling(false)
+    }
+  }
+
+  async function handleExport() {
+    setExporting(true)
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL}/user/export`,
+        { credentials: 'include', headers: { Accept: 'application/json' } }
+      )
+      if (!response.ok) throw new Error('Export failed')
+      const blob = await response.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href = url; a.download = 'my-voicestudio-data.json'; a.click()
+      URL.revokeObjectURL(url)
+      toast.ok('Data export downloaded')
+    } catch {
+      toast.err('Export failed. Please try again.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const planInfo = PLAN_LABELS[currentPlan] ?? PLAN_LABELS.free
+
+  return (
+    <div>
+      <SettingsHeading title="Billing & Plan" desc="Manage your subscription and download your data." />
+
+      {/* Current plan card */}
+      <div style={{ padding: 20, background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-3)', marginBottom: 6 }}>
+              Current plan
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{
+                fontSize: 15, fontWeight: 700,
+                padding: '3px 12px', borderRadius: 99,
+                background: planInfo.bg, color: planInfo.color,
+              }}>
+                {planInfo.label}
+              </span>
+              {sub && sub.status === 'active' && sub.current_period_end && (
+                <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                  Renews {new Date(sub.current_period_end).toLocaleDateString()}
+                </span>
+              )}
+              {sub && sub.status === 'cancelled' && (
+                <span style={{ fontSize: 12, color: 'var(--warn)' }}>
+                  Cancelled — active until {sub.current_period_end ? new Date(sub.current_period_end).toLocaleDateString() : 'end of period'}
+                </span>
+              )}
+            </div>
+          </div>
+          {currentPlan === 'free' ? (
+            <button className="btn btn--primary btn--sm" onClick={onGoPricing} style={{ flexShrink: 0 }}>
+              Upgrade plan
+            </button>
+          ) : sub?.status === 'active' ? (
+            <button
+              className="btn btn--ghost btn--sm"
+              style={{ color: 'var(--warn)', flexShrink: 0 }}
+              onClick={handleCancel}
+              disabled={cancelling}
+            >
+              {cancelling ? <span className="spinner" /> : null} Cancel subscription
+            </button>
+          ) : (
+            <button className="btn btn--primary btn--sm" onClick={onGoPricing} style={{ flexShrink: 0 }}>
+              Resubscribe
+            </button>
+          )}
+        </div>
+      </div>
+
+      {loading && (
+        <div style={{ color: 'var(--text-3)', fontSize: 13, marginBottom: 16 }}>
+          <span className="spinner" style={{ width: 12, height: 12, marginRight: 6 }} />
+          Loading billing info…
+        </div>
+      )}
+
+      {/* Plan limits */}
+      <SettingsRow label="View all plans" hint="Compare features across Free, Starter, and Pro.">
+        <button className="btn btn--ghost btn--sm" onClick={onGoPricing} style={{ gap: 6 }}>
+          {icons.externalLink} View pricing
+        </button>
+      </SettingsRow>
+
+      {/* GDPR export */}
+      <SettingsRow
+        label="Export your data"
+        hint="Download all your projects, scripts, and voice profile metadata as JSON."
+      >
+        <button
+          className="btn btn--ghost btn--sm"
+          onClick={handleExport}
+          disabled={exporting}
+          style={{ gap: 6 }}
+        >
+          {exporting ? <span className="spinner" style={{ width: 12, height: 12 }} /> : icons.download}
+          Export data
+        </button>
+      </SettingsRow>
     </div>
   )
 }

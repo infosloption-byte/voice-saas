@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -13,7 +13,7 @@ use Laravel\Sanctum\HasApiTokens;
 
 #[Fillable(['name', 'email', 'password', 'bio'])]
 #[Hidden(['password', 'remember_token'])]
-class User extends Authenticatable
+class User extends Authenticatable implements MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
@@ -39,5 +39,28 @@ class User extends Authenticatable
     public function voiceProfiles()
     {
         return $this->hasMany(VoiceProfile::class);
+    }
+
+    public function subscription()
+    {
+        return $this->hasOne(Subscription::class);
+    }
+
+    /**
+     * Get the user's plan name based on active subscription.
+     */
+    public function getPlanNameAttribute(): string
+    {
+        $sub = $this->subscription;
+
+        if (!$sub || $sub->status !== 'active') {
+            return 'free';
+        }
+
+        return match ($sub->plan) {
+            'starter' => 'starter',
+            'pro'     => 'pro',
+            default   => 'free',
+        };
     }
 }

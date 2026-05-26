@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import './App.css'
 import { LandingPage } from './LandingPage'
-import { SignInPage, SignUpPage } from './AuthPages'
+import { SignInPage, SignUpPage, ForgotPasswordPage, ResetPasswordPage } from './AuthPages'
 import { SettingsPage } from './SettingsPage'
+import { PrivacyPage, TermsPage } from './LegalPages'
+import { PricingPage } from './PricingPage'
 import { api } from './api'
 import { toast, subscribeToast, type ToastItem } from './toast'
 import { useAuth } from './hooks/useAuth'
@@ -22,6 +24,65 @@ import {
 import { WorkspacePage } from './WorkspacePage'
 import { AssemblyPage } from './AssemblyPage'
 import type { Page, WorkspaceTab, VoiceProfile, EngineStatus, EngineCaps } from './types'
+
+// ── Cookie consent ────────────────────────────────────────────────
+const COOKIE_KEY = 'vs_cookie_consent'
+function CookieConsent({ onAccept, onDecline }: { onAccept: () => void; onDecline: () => void }) {
+  return (
+    <div style={{
+      position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)',
+      zIndex: 9998, maxWidth: 560, width: 'calc(100% - 32px)',
+      background: 'var(--surface)', border: '1px solid var(--border-2)',
+      borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)',
+      padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14,
+      animation: 'modal-in 0.2s ease',
+    }}>
+      <div style={{ flex: 1, fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.6 }}>
+        VoiceStudio uses essential cookies for authentication and your preferences.
+        No advertising or tracking cookies are used.{' '}
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+        <button className="btn btn--ghost btn--sm" onClick={onDecline} style={{ fontSize: 12 }}>Decline</button>
+        <button className="btn btn--primary btn--sm" onClick={onAccept} style={{ fontSize: 12 }}>Accept</button>
+      </div>
+    </div>
+  )
+}
+
+// ── Email verification banner ─────────────────────────────────────
+function VerificationBanner({ email, onResent }: { email: string; onResent: () => void }) {
+  const [sending, setSending] = useState(false)
+  async function resend() {
+    setSending(true)
+    try {
+      await api.post('/email/verify/resend', {})
+      toast.ok('Verification email sent to ' + email)
+      onResent()
+    } catch {
+      toast.err('Failed to resend — try again in a minute')
+    } finally { setSending(false) }
+  }
+  return (
+    <div style={{
+      background: 'var(--warn-lt)', borderBottom: '1px solid rgba(160,117,48,0.25)',
+      padding: '8px 20px', display: 'flex', alignItems: 'center', gap: 10,
+      fontSize: 12.5, color: 'var(--text-1)',
+    }}>
+      <span style={{ color: 'var(--warn)', width: 14, height: 14, flexShrink: 0 }}>{icons.mail}</span>
+      <span style={{ flex: 1 }}>
+        Please verify your email address. Check your inbox at <strong>{email}</strong>.
+      </span>
+      <button
+        className="btn btn--ghost btn--sm"
+        onClick={resend}
+        disabled={sending}
+        style={{ fontSize: 12, flexShrink: 0 }}
+      >
+        {sending ? <span className="spinner" style={{ width: 12, height: 12 }} /> : 'Resend email'}
+      </button>
+    </div>
+  )
+}
 
 function ToastContainer() {
   const [toasts, setToasts] = useState<ToastItem[]>([])
@@ -55,7 +116,14 @@ function ToastContainer() {
 }
 
 export default function App() {
-  const [page, setPage] = useState<Page>('landing')
+  // ── URL params (password reset, email verification) ────────────────
+  const [resetToken] = useState(() => new URLSearchParams(window.location.search).get('token') ?? '')
+  const [resetEmail] = useState(() => new URLSearchParams(window.location.search).get('email') ?? '')
+
+  const [page, setPage] = useState<Page>(() => {
+    if (new URLSearchParams(window.location.search).get('token')) return 'reset-password'
+    return 'landing'
+  })
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('scripts')
   const [engineStatus, setEngineStatus] = useState<EngineStatus>('checking')
   // Per-engine availability reported by GET /
@@ -64,6 +132,10 @@ export default function App() {
     const saved = localStorage.getItem('vo_dark')
     if (saved !== null) return saved === 'true'
     return window.matchMedia('(prefers-color-scheme: dark)').matches
+  })
+  const [cookieConsent, setCookieConsent] = useState<boolean | null>(() => {
+    const v = localStorage.getItem(COOKIE_KEY)
+    return v === null ? null : v === 'true'
   })
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [activeScriptId, setActiveScriptId] = useState<string | null>(null)
@@ -101,6 +173,15 @@ export default function App() {
 
   // ── Bootstrap ─────────────────────────────────────────────────────
   useEffect(() => {
+    // Show email verified toast if coming from verification link
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('verified') === '1') {
+      toast.ok('Email verified! Welcome to VoiceStudio.')
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+
+    if (resetToken) return // Don't auto-navigate when handling password reset
+
     checkUser().then(userData => {
       if (userData) {
         loadProjects()
@@ -266,11 +347,19 @@ export default function App() {
 
   // ── Public pages ──────────────────────────────────────────────────
   if (page === 'landing') return (
-    <LandingPage
-      onSignIn={() => setPage('signin')}
-      onSignUp={() => setPage('signup')}
-      onTryNow={enterGuestMode}
-    />
+    <>
+      <LandingPage
+        onSignIn={() => setPage('signin')}
+        onSignUp={() => setPage('signup')}
+        onTryNow={enterGuestMode}
+      />
+      {cookieConsent === null && (
+        <CookieConsent
+          onAccept={() => { localStorage.setItem(COOKIE_KEY, 'true');  setCookieConsent(true) }}
+          onDecline={() => { localStorage.setItem(COOKIE_KEY, 'false'); setCookieConsent(false) }}
+        />
+      )}
+    </>
   )
 
   if (page === 'signin') return (
@@ -283,6 +372,7 @@ export default function App() {
       }}
       onSignUp={() => setPage('signup')}
       onBack={() => setPage('landing')}
+      onForgotPassword={() => setPage('forgot-password')}
     />
   )
 
@@ -296,6 +386,38 @@ export default function App() {
       }}
       onSignIn={() => setPage('signin')}
       onBack={() => setPage('landing')}
+      onTerms={() => setPage('terms')}
+      onPrivacy={() => setPage('privacy')}
+    />
+  )
+
+  if (page === 'forgot-password') return (
+    <ForgotPasswordPage onBack={() => setPage('signin')} />
+  )
+
+  if (page === 'reset-password') return (
+    <ResetPasswordPage
+      token={resetToken}
+      email={resetEmail}
+      onSuccess={() => { toast.ok('Password reset! Please sign in.'); setPage('signin') }}
+      onBack={() => setPage('signin')}
+    />
+  )
+
+  if (page === 'privacy') return (
+    <PrivacyPage onBack={() => setPage(user ? 'settings' : 'landing')} />
+  )
+
+  if (page === 'terms') return (
+    <TermsPage onBack={() => setPage(user ? 'settings' : 'landing')} />
+  )
+
+  if (page === 'pricing') return (
+    <PricingPage
+      user={user}
+      onBack={() => setPage(user ? 'settings' : 'landing')}
+      onSignUp={() => setPage('signup')}
+      onSubscribed={() => { checkUser(); setPage('settings') }}
     />
   )
 
@@ -442,6 +564,11 @@ export default function App() {
       </aside>
 
       <div className="page">
+        {/* Email verification banner */}
+        {user && !guestMode && !user.email_verified_at && (
+          <VerificationBanner email={user.email} onResent={() => {}} />
+        )}
+
         {/* Guest session countdown banner */}
         {guestMode && (
           <GuestBanner
@@ -660,8 +787,9 @@ export default function App() {
               onDeleteAccount={signOut}
               onProfileSaved={checkUser}
               engineCaps={engineCaps}
+              onGoPricing={() => setPage('pricing')}
               user={user
-                ? { name: user.name, email: user.email }
+                ? { name: user.name, email: user.email, email_verified_at: user.email_verified_at, plan_name: user.plan_name }
                 : { name: '', email: '' }}
             />
           )}
@@ -693,6 +821,12 @@ export default function App() {
           onSignUp={() => { setGuestGateType(null); setPage('signup') }}
           onSignIn={() => { setGuestGateType(null); setPage('signin') }}
           onClose={() => setGuestGateType(null)}
+        />
+      )}
+      {cookieConsent === null && (
+        <CookieConsent
+          onAccept={() => { localStorage.setItem(COOKIE_KEY, 'true');  setCookieConsent(true) }}
+          onDecline={() => { localStorage.setItem(COOKIE_KEY, 'false'); setCookieConsent(false) }}
         />
       )}
       <ToastContainer />
