@@ -9,9 +9,11 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('voice_profiles', function (Blueprint $table) {
-            $table->string('engine_key', 36)->nullable()->unique()->after('profile_id');
-        });
+        if (!Schema::hasColumn('voice_profiles', 'engine_key')) {
+            Schema::table('voice_profiles', function (Blueprint $table) {
+                $table->string('engine_key', 36)->nullable()->unique()->after('profile_id');
+            });
+        }
 
         // Backfill existing rows — existing .wav files will be orphaned on the engine
         // until the user re-records; this is acceptable for a dev environment.
