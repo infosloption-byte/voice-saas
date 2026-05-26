@@ -446,10 +446,11 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
       }
     }
 
+    const engineKey = profiles.find(vp => vp.profile_id === profile_id)?.engine_key ?? profile_id
     setPreviewing(true); setPreviewId(profile_id)
     const fd = new FormData()
     fd.append('text', previewText)
-    fd.append('profile_id', profile_id)
+    fd.append('profile_id', engineKey)
     fd.append('language', 'en')
     fd.append('tts_engine', engine)
     try {
