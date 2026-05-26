@@ -40,4 +40,14 @@ return [
         'key' => env('AI_ENGINE_API_KEY', ''),
     ],
 
+    'paypal' => [
+        'client_id'    => env('PAYPAL_CLIENT_ID', ''),
+        'secret'       => env('PAYPAL_SECRET', ''),
+        'mode'         => env('PAYPAL_MODE', 'sandbox'),  // 'sandbox' | 'live'
+        'plan_starter' => env('PAYPAL_PLAN_STARTER', ''), // PayPal plan ID
+        'plan_pro'     => env('PAYPAL_PLAN_PRO', ''),
+        'webhook_id'   => env('PAYPAL_WEBHOOK_ID', ''),
+        'frontend_url' => env('FRONTEND_URL', 'http://localhost:5173'),
+    ],
+
 ];
