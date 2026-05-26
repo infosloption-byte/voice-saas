@@ -4,8 +4,9 @@ import { toast } from './toast'
 import { icons, LANGUAGES, TONE_PRESETS, type TonePreset } from './constants'
 import { loadAudioBlob, saveAudioBlob, deleteAudioBlob, historyReducer, fmt } from './audio'
 import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
-import { GUEST_WORD_LIMIT, GUEST_SYNTH_LIMIT, type GateType, type GuestUsage } from './hooks/useGuestSession'
-import type { Project, Script, VoiceProfile, SaveState, EngineCaps } from './types'
+import { type GateType, type GuestUsage } from './hooks/useGuestSession'
+import { DEFAULT_GUEST_LIMITS } from './hooks/useGuestLimits'
+import type { Project, Script, VoiceProfile, SaveState, EngineCaps, GuestLimits } from './types'
 
 const SCRIPT_TEMPLATES = [
   { id: 'blank',         label: 'Blank Script',    emoji: '📄', description: 'Start from scratch', title: 'Untitled Script', content: '' },
@@ -60,6 +61,7 @@ export function WorkspacePage({
   engineCaps = { xtts: true, f5: false },
   isGuest = false,
   guestUsage,
+  guestLimits = DEFAULT_GUEST_LIMITS,
   getGuestVoiceBlob,
   onGuestGate,
   onGuestSynthesisUsed,
@@ -75,6 +77,7 @@ export function WorkspacePage({
   engineCaps?: EngineCaps
   isGuest?: boolean
   guestUsage?: GuestUsage
+  guestLimits?: GuestLimits
   getGuestVoiceBlob?: (profileId: string) => Promise<Blob | null>
   onGuestGate?: (type: GateType) => void
   onGuestSynthesisUsed?: () => void
@@ -280,8 +283,12 @@ export function WorkspacePage({
   )
 
   // ── Guest synthesis (one-shot via /clone-voice, no engine profile needed) ──
-  async function handleGuestGenerate() {
-    if (!activeScript || !histState.present.trim()) {
+  // scriptOverride / textOverride let handleBulkGenerate pass any script directly.
+  async function handleGuestGenerate(scriptOverride?: Script, textOverride?: string) {
+    const script = scriptOverride ?? activeScript
+    const text   = textOverride   ?? histState.present.trim()
+
+    if (!script || !text) {
       setSynthErr('Write some script content first.')
       return
     }
@@ -290,14 +297,14 @@ export function WorkspacePage({
       return
     }
 
-    const wc = histState.present.trim().split(/\s+/).length
-    if (wc > GUEST_WORD_LIMIT) {
+    const wc = text.split(/\s+/).length
+    if (wc > guestLimits.word_limit) {
       onGuestGate?.('word_limit')
       return
     }
 
     const used = guestUsage?.synthesesUsed ?? 0
-    if (used >= GUEST_SYNTH_LIMIT) {
+    if (used >= guestLimits.synth_limit) {
       onGuestGate?.('synth_limit')
       return
     }
@@ -307,7 +314,7 @@ export function WorkspacePage({
       return
     }
 
-    const profileId = activeScript.profileId || voiceProfiles[0]?.profile_id
+    const profileId = script.profileId || voiceProfiles[0]?.profile_id
     if (!profileId) { setSynthErr('No voice profile selected.'); return }
 
     const voiceBlob = await getGuestVoiceBlob?.(profileId)
@@ -320,7 +327,7 @@ export function WorkspacePage({
     setSynthErr('')
     try {
       const fd = new FormData()
-      fd.append('text', histState.present.trim())
+      fd.append('text', text)
       fd.append('file', voiceBlob, 'voice.wav')
 
       const blob = await api.enginePost('/clone-voice', fd) as Blob
@@ -393,6 +400,15 @@ export function WorkspacePage({
     const pending = project.scripts.filter(s => s.content.trim() && !s.hasAudio)
     if (!pending.length) { toast.info('All scripts already have audio.'); return }
     if (!voiceProfiles.length) { toast.err('No voice profile found. Record one in Voice Profiles first.'); return }
+
+    // Guest path: use /clone-voice for each pending script, respecting synth gate
+    if (isGuest) {
+      for (const script of pending) {
+        await handleGuestGenerate(script, script.content)
+      }
+      return
+    }
+
     if (!ENGINE_URL) { toast.err('Engine URL is not configured. Check your .env file.'); return }
     if (!currentEngineAvailable) {
       toast.err(
@@ -1010,10 +1026,10 @@ export function WorkspacePage({
                 {isGuest && (
                   <span style={{
                     marginLeft: 6,
-                    color: wordCount > GUEST_WORD_LIMIT ? 'var(--err)' : 'var(--text-3)',
+                    color: wordCount > guestLimits.word_limit ? 'var(--err)' : 'var(--text-3)',
                     fontSize: 10,
                   }}>
-                    ({wordCount}/{GUEST_WORD_LIMIT} guest limit)
+                    ({wordCount}/{guestLimits.word_limit} guest limit)
                   </span>
                 )}
               </span>

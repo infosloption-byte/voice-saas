@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { uid, saveAudioBlob, loadAudioRawBlob, deleteAudioBlob } from '../audio'
 import type { VoiceProfile } from '../types'
 import type { GuestSession } from './useGuestSession'
-import { GUEST_PROFILE_LIMIT } from './useGuestSession'
+import { DEFAULT_GUEST_LIMITS } from './useGuestLimits'
 
 const metaKey  = (guestId: string) => `vs_guest_profiles_${guestId}`
 const blobKey  = (profileId: string)  => `guest_voice_${profileId}`
@@ -15,7 +15,7 @@ export interface GuestVoiceProfileMeta {
   createdAt: string
 }
 
-export function useGuestVoiceProfiles(session: GuestSession | null) {
+export function useGuestVoiceProfiles(session: GuestSession | null, profileLimit = DEFAULT_GUEST_LIMITS.profile_limit) {
   const [profiles, setProfiles] = useState<GuestVoiceProfileMeta[]>([])
 
   useEffect(() => {
@@ -37,7 +37,7 @@ export function useGuestVoiceProfiles(session: GuestSession | null) {
     blob: Blob,
     durationSecs: number,
   ): Promise<boolean> {
-    if (profiles.length >= GUEST_PROFILE_LIMIT) return false
+    if (profiles.length >= profileLimit) return false
     const slug = name.trim().replace(/[^a-z0-9-_]/gi, '-').toLowerCase() || 'my-voice'
     await saveAudioBlob(blobKey(slug), blob)
     const entry: GuestVoiceProfileMeta = {

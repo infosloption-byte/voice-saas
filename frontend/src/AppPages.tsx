@@ -4,8 +4,9 @@ import { toast } from './toast'
 import { icons, EMOJIS } from './constants'
 import { fmt, uid, useAudioRecorder } from './audio'
 import { useTTSEngine } from './hooks/useTTSEngine'
-import { GUEST_PROFILE_LIMIT, GUEST_PREVIEW_LIMIT, type GateType } from './hooks/useGuestSession'
-import type { Project, Script, VoiceProfile, VoiceProfileSaveResult, EngineCaps } from './types'
+import { type GateType } from './hooks/useGuestSession'
+import { DEFAULT_GUEST_LIMITS } from './hooks/useGuestLimits'
+import type { Project, Script, VoiceProfile, VoiceProfileSaveResult, EngineCaps, GuestLimits } from './types'
 
 // ── Wave visualiser ────────────────────────────────────────────────
 export function WaveVisualiser({ active }: { active: boolean }) {
@@ -314,7 +315,7 @@ export function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
 
 // ── Voice Profiles ─────────────────────────────────────────────────
 export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
-  isGuest, guestProfilesCount, guestPreviewsUsed,
+  isGuest, guestProfilesCount, guestPreviewsUsed, guestLimits = DEFAULT_GUEST_LIMITS,
   onGuestSave, onGuestDelete, onGuestGate, onIncrementPreview, getGuestVoiceBlob,
 }: {
   profiles: VoiceProfile[]
@@ -323,6 +324,7 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
   isGuest?: boolean
   guestProfilesCount?: number
   guestPreviewsUsed?: number
+  guestLimits?: GuestLimits
   onGuestSave?: (name: string, blob: Blob, durationSecs: number) => Promise<boolean>
   onGuestDelete?: (profileId: string) => void
   onGuestGate?: (type: GateType) => void
@@ -381,7 +383,7 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
     // ── Guest save path (IndexedDB only, no engine call) ──────────
     if (isGuest && onGuestSave) {
       const pCount = guestProfilesCount ?? 0
-      if (pCount >= GUEST_PROFILE_LIMIT) {
+      if (pCount >= guestLimits.profile_limit) {
         onGuestGate?.('profile_limit')
         setSaving(false)
         return
@@ -441,7 +443,7 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
     // Guest preview limit check
     if (isGuest) {
       const used = guestPreviewsUsed ?? 0
-      if (used >= GUEST_PREVIEW_LIMIT) {
+      if (used >= guestLimits.preview_limit) {
         onGuestGate?.('preview_limit')
         return
       }

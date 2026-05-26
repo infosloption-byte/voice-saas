@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react'
+import { DEFAULT_GUEST_LIMITS } from './useGuestLimits'
 
-export const GUEST_SYNTH_LIMIT    = 1
-export const GUEST_WORD_LIMIT     = 100
-export const GUEST_PREVIEW_LIMIT  = 2
-export const GUEST_SCRIPT_LIMIT   = 3
-export const GUEST_PROFILE_LIMIT  = 2
-export const GUEST_SESSION_DAYS   = 7
+// Re-exported for any code that still imports them directly; values come
+// from DEFAULT_GUEST_LIMITS so there is a single source of truth.
+export const GUEST_SYNTH_LIMIT   = DEFAULT_GUEST_LIMITS.synth_limit
+export const GUEST_WORD_LIMIT    = DEFAULT_GUEST_LIMITS.word_limit
+export const GUEST_PREVIEW_LIMIT = DEFAULT_GUEST_LIMITS.preview_limit
+export const GUEST_SCRIPT_LIMIT  = DEFAULT_GUEST_LIMITS.script_limit
+export const GUEST_PROFILE_LIMIT = DEFAULT_GUEST_LIMITS.profile_limit
+export const GUEST_SESSION_DAYS  = DEFAULT_GUEST_LIMITS.session_days
 
 export type GateType =
   | 'synth_limit' | 'word_limit' | 'download'
@@ -26,9 +29,9 @@ export interface GuestSession {
 
 const SESSION_KEY = 'vs_guest_session'
 
-function makeSession(): GuestSession {
+function makeSession(sessionDays = GUEST_SESSION_DAYS): GuestSession {
   const now = new Date()
-  const exp = new Date(now.getTime() + GUEST_SESSION_DAYS * 86_400_000)
+  const exp = new Date(now.getTime() + sessionDays * 86_400_000)
   return {
     guestId:   'guest_' + Math.random().toString(36).slice(2, 10),
     createdAt: now.toISOString(),
@@ -66,8 +69,8 @@ export function useGuestSession() {
     setSession(s)
   }
 
-  function initSession(): GuestSession {
-    const s = makeSession()
+  function initSession(sessionDays?: number): GuestSession {
+    const s = makeSession(sessionDays)
     persist(s)
     return s
   }
