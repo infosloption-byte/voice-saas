@@ -66,6 +66,7 @@ export interface TimelineHistory {
 export interface VoiceProfile {
   id: number
   profile_id: string
+  engine_key?: string
   name: string
   status: string
   duration?: number | null

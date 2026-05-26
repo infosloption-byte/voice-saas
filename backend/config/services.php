@@ -36,7 +36,8 @@ return [
     ],
 
     'ai_engine' => [
-        'url' => env('AI_ENGINE_URL', 'http://ai-engine:8000'),
+        'url' => env('AI_ENGINE_URL', 'http://127.0.0.1:8000'),
+        'key' => env('AI_ENGINE_API_KEY', ''),
     ],
 
 ];
