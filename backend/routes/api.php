@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\EmailVerificationController;
+use App\Http\Controllers\GuestLimitsController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\ScriptController;
@@ -75,3 +76,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
 // ── PayPal webhook (public — no auth) ────────────────────────────────
 Route::post('/subscription/webhook', [SubscriptionController::class, 'webhook']);
+
+// ── Guest limits (public — used before login) ─────────────────────────
+Route::get('/guest-limits', [GuestLimitsController::class, 'show']);

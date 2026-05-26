@@ -1,52 +1,57 @@
-import { GUEST_WORD_LIMIT, GUEST_PREVIEW_LIMIT, type GateType } from './hooks/useGuestSession'
+import { type GateType } from './hooks/useGuestSession'
+import { DEFAULT_GUEST_LIMITS } from './hooks/useGuestLimits'
+import type { GuestLimits } from './types'
 
-const CONTENT: Record<GateType, { title: string; message: string; icon: string }> = {
-  synth_limit:     {
-    icon: '🎙',
-    title: 'Free generation used',
-    message: `You've used your 1 free voiceover. Subscribe to unlock unlimited synthesis with your cloned voice.`,
-  },
-  word_limit:      {
-    icon: '📝',
-    title: 'Script too long for guest mode',
-    message: `Guest synthesis is limited to ${GUEST_WORD_LIMIT} words. Subscribe to remove all word limits.`,
-  },
-  download:        {
-    icon: '⬇️',
-    title: 'Your audio is ready to download',
-    message: 'Subscribe to download your synthesised audio as WAV, MP3 or ZIP — and keep everything you create.',
-  },
-  preview_limit:   {
-    icon: '🔊',
-    title: 'Preview limit reached',
-    message: `You've used your ${GUEST_PREVIEW_LIMIT} free voice previews. Subscribe for unlimited previews and synthesis.`,
-  },
-  assembly_export: {
-    icon: '🎛',
-    title: 'Export your assembled mix',
-    message: 'Subscribe to merge your timeline and export the final audio as WAV or MP3.',
-  },
-  script_limit:    {
-    icon: '📄',
-    title: 'Script limit reached',
-    message: 'Guest projects are limited to 3 scripts. Subscribe to create unlimited scripts across unlimited projects.',
-  },
-  profile_limit:   {
-    icon: '🎤',
-    title: 'Voice profile limit reached',
-    message: 'Guest sessions support up to 2 voice profiles stored locally. Subscribe to save unlimited profiles.',
-  },
+function buildContent(limits: GuestLimits): Record<GateType, { title: string; message: string; icon: string }> {
+  return {
+    synth_limit:     {
+      icon: '🎙',
+      title: 'Free generation used',
+      message: `You've used your ${limits.synth_limit} free voiceover${limits.synth_limit !== 1 ? 's' : ''}. Subscribe to unlock unlimited synthesis with your cloned voice.`,
+    },
+    word_limit:      {
+      icon: '📝',
+      title: 'Script too long for guest mode',
+      message: `Guest synthesis is limited to ${limits.word_limit} words. Subscribe to remove all word limits.`,
+    },
+    download:        {
+      icon: '⬇️',
+      title: 'Your audio is ready to download',
+      message: 'Subscribe to download your synthesised audio as WAV, MP3 or ZIP — and keep everything you create.',
+    },
+    preview_limit:   {
+      icon: '🔊',
+      title: 'Preview limit reached',
+      message: `You've used your ${limits.preview_limit} free voice preview${limits.preview_limit !== 1 ? 's' : ''}. Subscribe for unlimited previews and synthesis.`,
+    },
+    assembly_export: {
+      icon: '🎛',
+      title: 'Export your assembled mix',
+      message: 'Subscribe to merge your timeline and export the final audio as WAV or MP3.',
+    },
+    script_limit:    {
+      icon: '📄',
+      title: 'Script limit reached',
+      message: `Guest projects are limited to ${limits.script_limit} scripts. Subscribe to create unlimited scripts across unlimited projects.`,
+    },
+    profile_limit:   {
+      icon: '🎤',
+      title: 'Voice profile limit reached',
+      message: `Guest sessions support up to ${limits.profile_limit} voice profiles stored locally. Subscribe to save unlimited profiles.`,
+    },
+  }
 }
 
 interface GuestUpgradeModalProps {
   type: GateType
+  guestLimits?: GuestLimits
   onSignIn: () => void
   onSignUp: () => void
   onClose: () => void
 }
 
-export function GuestUpgradeModal({ type, onSignIn, onSignUp, onClose }: GuestUpgradeModalProps) {
-  const c = CONTENT[type]
+export function GuestUpgradeModal({ type, guestLimits = DEFAULT_GUEST_LIMITS, onSignIn, onSignUp, onClose }: GuestUpgradeModalProps) {
+  const c = buildContent(guestLimits)[type]
 
   return (
     <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>

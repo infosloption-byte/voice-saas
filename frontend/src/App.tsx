@@ -13,6 +13,7 @@ import { useAudio } from './hooks/useAudio'
 import { useGuestSession, type GateType } from './hooks/useGuestSession'
 import { useGuestProject } from './hooks/useGuestProject'
 import { useGuestVoiceProfiles } from './hooks/useGuestVoiceProfiles'
+import { useGuestLimits } from './hooks/useGuestLimits'
 import { GuestBanner } from './GuestBanner'
 import { GuestUpgradeModal } from './GuestUpgradeModal'
 import { icons } from './constants'
@@ -159,9 +160,10 @@ export default function App() {
   const [guestMode, setGuestMode]         = useState(false)
   const [guestGateType, setGuestGateType] = useState<GateType | null>(null)
 
+  const guestLimits   = useGuestLimits()
   const guestSession  = useGuestSession()
-  const guestProject  = useGuestProject(guestSession.session)
-  const guestProfiles = useGuestVoiceProfiles(guestSession.session)
+  const guestProject  = useGuestProject(guestSession.session, guestLimits.script_limit)
+  const guestProfiles = useGuestVoiceProfiles(guestSession.session, guestLimits.profile_limit)
 
   const activeProject = projects.find(p => p.id === activeProjectId) ?? null
 
@@ -234,7 +236,7 @@ export default function App() {
   // ── Guest actions ─────────────────────────────────────────────────
 
   function enterGuestMode() {
-    const sess = guestSession.session ?? guestSession.initSession()
+    const sess = guestSession.session ?? guestSession.initSession(guestLimits.session_days)
     setGuestMode(true)
     // Pass sess directly so ensureProject can write to localStorage even
     // before the React state update for guestSession propagates.
@@ -728,6 +730,7 @@ export default function App() {
                 engineCaps={engineCaps}
                 isGuest={guestMode}
                 guestUsage={guestSession.session?.usage}
+                guestLimits={guestLimits}
                 getGuestVoiceBlob={pid => guestProfiles.getAudioBlob(pid)}
                 onGuestGate={type => setGuestGateType(type)}
                 onGuestSynthesisUsed={() => guestSession.updateUsage('synthesesUsed')}
@@ -766,6 +769,7 @@ export default function App() {
               onRefresh={guestMode ? () => {} : loadProfiles}
               engineCaps={engineCaps}
               isGuest={guestMode}
+              guestLimits={guestLimits}
               guestProfilesCount={guestProfiles.profiles.length}
               guestPreviewsUsed={guestSession.session?.usage.previewsUsed ?? 0}
               onGuestSave={async (name, blob, dur) => {
@@ -819,6 +823,7 @@ export default function App() {
       {guestGateType && (
         <GuestUpgradeModal
           type={guestGateType}
+          guestLimits={guestLimits}
           onSignUp={() => { setGuestGateType(null); setPage('signup') }}
           onSignIn={() => { setGuestGateType(null); setPage('signin') }}
           onClose={() => setGuestGateType(null)}
