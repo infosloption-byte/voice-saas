@@ -121,4 +121,21 @@ class AuthController extends Controller
 
         return response()->json(['message' => 'Password updated successfully']);
     }
+
+    public function exportData(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $user = $request->user()->load('projects.scripts', 'voiceProfiles');
+
+        return response()->json([
+            'user' => [
+                'name'       => $user->name,
+                'email'      => $user->email,
+                'created_at' => $user->created_at,
+            ],
+            'projects'       => $user->projects,
+            'voice_profiles' => $user->voiceProfiles,
+        ])->withHeaders([
+            'Content-Disposition' => 'attachment; filename="my-data.json"',
+        ]);
+    }
 }

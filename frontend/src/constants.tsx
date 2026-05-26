@@ -81,4 +81,6 @@ export const icons = {
   mp3:          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 3h8l4 4v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" /><path d="M12 3v4h4" /><text x="6" y="15" fontSize="5.5" strokeWidth="0" fill="currentColor" fontFamily="sans-serif" fontWeight="bold">MP3</text></svg>,
   template:     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="3" y="3" width="14" height="4" rx="1" /><rect x="3" y="10" width="6" height="7" rx="1" /><path d="M13 10h4M13 13h4M13 16h2" /></svg>,
   newScript:    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 3H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8l-4-5z" /><path d="M12 3v5h5M8 12h4M10 10v4" /></svg>,
+  star:         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M10 2l2.4 5H18l-4.5 3.3 1.7 5.2L10 12.5l-5.2 3 1.7-5.2L2 7h5.6z" /></svg>,
+  externalLink: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M11 3h6v6M9 11L17 3M8 5H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-4" /></svg>,
 }

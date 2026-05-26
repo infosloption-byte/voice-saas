@@ -3,8 +3,11 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\EmailVerificationController;
+use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\ScriptController;
+use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\VoiceProfileController;
 
 // ── Public auth routes ────────────────────────────────────────────────
@@ -46,3 +49,29 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post(  'voice-profiles',      [VoiceProfileController::class, 'store']);
     Route::delete('voice-profiles/{id}', [VoiceProfileController::class, 'destroy']);
 });
+
+// ── Password reset (public, throttled) ───────────────────────────────
+Route::middleware('throttle:5,1')->group(function () {
+    Route::post('/forgot-password', [PasswordResetController::class, 'sendResetLink']);
+    Route::post('/reset-password',  [PasswordResetController::class, 'reset']);
+});
+
+// ── Email verification: verify link is public (comes from email) ─────
+Route::get('/email/verify/{id}/{hash}', [EmailVerificationController::class, 'verify'])
+     ->name('verification.verify');
+
+// ── Authenticated routes: resend + subscriptions + data export ────────
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/email/verify/resend', [EmailVerificationController::class, 'resend'])
+         ->middleware('throttle:6,1');
+    Route::get('/user/export', [AuthController::class, 'exportData']);
+
+    // Subscriptions
+    Route::get( '/subscription',         [SubscriptionController::class, 'current']);
+    Route::post('/subscription/create',  [SubscriptionController::class, 'create']);
+    Route::post('/subscription/capture', [SubscriptionController::class, 'capture']);
+    Route::post('/subscription/cancel',  [SubscriptionController::class, 'cancel']);
+});
+
+// ── PayPal webhook (public — no auth) ────────────────────────────────
+Route::post('/subscription/webhook', [SubscriptionController::class, 'webhook']);
