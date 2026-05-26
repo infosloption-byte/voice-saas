@@ -17,7 +17,7 @@ return new class extends Migration
 
         // Backfill existing rows — existing .wav files will be orphaned on the engine
         // until the user re-records; this is acceptable for a dev environment.
-        \DB::table('voice_profiles')->each(function ($row) {
+        \DB::table('voice_profiles')->orderBy('id')->each(function ($row) {
             \DB::table('voice_profiles')
                 ->where('id', $row->id)
                 ->update(['engine_key' => (string) Str::uuid()]);
