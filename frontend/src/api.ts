@@ -21,6 +21,8 @@ function getCookie(name: string): string | null {
 const LARAVEL_PATHS = [
   '/login', '/logout', '/register', '/user',
   '/projects', '/voice-profiles', '/scripts',
+  '/forgot-password', '/reset-password',
+  '/email', '/subscription', '/guest-limits',
 ]
 
 function isLaravelPath(path: string): boolean {
