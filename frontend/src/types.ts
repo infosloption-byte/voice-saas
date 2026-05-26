@@ -100,6 +100,15 @@ export interface EngineCaps {
   f5: boolean
 }
 
+export interface GuestLimits {
+  synth_limit: number
+  word_limit: number
+  preview_limit: number
+  script_limit: number
+  profile_limit: number
+  session_days: number
+}
+
 // ── API response shapes ────────────────────────────────────────────
 export interface SynthesisResult {
   warning?: string

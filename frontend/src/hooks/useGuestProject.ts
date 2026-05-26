@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react'
 import { uid } from '../audio'
 import type { Project, Script } from '../types'
 import type { GuestSession } from './useGuestSession'
-import { GUEST_SCRIPT_LIMIT } from './useGuestSession'
+import { DEFAULT_GUEST_LIMITS } from './useGuestLimits'
 
 const key = (guestId: string) => `vs_guest_project_${guestId}`
 
-export function useGuestProject(session: GuestSession | null) {
+export function useGuestProject(session: GuestSession | null, scriptLimit = DEFAULT_GUEST_LIMITS.script_limit) {
   const [project, setProject] = useState<Project | null>(null)
 
   useEffect(() => {
@@ -56,7 +56,7 @@ export function useGuestProject(session: GuestSession | null) {
   // Returns the new script, or null if the limit is already hit
   function addScript(template?: { title?: string; content?: string }): Script | null {
     const p = ensureProject()
-    if (p.scripts.length >= GUEST_SCRIPT_LIMIT) return null
+    if (p.scripts.length >= scriptLimit) return null
     const s: Script = {
       id:        uid(),
       title:     template?.title   ?? 'Untitled Script',
