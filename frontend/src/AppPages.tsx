@@ -315,7 +315,7 @@ export function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
 // ── Voice Profiles ─────────────────────────────────────────────────
 export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
   isGuest, guestProfilesCount, guestPreviewsUsed,
-  onGuestSave, onGuestDelete, onGuestGate, onIncrementPreview,
+  onGuestSave, onGuestDelete, onGuestGate, onIncrementPreview, getGuestVoiceBlob,
 }: {
   profiles: VoiceProfile[]
   onRefresh: () => void
@@ -327,6 +327,7 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
   onGuestDelete?: (profileId: string) => void
   onGuestGate?: (type: GateType) => void
   onIncrementPreview?: () => void
+  getGuestVoiceBlob?: (profileId: string) => Promise<Blob | null>
 }) {
   const recorder = useAudioRecorder()
 
@@ -446,16 +447,28 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
       }
     }
 
-    const engineKey = profiles.find(vp => vp.profile_id === profile_id)?.engine_key ?? profile_id
     setPreviewing(true); setPreviewId(profile_id)
-    const fd = new FormData()
-    fd.append('text', previewText)
-    fd.append('profile_id', engineKey)
-    fd.append('language', 'en')
-    fd.append('tts_engine', engine)
     try {
-      const raw = await api.enginePost('/synthesize', fd)
-      const audioBlob = raw as Blob
+      let audioBlob: Blob
+      if (isGuest) {
+        const voiceBlob = await getGuestVoiceBlob?.(profile_id)
+        if (!voiceBlob) {
+          toast.err('Voice audio not found. Please re-record this profile.')
+          return
+        }
+        const fd = new FormData()
+        fd.append('text', previewText)
+        fd.append('file', voiceBlob, 'voice.wav')
+        audioBlob = await api.enginePost('/clone-voice', fd) as Blob
+      } else {
+        const engineKey = profiles.find(vp => vp.profile_id === profile_id)?.engine_key ?? profile_id
+        const fd = new FormData()
+        fd.append('text', previewText)
+        fd.append('profile_id', engineKey)
+        fd.append('language', 'en')
+        fd.append('tts_engine', engine)
+        audioBlob = await api.enginePost('/synthesize', fd) as Blob
+      }
       const audio = new Audio(URL.createObjectURL(audioBlob))
       audio.play()
       if (isGuest) onIncrementPreview?.()
