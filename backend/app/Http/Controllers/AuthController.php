@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -13,9 +15,9 @@ class AuthController extends Controller
     public function register(Request $request)
     {
         $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:8',
+            'name'     => 'required|string|max:255',
+            'email'    => 'required|string|email|max:255|unique:users',
+            'password' => ['required', Password::min(8)->mixedCase()->numbers()],
         ]);
 
         $user = User::create([
@@ -79,12 +81,23 @@ class AuthController extends Controller
     public function deleteAccount(Request $request)
     {
         $user = $request->user();
+        $engineUrl = config('services.ai_engine.url', 'http://127.0.0.1:8000');
+        $engineKey = config('services.ai_engine.key', '');
+
+        // Delete voice files from the AI engine before removing user data
+        foreach ($user->voiceProfiles as $profile) {
+            if ($profile->engine_key) {
+                Http::withHeaders($engineKey ? ['X-Engine-Key' => $engineKey] : [])
+                    ->timeout(10)
+                    ->delete("{$engineUrl}/voice-profile/{$profile->engine_key}");
+            }
+        }
 
         Auth::guard('web')->logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        $user->delete();
+        $user->delete(); // cascades to projects, scripts, voice_profiles
 
         return response()->json(['message' => 'Account deleted successfully']);
     }

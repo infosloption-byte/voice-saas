@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class VoiceProfileController extends Controller
 {
@@ -81,22 +82,32 @@ class VoiceProfileController extends Controller
 
         $profileId = $validated['profile_id'];
 
+        // Resolve or generate a globally unique engine storage key.
+        // engine_key is a UUID used as the filename on the AI engine — it is
+        // namespaced per-record so two users cannot overwrite each other's files.
+        $existingProfile = $request->user()->voiceProfiles()
+            ->where('profile_id', $profileId)
+            ->first();
+        $engineKey = $existingProfile?->engine_key ?? (string) Str::uuid();
+
         // If a file was uploaded, forward it to the AI engine
         if ($request->hasFile('file')) {
             $engineUrl = config('services.ai_engine.url', 'http://127.0.0.1:8000');
+            $engineApiKey = config('services.ai_engine.key', '');
 
             try {
                 $file     = $request->file('file');
                 $fileName = $file->getClientOriginalName() ?: 'voice.webm';
 
                 $response = Http::timeout(60)
+                    ->withHeaders($engineApiKey ? ['X-Engine-Key' => $engineApiKey] : [])
                     ->attach(
                         'file',
                         file_get_contents($file->getRealPath()),
                         $fileName
                     )
                     ->post("{$engineUrl}/voice-profile/save", [
-                        'profile_id' => $profileId,
+                        'profile_id' => $engineKey,
                     ]);
 
                 if (! $response->successful()) {
@@ -126,9 +137,10 @@ class VoiceProfileController extends Controller
         $profile = $request->user()->voiceProfiles()->updateOrCreate(
             ['profile_id' => $profileId],
             [
-                'name'     => $validated['name'] ?? $profileId,
-                'status'   => $validated['status'] ?? 'ready',
-                'duration' => $duration ?? null,
+                'engine_key' => $engineKey,
+                'name'       => $validated['name'] ?? $profileId,
+                'status'     => $validated['status'] ?? 'ready',
+                'duration'   => $duration ?? null,
             ]
         );
 
@@ -144,6 +156,15 @@ class VoiceProfileController extends Controller
             ->voiceProfiles()
             ->where('profile_id', $profileId)
             ->firstOrFail();
+
+        // Remove the voice file from the AI engine (best-effort, non-fatal)
+        if ($profile->engine_key) {
+            $engineUrl    = config('services.ai_engine.url', 'http://127.0.0.1:8000');
+            $engineApiKey = config('services.ai_engine.key', '');
+            Http::withHeaders($engineApiKey ? ['X-Engine-Key' => $engineApiKey] : [])
+                ->timeout(10)
+                ->delete("{$engineUrl}/voice-profile/{$profile->engine_key}");
+        }
 
         $profile->delete();
 

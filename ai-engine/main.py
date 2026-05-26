@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
@@ -49,6 +49,30 @@ VOICES_DIR = "voice_profiles"
 os.makedirs(VOICES_DIR, exist_ok=True)
 
 TMP_DIR = tempfile.gettempdir()
+
+# ── Security ───────────────────────────────────────────────────────
+_ENGINE_API_KEY = os.getenv("AI_ENGINE_API_KEY", "")
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024   # 100 MB hard ceiling on all uploads
+
+def verify_api_key(x_engine_key: str = Header(default="")) -> None:
+    """Reject requests that don't carry the shared engine API key.
+    If AI_ENGINE_API_KEY is not set the check is skipped (local dev mode)."""
+    if _ENGINE_API_KEY and x_engine_key != _ENGINE_API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing engine API key.")
+
+def sanitize_profile_id(raw: str) -> str:
+    """Strip path-traversal characters and limit length."""
+    safe = re.sub(r'[^\w\-]', '_', raw)   # allow only word chars and hyphens
+    return safe[:100]
+
+async def check_file_size(file: UploadFile) -> UploadFile:
+    """Reject uploads over MAX_UPLOAD_BYTES to prevent memory exhaustion."""
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Upload too large (100 MB limit).")
+    # Rewind so callers can read the bytes normally
+    await file.seek(0)
+    return file
 
 
 def tmp_path(prefix: str, suffix: str = "") -> str:
@@ -253,7 +277,7 @@ app.add_middleware(
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "Accept"],
+    allow_headers=["Content-Type", "Authorization", "Accept", "X-Engine-Key"],
 )
 
 
@@ -325,10 +349,14 @@ async def status():
 
 # ── FEATURE 1: TRANSCRIPTION ──────────────────────────────────────
 @app.post("/transcribe")
-async def transcribe(file: UploadFile = File(...)):
+async def transcribe(
+    file: UploadFile = File(...),
+    _key: None = Depends(verify_api_key),
+):
     if not models["stt"]:
         raise HTTPException(503, "Transcription model still loading…")
 
+    await check_file_size(file)
     raw_path = tmp_path("stt_raw")
     wav_path = tmp_path("stt", ".wav")
 
@@ -356,9 +384,12 @@ async def transcribe(file: UploadFile = File(...)):
 async def save_voice_profile(
     file: UploadFile = File(...),
     profile_id: str = Form(...),
+    _key: None = Depends(verify_api_key),
 ):
+    await check_file_size(file)
+    safe_id  = sanitize_profile_id(profile_id)
     raw_path = tmp_path("voice_raw")
-    wav_path = os.path.join(VOICES_DIR, f"{profile_id}.wav")
+    wav_path = os.path.join(VOICES_DIR, f"{safe_id}.wav")
 
     try:
         with open(raw_path, "wb") as b:
@@ -388,7 +419,7 @@ async def save_voice_profile(
 
         return {
             "success": True,
-            "profile_id": profile_id,
+            "profile_id": safe_id,
             "duration_seconds": round(duration, 2),
             "warning": warning,
             "message": "Voice profile saved successfully.",
@@ -410,6 +441,19 @@ async def list_voice_profiles():
         if f.endswith(".wav"):
             profiles.append({"profile_id": f[:-4], "filename": f})
     return {"profiles": profiles}
+
+
+# ── FEATURE 3b: DELETE VOICE PROFILE ─────────────────────────────
+@app.delete("/voice-profile/{profile_id}")
+async def delete_voice_profile(
+    profile_id: str,
+    _key: None = Depends(verify_api_key),
+):
+    safe_id  = sanitize_profile_id(profile_id)
+    wav_path = os.path.join(VOICES_DIR, f"{safe_id}.wav")
+    if os.path.exists(wav_path):
+        os.remove(wav_path)
+    return {"success": True, "profile_id": safe_id}
 
 
 # ── Multi-voice helpers ────────────────────────────────────────────
@@ -480,10 +524,15 @@ async def synthesize(
     gap_ms: int        = Form(default=60),
     # Multi-voice: JSON string mapping speaker label → profile_id
     speaker_map: str   = Form(default=""),
+    _key: None         = Depends(verify_api_key),
 ):
     import json as _json
     import shutil
 
+    if len(text) > 50_000:
+        raise HTTPException(400, "Text exceeds 50 000 character limit.")
+
+    profile_id = sanitize_profile_id(profile_id)
     engine = tts_engine.lower().strip()
     if engine not in ("xtts", "f5"):
         engine = "xtts"
@@ -608,10 +657,14 @@ async def synthesize(
 async def clone(
     text: str = Form(...),
     file: UploadFile = File(...),
+    _key: None = Depends(verify_api_key),
 ):
     if not models["xtts"]:
         raise HTTPException(503, "Cloning model still loading…")
 
+    await check_file_size(file)
+    if len(text) > 50_000:
+        raise HTTPException(400, "Text exceeds 50 000 character limit.")
     raw_path = tmp_path("ref_raw")
     ref_path = tmp_path("ref", ".wav")
     out_path = tmp_path("clone", ".wav")
@@ -659,8 +712,12 @@ async def clone(
 
 
 @app.post("/export/mp3")
-async def export_mp3(file: UploadFile = File(...)):
+async def export_mp3(
+    file: UploadFile = File(...),
+    _key: None = Depends(verify_api_key),
+):
     """Convert an uploaded WAV file to MP3 using ffmpeg."""
+    await check_file_size(file)
     wav_path = tmp_path("export_in", ".wav")
     mp3_path = tmp_path("export_out", ".mp3")
     try:

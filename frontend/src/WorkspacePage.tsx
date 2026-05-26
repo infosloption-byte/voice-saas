@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useReducer, useCallback } from 'react'
+import { api } from './api'
 import { toast } from './toast'
 import { icons, LANGUAGES, TONE_PRESETS, type TonePreset } from './constants'
 import { loadAudioBlob, saveAudioBlob, deleteAudioBlob, historyReducer, fmt } from './audio'
@@ -197,7 +198,9 @@ export function WorkspacePage({
         return false
       }
 
-      const pid = script.profileId || voiceProfiles[0]?.profile_id
+      const profile = voiceProfiles.find(vp => vp.profile_id === (script.profileId || voiceProfiles[0]?.profile_id)) ?? voiceProfiles[0]
+      const pid = profile?.profile_id
+      const engineKey = profile?.engine_key ?? pid ?? ''
       if (!pid || !text.trim()) return false
 
       const tone = (script.tone ?? 'natural') as TonePreset
@@ -205,7 +208,7 @@ export function WorkspacePage({
 
       const fd = new FormData()
       fd.append('text',        text.trim())
-      fd.append('profile_id',  pid)
+      fd.append('profile_id',  engineKey)
       fd.append('language',    script.language || 'en')
       fd.append('speed',       String(Math.max(0.5, Math.min(2.0, script.speed ?? 1.0))))
       fd.append('tts_engine',  ttsEngine)
@@ -215,25 +218,18 @@ export function WorkspacePage({
       fd.append('top_p',       String(toneParams.top_p))
       fd.append('gap_ms',      '60')
 
-      // Multi-voice speaker map (if script uses [SPEAKER:name] markers)
+      // Multi-voice speaker map — resolve profile_ids to engine_keys before sending
       if (script.speakerMap && Object.keys(script.speakerMap).length > 0) {
-        fd.append('speaker_map', JSON.stringify(script.speakerMap))
+        const engineMap: Record<string, string> = {}
+        for (const [spk, spkPid] of Object.entries(script.speakerMap)) {
+          const spkProfile = voiceProfiles.find(vp => vp.profile_id === spkPid)
+          engineMap[spk] = spkProfile?.engine_key ?? spkPid
+        }
+        fd.append('speaker_map', JSON.stringify(engineMap))
       }
 
       try {
-        const res = await fetch(`${ENGINE_URL}/synthesize`, {
-          method: 'POST',
-          body: fd,
-          signal,
-        })
-
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}))
-          console.error(`[WorkspacePage] Synthesis HTTP ${res.status}:`, errData.detail ?? errData)
-          return false
-        }
-
-        const blob = await res.blob()
+        const blob = await api.enginePost('/synthesize', fd, signal) as Blob
         let duration: number | null = null
         let peaks: number[] | undefined
 
@@ -327,10 +323,7 @@ export function WorkspacePage({
       fd.append('text', histState.present.trim())
       fd.append('file', voiceBlob, 'voice.wav')
 
-      const res = await fetch(`${ENGINE_URL}/clone-voice`, { method: 'POST', body: fd })
-      if (!res.ok) { setSynthErr('Synthesis failed. Is the AI engine running?'); return }
-
-      const blob = await res.blob()
+      const blob = await api.enginePost('/clone-voice', fd) as Blob
       const url  = URL.createObjectURL(blob)
       setAudioUrl(url)
       onGuestSynthesisUsed?.()
@@ -441,9 +434,7 @@ export function WorkspacePage({
     const fd = new FormData()
     fd.append('file', file, file.name)
     try {
-      const res = await fetch(`${ENGINE_URL}/transcribe`, { method: 'POST', body: fd })
-      if (!res.ok) { toast.err('Transcription failed. Is the AI engine running?'); return }
-      const data = await res.json() as { text?: string }
+      const data = await api.enginePost('/transcribe', fd) as { text?: string }
       const text = data.text ?? ''
       if (activeScript) {
         setPendingTranscription(text)

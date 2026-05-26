@@ -7,6 +7,7 @@ if (!ENGINE_API_BASE || !LARAVEL_API_BASE) {
 }
 
 const ENGINE_BASE = ENGINE_API_BASE ?? ''
+const ENGINE_API_KEY = (import.meta.env.VITE_ENGINE_API_KEY as string | undefined) ?? ''
 const LARAVEL_BASE = LARAVEL_API_BASE?.replace(/\/api\/?$/, '') ?? ''
 const LARAVEL_API = LARAVEL_API_BASE ?? ''
 
@@ -141,11 +142,14 @@ class ApiClient {
   // ── Engine-specific helpers ────────────────────────────────────
   enginePost(path: string, formData: FormData, signal?: AbortSignal): Promise<unknown> {
     const fullPath = path.startsWith('/') ? path : '/' + path
+    const engineHeaders: Record<string, string> = {}
+    if (ENGINE_API_KEY) engineHeaders['X-Engine-Key'] = ENGINE_API_KEY
     return fetch(`${ENGINE_BASE}${fullPath}`, {
       method: 'POST',
       body: formData,
       credentials: 'omit',
       signal,
+      headers: engineHeaders,
     }).then(async r => {
       if (!r.ok) {
         const text = await r.text().catch(() => '')
@@ -158,9 +162,12 @@ class ApiClient {
 
   engineGet(path: string): Promise<unknown> {
     const fullPath = path.startsWith('/') ? path : '/' + path
+    const engineHeaders: Record<string, string> = {}
+    if (ENGINE_API_KEY) engineHeaders['X-Engine-Key'] = ENGINE_API_KEY
     return fetch(`${ENGINE_BASE}${fullPath}`, {
       method: 'GET',
       credentials: 'omit',
+      headers: engineHeaders,
     }).then(r => {
       if (!r.ok) throw new ApiError(`Engine error: HTTP ${r.status}`, r.status)
       return r.json()
