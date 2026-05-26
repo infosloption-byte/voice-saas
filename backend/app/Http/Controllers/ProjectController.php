@@ -15,10 +15,10 @@ class ProjectController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'id' => 'required|string',
-            'name' => 'required|string',
-            'emoji' => 'nullable|string',
-            'description' => 'nullable|string',
+            'id'          => 'required|string|max:36',
+            'name'        => 'required|string|max:255',
+            'emoji'       => 'nullable|string|max:10',
+            'description' => 'nullable|string|max:2000',
         ]);
 
         $project = $request->user()->projects()->create($validated);
@@ -32,9 +32,9 @@ class ProjectController extends Controller
         $project = $request->user()->projects()->findOrFail($id);
         
         $validated = $request->validate([
-            'name' => 'nullable|string',
-            'emoji' => 'nullable|string',
-            'description' => 'nullable|string',
+            'name'           => 'nullable|string|max:255',
+            'emoji'          => 'nullable|string|max:10',
+            'description'    => 'nullable|string|max:2000',
             'timeline_clips' => 'nullable|array',
         ]);
 
