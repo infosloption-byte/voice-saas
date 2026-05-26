@@ -776,6 +776,7 @@ export default function App() {
               onGuestDelete={pid => guestProfiles.deleteProfile(pid)}
               onGuestGate={type => setGuestGateType(type)}
               onIncrementPreview={() => guestSession.updateUsage('previewsUsed')}
+              getGuestVoiceBlob={pid => guestProfiles.getAudioBlob(pid)}
             />
           )}
 
