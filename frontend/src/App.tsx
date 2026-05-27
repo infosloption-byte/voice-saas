@@ -540,23 +540,25 @@ export default function App() {
             </button>
           </div>
 
-          <button
-            className="btn btn--ghost btn--sm"
-            onClick={signOut}
-            style={{
-              width: '100%', justifyContent: 'flex-start', gap: 8,
-              color: 'var(--err)', borderColor: 'rgba(192,57,43,0.2)',
-              marginBottom: 8, fontSize: 12.5,
-            }}
-          >
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"
-              style={{ width: 14, height: 14, flexShrink: 0 }}>
-              <path d="M7 3H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h3" />
-              <path d="M13 14l4-4-4-4" />
-              <line x1="17" y1="10" x2="7" y2="10" />
-            </svg>
-            Sign out
-          </button>
+          {!guestMode && (
+            <button
+              className="btn btn--ghost btn--sm"
+              onClick={signOut}
+              style={{
+                width: '100%', justifyContent: 'flex-start', gap: 8,
+                color: 'var(--err)', borderColor: 'rgba(192,57,43,0.2)',
+                marginBottom: 8, fontSize: 12.5,
+              }}
+            >
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"
+                style={{ width: 14, height: 14, flexShrink: 0 }}>
+                <path d="M7 3H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h3" />
+                <path d="M13 14l4-4-4-4" />
+                <line x1="17" y1="10" x2="7" y2="10" />
+              </svg>
+              Sign out
+            </button>
+          )}
 
           <div className={`engine-pill engine-pill--${engineStatus}`}>
             <span className="engine-pill__dot" />
@@ -654,26 +656,29 @@ export default function App() {
         </div>
 
         {/* Workspace tabs */}
-        {page === 'workspace' && activeProject && (
-          <div className="workspace-tabs">
-            <button
-              className={`workspace-tab ${workspaceTab === 'scripts' ? 'workspace-tab--active' : ''}`}
-              onClick={() => setWorkspaceTab('scripts')}
-            >
-              {icons.scripts} Scripts
-              <span className="workspace-tab__count">{activeProject.scripts.length}</span>
-            </button>
-            <button
-              className={`workspace-tab ${workspaceTab === 'assembly' ? 'workspace-tab--active' : ''}`}
-              onClick={() => setWorkspaceTab('assembly')}
-            >
-              {icons.assembly} Assembly
-              <span className="workspace-tab__count">
-                {activeProject.scripts.filter(s => s.hasAudio).length}
-              </span>
-            </button>
-          </div>
-        )}
+        {page === 'workspace' && (activeProject || (guestMode && guestProject.project)) && (() => {
+          const tabProject = guestMode ? guestProject.project! : activeProject!
+          return (
+            <div className="workspace-tabs">
+              <button
+                className={`workspace-tab ${workspaceTab === 'scripts' ? 'workspace-tab--active' : ''}`}
+                onClick={() => setWorkspaceTab('scripts')}
+              >
+                {icons.scripts} Scripts
+                <span className="workspace-tab__count">{tabProject.scripts.length}</span>
+              </button>
+              <button
+                className={`workspace-tab ${workspaceTab === 'assembly' ? 'workspace-tab--active' : ''}`}
+                onClick={() => setWorkspaceTab('assembly')}
+              >
+                {icons.assembly} Assembly
+                <span className="workspace-tab__count">
+                  {tabProject.scripts.filter(s => s.hasAudio).length}
+                </span>
+              </button>
+            </div>
+          )
+        })()}
 
         {/* Page content */}
         <div className={workspaceTab === 'assembly' && page === 'workspace' ? '' : 'content'}>
@@ -758,6 +763,8 @@ export default function App() {
                   onSaveTimeline={(clips) => { if (!guestMode) saveTimeline(p.id, clips) }}
                   isGuest={guestMode}
                   onGuestGate={type => setGuestGateType(type)}
+                  isPaidUser={!guestMode && (user?.plan_name === 'starter' || user?.plan_name === 'pro')}
+                  onExportGate={() => guestMode ? setGuestGateType('assembly_export') : setPage('pricing')}
                 />
               </>
             )
