@@ -1,6 +1,18 @@
 # ── Stage 1: Build ─────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 WORKDIR /app
+
+# Accept build-time env vars — VITE_ variables are baked into the JS bundle
+ARG VITE_API_URL
+ARG VITE_ENGINE_URL
+ARG VITE_ENGINE_API_KEY
+ARG VITE_PAYPAL_CLIENT_ID
+
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_ENGINE_URL=$VITE_ENGINE_URL
+ENV VITE_ENGINE_API_KEY=$VITE_ENGINE_API_KEY
+ENV VITE_PAYPAL_CLIENT_ID=$VITE_PAYPAL_CLIENT_ID
+
 COPY package*.json ./
 RUN npm install
 COPY . .
