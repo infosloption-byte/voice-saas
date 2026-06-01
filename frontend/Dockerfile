@@ -2,20 +2,28 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Accept build-time env vars — VITE_ variables are baked into the JS bundle
+# Declare build args — used to inject values from CI/CD or a root .env.
+# When not passed, the existing frontend/.env is used as-is (see below).
 ARG VITE_API_URL
 ARG VITE_ENGINE_URL
 ARG VITE_ENGINE_API_KEY
 ARG VITE_PAYPAL_CLIENT_ID
 
-ENV VITE_API_URL=$VITE_API_URL
-ENV VITE_ENGINE_URL=$VITE_ENGINE_URL
-ENV VITE_ENGINE_API_KEY=$VITE_ENGINE_API_KEY
-ENV VITE_PAYPAL_CLIENT_ID=$VITE_PAYPAL_CLIENT_ID
-
 COPY package*.json ./
 RUN npm install
 COPY . .
+
+# Write any non-empty build args into .env.local which Vite gives higher
+# priority than .env. Leaves .env untouched when args are not supplied,
+# so frontend/.env on the server works as the default source of truth.
+RUN set -e; \
+    for name in VITE_API_URL VITE_ENGINE_URL VITE_ENGINE_API_KEY VITE_PAYPAL_CLIENT_ID; do \
+      val=$(eval "printf '%s' \"\${$name}\""); \
+      if [ -n "$val" ]; then \
+        echo "$name=$val" >> .env.local; \
+      fi; \
+    done
+
 RUN npm run build
 # Output is in /app/dist
 
