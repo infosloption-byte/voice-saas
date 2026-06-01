@@ -73,6 +73,7 @@ services:
       - tts_models:/root/.local/share/tts  # Add this line!
     environment:
       - COQUI_TOS_AGREED=1
+      - AI_ENGINE_API_KEY=${AI_ENGINE_API_KEY:-}
     command: uvicorn main:app --host 0.0.0.0 --port 8000
     networks:
       - voice-network
