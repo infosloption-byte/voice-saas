@@ -70,7 +70,8 @@ class SubscriptionController extends Controller
         );
 
         return response()->json([
-            'approval_url' => $result['approval_url'],
+            'approval_url'    => $result['approval_url'],
+            'subscription_id' => $result['subscription_id'],
         ]);
     }
 
