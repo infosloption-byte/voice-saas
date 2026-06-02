@@ -2,8 +2,8 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Declare build args — used to inject values from CI/CD or a root .env.
-# When not passed, the existing frontend/.env is used as-is (see below).
+# Optional build-arg overrides (from docker-compose build.args / root .env).
+# When not passed, values in frontend/.env are used as the source of truth.
 ARG VITE_API_URL
 ARG VITE_ENGINE_URL
 ARG VITE_ENGINE_API_KEY
@@ -13,18 +13,22 @@ COPY package*.json ./
 RUN npm install
 COPY . .
 
-# Write any non-empty build args into .env.local which Vite gives higher
-# priority than .env. Leaves .env untouched when args are not supplied,
-# so frontend/.env on the server works as the default source of truth.
+# Export VITE_ vars so Vite can embed them at build time.
+# Priority: build args (from root .env / CI) > frontend/.env
+#   1. Save build arg values before sourcing .env (sourcing would overwrite them)
+#   2. Source frontend/.env into the shell as the baseline
+#   3. Re-apply non-empty build args so they win over .env
 RUN set -e; \
-    for name in VITE_API_URL VITE_ENGINE_URL VITE_ENGINE_API_KEY VITE_PAYPAL_CLIENT_ID; do \
-      val=$(eval "printf '%s' \"\${$name}\""); \
-      if [ -n "$val" ]; then \
-        echo "$name=$val" >> .env.local; \
-      fi; \
-    done
-
-RUN npm run build
+    _api="$VITE_API_URL"; \
+    _engine="$VITE_ENGINE_URL"; \
+    _key="$VITE_ENGINE_API_KEY"; \
+    _paypal="$VITE_PAYPAL_CLIENT_ID"; \
+    if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+    [ -n "$_api" ]    && export VITE_API_URL="$_api"             || true; \
+    [ -n "$_engine" ] && export VITE_ENGINE_URL="$_engine"       || true; \
+    [ -n "$_key" ]    && export VITE_ENGINE_API_KEY="$_key"      || true; \
+    [ -n "$_paypal" ] && export VITE_PAYPAL_CLIENT_ID="$_paypal" || true; \
+    npm run build
 # Output is in /app/dist
 
 # ── Stage 2: Serve with nginx ──────────────────────────────────────
