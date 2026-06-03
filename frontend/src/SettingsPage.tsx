@@ -720,15 +720,35 @@ const PLAN_LABELS: Record<string, { label: string; color: string; bg: string }> 
   pro:     { label: 'Pro',     color: '#4278c9',        bg: 'rgba(66,120,201,0.10)' },
 }
 
+interface PayPalTransaction {
+  id: string
+  status: string
+  amount_with_breakdown?: { gross_amount?: { value: string; currency_code: string } }
+  time: string
+}
+
 function BillingSettings({ currentPlan, onGoPricing }: { currentPlan: Plan; onGoPricing?: () => void }) {
-  const [sub, setSub]           = useState<Subscription | null>(null)
-  const [loading, setLoading]   = useState(true)
+  const [sub, setSub]               = useState<Subscription | null>(null)
+  const [loading, setLoading]       = useState(true)
+  const [txns, setTxns]             = useState<PayPalTransaction[]>([])
+  const [txnLoading, setTxnLoading] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [confirmCancel, setConfirmCancel] = useState(false)
   const [exporting, setExporting]   = useState(false)
 
   useEffect(() => {
     api.get('/subscription')
-      .then(d => setSub(d as Subscription))
+      .then(d => {
+        const s = d as Subscription
+        setSub(s)
+        if (s?.paypal_subscription_id) {
+          setTxnLoading(true)
+          api.get('/subscription/transactions')
+            .then(r => setTxns((r as any).transactions ?? []))
+            .catch(() => {})
+            .finally(() => setTxnLoading(false))
+        }
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
@@ -739,6 +759,7 @@ function BillingSettings({ currentPlan, onGoPricing }: { currentPlan: Plan; onGo
     try {
       await api.post('/subscription/cancel', {})
       setSub(s => s ? { ...s, status: 'cancelled' } : s)
+      setConfirmCancel(false)
       toast.ok('Subscription cancelled — active until end of billing period')
     } catch (e) {
       toast.err(e instanceof Error ? e.message : 'Failed to cancel subscription')
@@ -769,6 +790,7 @@ function BillingSettings({ currentPlan, onGoPricing }: { currentPlan: Plan; onGo
   }
 
   const planInfo = PLAN_LABELS[currentPlan] ?? PLAN_LABELS.free
+  const isPaid   = currentPlan !== 'free'
 
   return (
     <div>
@@ -776,12 +798,12 @@ function BillingSettings({ currentPlan, onGoPricing }: { currentPlan: Plan; onGo
 
       {/* Current plan card */}
       <div style={{ padding: 20, background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-3)', marginBottom: 6 }}>
               Current plan
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <span style={{
                 fontSize: 15, fontWeight: 700,
                 padding: '3px 12px', borderRadius: 99,
@@ -789,43 +811,135 @@ function BillingSettings({ currentPlan, onGoPricing }: { currentPlan: Plan; onGo
               }}>
                 {planInfo.label}
               </span>
-              {sub && sub.status === 'active' && sub.current_period_end && (
+              {sub?.status === 'active' && sub.current_period_end && (
                 <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
-                  Renews {new Date(sub.current_period_end).toLocaleDateString()}
+                  Renews {new Date(sub.current_period_end).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
                 </span>
               )}
-              {sub && sub.status === 'cancelled' && (
+              {sub?.status === 'cancelled' && (
                 <span style={{ fontSize: 12, color: 'var(--warn)' }}>
-                  Cancelled — active until {sub.current_period_end ? new Date(sub.current_period_end).toLocaleDateString() : 'end of period'}
+                  Cancelled — active until {sub.current_period_end
+                    ? new Date(sub.current_period_end).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                    : 'end of period'}
                 </span>
               )}
             </div>
           </div>
-          {currentPlan === 'free' ? (
-            <button className="btn btn--primary btn--sm" onClick={onGoPricing} style={{ flexShrink: 0 }}>
-              Upgrade plan
-            </button>
-          ) : sub?.status === 'active' ? (
-            <button
-              className="btn btn--ghost btn--sm"
-              style={{ color: 'var(--warn)', flexShrink: 0 }}
-              onClick={handleCancel}
-              disabled={cancelling}
-            >
-              {cancelling ? <span className="spinner" /> : null} Cancel subscription
-            </button>
-          ) : (
-            <button className="btn btn--primary btn--sm" onClick={onGoPricing} style={{ flexShrink: 0 }}>
-              Resubscribe
-            </button>
-          )}
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            {!isPaid || sub?.status === 'cancelled' ? (
+              <button className="btn btn--primary btn--sm" onClick={onGoPricing}>
+                {sub?.status === 'cancelled' ? 'Resubscribe' : 'Upgrade plan'}
+              </button>
+            ) : null}
+            {isPaid && sub?.status === 'active' && !confirmCancel && (
+              <button
+                className="btn btn--ghost btn--sm"
+                style={{ color: 'var(--warn)' }}
+                onClick={() => setConfirmCancel(true)}
+              >
+                Cancel subscription
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Cancel confirmation */}
+        {confirmCancel && (
+          <div style={{ marginTop: 16, padding: 14, background: 'var(--bg-3)', borderRadius: 'var(--radius)', border: '1px solid var(--warn)' }}>
+            <p style={{ fontSize: 13, color: 'var(--text-1)', marginBottom: 12 }}>
+              Are you sure? Your plan stays active until the end of the current billing period.
+            </p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                className="btn btn--sm"
+                style={{ background: 'var(--warn)', color: '#fff' }}
+                onClick={handleCancel}
+                disabled={cancelling}
+              >
+                {cancelling ? <span className="spinner" style={{ width: 12, height: 12 }} /> : null}
+                Yes, cancel
+              </button>
+              <button className="btn btn--ghost btn--sm" onClick={() => setConfirmCancel(false)}>
+                Keep subscription
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {loading && (
         <div style={{ color: 'var(--text-3)', fontSize: 13, marginBottom: 16 }}>
           <span className="spinner" style={{ width: 12, height: 12, marginRight: 6 }} />
           Loading billing info…
+        </div>
+      )}
+
+      {/* Billing details row */}
+      {!loading && sub && isPaid && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 24 }}>
+          {[
+            { label: 'Plan', value: planInfo.label },
+            { label: 'Status', value: sub.status ? sub.status.charAt(0).toUpperCase() + sub.status.slice(1) : '—' },
+            { label: 'Next billing date', value: sub.status === 'active' && sub.current_period_end
+                ? new Date(sub.current_period_end).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                : '—' },
+            { label: 'Subscription ID', value: sub.paypal_subscription_id ? sub.paypal_subscription_id.slice(0, 16) + '…' : '—' },
+          ].map(({ label, value }) => (
+            <div key={label} style={{ padding: '12px 16px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-3)', marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>{value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Billing history */}
+      {!loading && isPaid && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', marginBottom: 10 }}>Billing history</div>
+          {txnLoading ? (
+            <div style={{ color: 'var(--text-3)', fontSize: 13 }}>
+              <span className="spinner" style={{ width: 12, height: 12, marginRight: 6 }} />Loading transactions…
+            </div>
+          ) : txns.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--text-3)', padding: '12px 0' }}>No transactions yet.</div>
+          ) : (
+            <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-2)' }}>
+                    {['Date', 'Amount', 'Status'].map(h => (
+                      <th key={h} style={{ padding: '8px 14px', textAlign: 'left', fontWeight: 600, color: 'var(--text-3)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {txns.map((t, i) => {
+                    const gross = t.amount_with_breakdown?.gross_amount
+                    return (
+                      <tr key={t.id ?? i} style={{ borderTop: '1px solid var(--border)' }}>
+                        <td style={{ padding: '10px 14px', color: 'var(--text-1)' }}>
+                          {new Date(t.time).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                        </td>
+                        <td style={{ padding: '10px 14px', color: 'var(--text-1)', fontWeight: 600 }}>
+                          {gross ? `${gross.currency_code} ${parseFloat(gross.value).toFixed(2)}` : '—'}
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{
+                            fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
+                            background: t.status === 'COMPLETED' ? 'rgba(34,197,94,0.12)' : 'var(--bg-3)',
+                            color: t.status === 'COMPLETED' ? '#16a34a' : 'var(--text-3)',
+                          }}>
+                            {t.status}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

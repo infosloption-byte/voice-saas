@@ -118,6 +118,40 @@ class SubscriptionController extends Controller
     }
 
     /**
+     * GET /api/subscription/transactions
+     * Return recent billing transactions for the user's subscription.
+     */
+    public function transactions(Request $request): JsonResponse
+    {
+        $sub = $request->user()->subscription;
+
+        if (!$sub || !$sub->paypal_subscription_id) {
+            return response()->json(['transactions' => []]);
+        }
+
+        $token = $this->paypal->getAccessToken();
+        $baseUrl = (config('services.paypal.mode') === 'live')
+            ? 'https://api-m.paypal.com'
+            : 'https://api-m.sandbox.paypal.com';
+
+        // PayPal requires a date range; fetch last 2 years
+        $startTime = now()->subYears(2)->toIso8601String();
+        $endTime   = now()->toIso8601String();
+
+        $response = \Illuminate\Support\Facades\Http::withToken($token)
+            ->get("{$baseUrl}/v1/billing/subscriptions/{$sub->paypal_subscription_id}/transactions", [
+                'start_time' => $startTime,
+                'end_time'   => $endTime,
+            ]);
+
+        $transactions = $response->successful()
+            ? ($response->json('transactions') ?? [])
+            : [];
+
+        return response()->json(['transactions' => $transactions]);
+    }
+
+    /**
      * POST /api/subscription/cancel
      * Cancel the user's active subscription.
      */

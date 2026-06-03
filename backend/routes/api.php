@@ -68,10 +68,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/export', [AuthController::class, 'exportData']);
 
     // Subscriptions
-    Route::get( '/subscription',         [SubscriptionController::class, 'current']);
-    Route::post('/subscription/create',  [SubscriptionController::class, 'create']);
-    Route::post('/subscription/capture', [SubscriptionController::class, 'capture']);
-    Route::post('/subscription/cancel',  [SubscriptionController::class, 'cancel']);
+    Route::get( '/subscription',              [SubscriptionController::class, 'current']);
+    Route::get( '/subscription/transactions', [SubscriptionController::class, 'transactions']);
+    Route::post('/subscription/create',       [SubscriptionController::class, 'create']);
+    Route::post('/subscription/capture',      [SubscriptionController::class, 'capture']);
+    Route::post('/subscription/cancel',       [SubscriptionController::class, 'cancel']);
 });
 
 // ── PayPal webhook (public — no auth) ────────────────────────────────
