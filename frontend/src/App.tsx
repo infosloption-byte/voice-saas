@@ -419,7 +419,7 @@ export default function App() {
       user={user}
       onBack={() => setPage(user ? 'settings' : 'landing')}
       onSignUp={() => setPage('signup')}
-      onSubscribed={() => { checkUser(); setPage('settings') }}
+      onSubscribed={async () => { await checkUser(); setPage('settings') }}
     />
   )
 
