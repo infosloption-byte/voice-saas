@@ -8,6 +8,8 @@ ARG VITE_API_URL
 ARG VITE_ENGINE_URL
 ARG VITE_ENGINE_API_KEY
 ARG VITE_PAYPAL_CLIENT_ID
+ARG VITE_PAYPAL_PLAN_STARTER
+ARG VITE_PAYPAL_PLAN_PRO
 
 COPY package*.json ./
 RUN npm install
@@ -23,11 +25,15 @@ RUN set -e; \
     _engine="$VITE_ENGINE_URL"; \
     _key="$VITE_ENGINE_API_KEY"; \
     _paypal="$VITE_PAYPAL_CLIENT_ID"; \
+    _plan_starter="$VITE_PAYPAL_PLAN_STARTER"; \
+    _plan_pro="$VITE_PAYPAL_PLAN_PRO"; \
     if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
-    [ -n "$_api" ]    && export VITE_API_URL="$_api"             || true; \
-    [ -n "$_engine" ] && export VITE_ENGINE_URL="$_engine"       || true; \
-    [ -n "$_key" ]    && export VITE_ENGINE_API_KEY="$_key"      || true; \
-    [ -n "$_paypal" ] && export VITE_PAYPAL_CLIENT_ID="$_paypal" || true; \
+    [ -n "$_api" ]          && export VITE_API_URL="$_api"                     || true; \
+    [ -n "$_engine" ]       && export VITE_ENGINE_URL="$_engine"               || true; \
+    [ -n "$_key" ]          && export VITE_ENGINE_API_KEY="$_key"              || true; \
+    [ -n "$_paypal" ]       && export VITE_PAYPAL_CLIENT_ID="$_paypal"         || true; \
+    [ -n "$_plan_starter" ] && export VITE_PAYPAL_PLAN_STARTER="$_plan_starter" || true; \
+    [ -n "$_plan_pro" ]     && export VITE_PAYPAL_PLAN_PRO="$_plan_pro"        || true; \
     npm run build
 # Output is in /app/dist
 
