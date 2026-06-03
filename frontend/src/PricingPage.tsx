@@ -5,7 +5,9 @@ import { icons } from './constants'
 import { LogoMark } from './LandingPage'
 import type { Plan, User } from './types'
 
-const PAYPAL_CLIENT_ID = import.meta.env.VITE_PAYPAL_CLIENT_ID as string | undefined
+const PAYPAL_CLIENT_ID   = import.meta.env.VITE_PAYPAL_CLIENT_ID   as string | undefined
+const PAYPAL_PLAN_STARTER = import.meta.env.VITE_PAYPAL_PLAN_STARTER as string | undefined
+const PAYPAL_PLAN_PRO     = import.meta.env.VITE_PAYPAL_PLAN_PRO     as string | undefined
 
 // ── Plan definitions ───────────────────────────────────────────────
 interface PlanDef {
@@ -114,9 +116,9 @@ function PayPalButton({ plan, onSuccess }: { plan: 'starter' | 'pro'; onSuccess:
         shape: 'rect', color: 'blue', layout: 'vertical',
         label: 'subscribe', height: 40,
       },
-      createSubscription: async (_data: unknown, _actions: unknown) => {
-        const result = await api.post('/subscription/create', { plan }) as { subscription_id: string }
-        return result.subscription_id
+      createSubscription: (_data: unknown, actions: any) => {
+        const planId = plan === 'starter' ? PAYPAL_PLAN_STARTER : PAYPAL_PLAN_PRO
+        return actions.subscription.create({ plan_id: planId })
       },
       onApprove: async (data: { subscriptionID: string }) => {
         try {
