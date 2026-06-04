@@ -94,6 +94,57 @@ export async function computeWaveformPeaks(blob: Blob, numBars = 60): Promise<nu
   }
 }
 
+// ── Audio enhancer ────────────────────────────────────────────────
+// Applies a 3-stage pipeline: HPF at 80 Hz → noise gate with hold →
+// RMS normalization targeting ~-16 LUFS (~0.1 RMS with 6× ceiling).
+export async function enhanceAudio(blob: Blob): Promise<Blob> {
+  try {
+    const decCtx = new AudioContext()
+    const srcBuf = await decCtx.decodeAudioData(await blob.arrayBuffer())
+    await decCtx.close()
+    const sr  = srcBuf.sampleRate
+    const len = srcBuf.length
+
+    // HPF via OfflineAudioContext
+    const offCtx = new OfflineAudioContext(1, len, sr)
+    const src    = offCtx.createBufferSource()
+    src.buffer   = srcBuf
+    const hpf    = offCtx.createBiquadFilter()
+    hpf.type     = 'highpass'
+    hpf.frequency.value = 80
+    hpf.Q.value  = 0.707
+    src.connect(hpf).connect(offCtx.destination)
+    src.start(0)
+    const filtered = await offCtx.startRendering()
+    const data = new Float32Array(filtered.getChannelData(0))
+
+    // Noise gate with 5 ms hold
+    let peak = 0
+    for (let i = 0; i < data.length; i++) { const a = Math.abs(data[i]); if (a > peak) peak = a }
+    const threshold  = peak * 0.015
+    const holdSamples = Math.round(0.005 * sr)
+    let hold = 0
+    for (let i = 0; i < data.length; i++) {
+      if (Math.abs(data[i]) >= threshold) { hold = holdSamples }
+      else if (hold > 0) { hold-- }
+      else { data[i] = 0 }
+    }
+
+    // RMS normalization (target 0.1 RMS, max 6× gain)
+    let sumSq = 0
+    for (let i = 0; i < data.length; i++) sumSq += data[i] * data[i]
+    const rms  = Math.sqrt(sumSq / data.length)
+    const gain = rms > 0.001 ? Math.min(0.1 / rms, 6.0) : 1.0
+    for (let i = 0; i < data.length; i++) data[i] = Math.max(-1, Math.min(1, data[i] * gain))
+
+    const outBuf = new AudioContext().createBuffer(1, len, sr)
+    outBuf.getChannelData(0).set(data)
+    return new Blob([audioBufferToWav(outBuf)], { type: 'audio/wav' })
+  } catch {
+    return blob
+  }
+}
+
 // ── Silence trimmer ────────────────────────────────────────────────
 // Removes leading/trailing silence below `threshold` amplitude.
 // Keeps a `padMs` millisecond pad around the detected audio so
