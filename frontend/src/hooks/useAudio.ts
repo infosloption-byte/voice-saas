@@ -44,15 +44,25 @@ export function useAudio(): UseAudioReturn {
       toast.info(`Assembling ${Math.round(totalDurationSec / 60)} min of audio — this may take a moment and use significant memory.`)
     }
 
-    // ── Detect overlapping clips and warn ─────────────────────────
-    const sorted = [...orderedClips].sort((a, b) => a.start - b.start)
-    let prevEnd = -Infinity
-    for (const clip of sorted) {
-      if (clip.start < prevEnd - 0.01) {
-        toast.info('Some clips overlap on the timeline — they will be merged in order. Consider removing overlaps for best results.')
-        break
+    // ── Detect overlapping clips on the SAME lane and warn ────────
+    // Cross-lane overlap is intentional layering; only same-lane overlap
+    // (two clips fighting for the same row) is worth flagging.
+    const byLane = new Map<number, typeof orderedClips>()
+    for (const c of orderedClips) {
+      const lane = c.lane ?? 0
+      if (!byLane.has(lane)) byLane.set(lane, [])
+      byLane.get(lane)!.push(c)
+    }
+    outer: for (const laneClips of byLane.values()) {
+      const sorted = [...laneClips].sort((a, b) => a.start - b.start)
+      let prevEnd = -Infinity
+      for (const clip of sorted) {
+        if (clip.start < prevEnd - 0.01) {
+          toast.info('Some clips overlap on the same lane — they will be layered. Move one to a new lane or nudge it over for a clean sequence.')
+          break outer
+        }
+        prevEnd = clip.start + clip.dur
       }
-      prevEnd = clip.start + clip.dur
     }
 
     let ctx: AudioContext | null = null
@@ -60,22 +70,23 @@ export function useAudio(): UseAudioReturn {
     try {
       ctx = new AudioContext()
 
-      type Segment = {
+      // ── Position-based, lane-aware mixing ─────────────────────────
+      // Each clip is placed at its absolute `start` on the timeline and
+      // mixed (added) into the master buffer. Clips on different lanes that
+      // overlap in time are layered together, just like a DAW. Gap clips
+      // contribute nothing — silence is implicit from clip positions.
+      type Placed = {
         buffer: AudioBuffer
-        trimStart: number
-        dur: number
+        start: number       // absolute timeline start (s)
+        trimStart: number   // seconds into the source buffer
+        dur: number         // visible duration (s)
         volume: number
-        isGap: boolean
       }
 
-      const segments: Segment[] = []
+      const placed: Placed[] = []
 
       for (const clip of orderedClips) {
-        if (clip.isGap) {
-          const silenceBuf = ctx.createBuffer(1, Math.round(clip.dur * 44100), 44100)
-          segments.push({ buffer: silenceBuf, trimStart: 0, dur: clip.dur, volume: 1, isGap: true })
-          continue
-        }
+        if (clip.isGap) continue // silence is implicit in a position-based mix
 
         const raw = await loadAudioRawBlob(`audio_${clip.scriptId}`)
         if (!raw) {
@@ -85,36 +96,41 @@ export function useAudio(): UseAudioReturn {
 
         const arr = await raw.arrayBuffer()
         const buf = await ctx.decodeAudioData(arr)
-        segments.push({
+        placed.push({
           buffer: buf,
+          start: clip.start,
           trimStart: clip.trimStart,
           dur: clip.dur,
           volume: clip.volume,
-          isGap: false,
         })
       }
 
-      if (!segments.length) throw new Error('No audio clips could be loaded')
+      if (!placed.length) throw new Error('No audio clips could be loaded')
 
-      const sr = segments.find(s => !s.isGap)?.buffer.sampleRate ?? 44100
-      const totalSamples = segments.reduce((a, seg) => a + Math.round(seg.dur * sr), 0)
+      const sr = placed[0].buffer.sampleRate ?? 44100
+      // Total length spans from 0 to the latest clip end on any lane.
+      const totalDur = Math.max(...orderedClips.map(c => c.start + c.dur), 0)
+      const totalSamples = Math.round(totalDur * sr)
 
       if (totalSamples <= 0) throw new Error('Total audio duration is zero')
 
       const merged = ctx.createBuffer(1, totalSamples, sr)
       const out = merged.getChannelData(0)
-      let offset = 0
 
-      for (const seg of segments) {
-        const startSample = Math.round(seg.trimStart * sr)
+      for (const seg of placed) {
+        const destStart  = Math.round(seg.start * sr)
+        const srcStart   = Math.round(seg.trimStart * sr)
         const durSamples = Math.round(seg.dur * sr)
         const src = seg.buffer.getChannelData(0)
 
         for (let i = 0; i < durSamples; i++) {
-          const srcIdx = startSample + i
-          out[offset + i] = (srcIdx < src.length ? src[srcIdx] : 0) * seg.volume
+          const destIdx = destStart + i
+          if (destIdx < 0 || destIdx >= totalSamples) continue
+          const srcIdx = srcStart + i
+          const sample = srcIdx < src.length ? src[srcIdx] : 0
+          // Mix (add) and clamp to avoid clipping when lanes overlap.
+          out[destIdx] = Math.max(-1, Math.min(1, out[destIdx] + sample * seg.volume))
         }
-        offset += durSamples
       }
 
       // Mix in background music with crossfade at loop boundaries

@@ -63,6 +63,7 @@ export interface TimelineClip {
   ci: number          // colour index
   volume: number      // 0–2 gain
   isGap: boolean      // silence pad
+  lane?: number       // vertical lane index (0-based); undefined = lane 0
 }
 
 export type TimelineAction =
