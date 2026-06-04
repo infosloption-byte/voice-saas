@@ -38,6 +38,23 @@ export function useAudio(): UseAudioReturn {
     setMerging(true)
     setMergeError(null)
 
+    // ── Warn about very long projects ─────────────────────────────
+    const totalDurationSec = orderedClips.reduce((a, c) => a + c.dur, 0)
+    if (totalDurationSec > 15 * 60) {
+      toast.info(`Assembling ${Math.round(totalDurationSec / 60)} min of audio — this may take a moment and use significant memory.`)
+    }
+
+    // ── Detect overlapping clips and warn ─────────────────────────
+    const sorted = [...orderedClips].sort((a, b) => a.start - b.start)
+    let prevEnd = -Infinity
+    for (const clip of sorted) {
+      if (clip.start < prevEnd - 0.01) {
+        toast.info('Some clips overlap on the timeline — they will be merged in order. Consider removing overlaps for best results.')
+        break
+      }
+      prevEnd = clip.start + clip.dur
+    }
+
     let ctx: AudioContext | null = null
 
     try {
@@ -100,17 +117,29 @@ export function useAudio(): UseAudioReturn {
         offset += durSamples
       }
 
-      // Mix in background music
+      // Mix in background music with crossfade at loop boundaries
       if (bgMusic) {
         try {
           const bgArr = await bgMusic.blob.arrayBuffer()
           const bgBuf = await ctx.decodeAudioData(bgArr)
           const bgSrc = bgBuf.getChannelData(0)
-          const bgSr = bgBuf.sampleRate
+          const bgSr  = bgBuf.sampleRate
+
+          // Pre-apply 100 ms fade-in/out envelope to the bg buffer so loop
+          // boundaries don't produce audible clicks when the buffer restarts.
+          const loopLen   = bgSrc.length
+          const cfSamples = Math.min(Math.round(0.1 * bgSr), Math.floor(loopLen / 4))
+          const bgEnv     = new Float32Array(loopLen)
+          for (let i = 0; i < loopLen; i++) {
+            let env = 1.0
+            if (i < cfSamples)              env = i / cfSamples
+            else if (i >= loopLen - cfSamples) env = (loopLen - i) / cfSamples
+            bgEnv[i] = bgSrc[i] * env
+          }
 
           for (let i = 0; i < totalSamples; i++) {
-            const bgIdx = Math.floor(i * (bgSr / sr)) % bgSrc.length
-            out[i] = Math.max(-1, Math.min(1, out[i] + bgSrc[bgIdx] * bgMusic.volume))
+            const bgIdx = Math.floor(i * (bgSr / sr)) % loopLen
+            out[i] = Math.max(-1, Math.min(1, out[i] + bgEnv[bgIdx] * bgMusic.volume))
           }
         } catch (e) {
           console.warn('[useAudio] Background music mixing failed, skipping:', e)

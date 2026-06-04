@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useReducer, useCallback } from 'react'
-import { api } from './api'
+import { api, ApiError } from './api'
 import { toast } from './toast'
 import { icons, LANGUAGES, TONE_PRESETS, type TonePreset } from './constants'
 import { loadAudioBlob, saveAudioBlob, deleteAudioBlob, historyReducer, fmt } from './audio'
@@ -93,6 +93,7 @@ export function WorkspacePage({
   const [bulkProgress, setBulkProgress]     = useState(0)
   const [bulkTotal, setBulkTotal]           = useState(0)
   const [bulkErrors, setBulkErrors]         = useState<string[]>([])
+  const [bulkActiveId, setBulkActiveId]     = useState<string | null>(null)
   const [synthErr, setSynthErr]             = useState('')
   const [saveState, setSaveState]           = useState<SaveState>('saved')
   const [audioUrl, setAudioUrl]             = useState<string | null>(null)
@@ -126,7 +127,15 @@ export function WorkspacePage({
     setSynthErr('')
 
     if (activeScript?.hasAudio && activeScript.id) {
-      loadAudioBlob(`audio_${activeScript.id}`).then(setAudioUrl)
+      loadAudioBlob(`audio_${activeScript.id}`).then(url => {
+        if (url) {
+          setAudioUrl(url)
+        } else {
+          // Audio blob is gone (IndexedDB was cleared) — unmark so user knows to regenerate
+          onUpdateScript(activeScript.id, { hasAudio: false, duration: null, waveformPeaks: undefined })
+          setSynthErr('Audio was lost (browser storage was cleared). Please regenerate.')
+        }
+      })
     }
   }, [activeScriptId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -231,53 +240,68 @@ export function WorkspacePage({
         fd.append('speaker_map', JSON.stringify(engineMap))
       }
 
-      try {
-        const blob = await api.enginePost('/synthesize', fd, signal) as Blob
-        let duration: number | null = null
-        let peaks: number[] | undefined
-
+      // ── Fetch with up to 2 retries on transient network errors ──────
+      let blob!: Blob
+      const MAX_RETRIES = 2
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (signal?.aborted) return false
         try {
-          const tempUrl  = URL.createObjectURL(blob)
-          const audioCtx = new AudioContext()
-          const arr      = await (await fetch(tempUrl)).arrayBuffer()
-          const buf      = await audioCtx.decodeAudioData(arr)
-          duration       = Math.round(buf.duration * 10) / 10
-
-          const peakData  = buf.getChannelData(0)
-          const numBars   = 60
-          const blockSize = Math.floor(peakData.length / numBars)
-          const rawPeaks: number[] = []
-          for (let i = 0; i < numBars; i++) {
-            let max = 0
-            for (let j = 0; j < blockSize; j++) {
-              const val = Math.abs(peakData[i * blockSize + j])
-              if (val > max) max = val
-            }
-            rawPeaks.push(max)
+          blob = await api.enginePost('/synthesize', fd, signal) as Blob
+          break
+        } catch (e) {
+          if ((e as Error).name === 'AbortError') return false
+          if (e instanceof ApiError) {
+            // HTTP errors from the engine — no point retrying
+            if (e.status >= 500)
+              throw new Error(`Engine returned HTTP ${e.status} — the model may have crashed or run out of memory.`)
+            throw new Error(`Synthesis failed: ${e.message}`)
           }
-          const maxP = Math.max(...rawPeaks, 0.001)
-          peaks = rawPeaks.map(p => p / maxP)
-
-          await audioCtx.close()
-          URL.revokeObjectURL(tempUrl)
-        } catch {
-          // Duration/peaks optional
+          // Network/connection error — retry with backoff
+          if (attempt < MAX_RETRIES) {
+            await new Promise(r => setTimeout(r, 1500 * (attempt + 1)))
+          } else {
+            throw new Error('Cannot reach the AI engine after multiple attempts. Check that the engine server is running.')
+          }
         }
-
-        await saveAudioBlob(`audio_${script.id}`, blob)
-        onUpdateScript(script.id, {
-          hasAudio:      true,
-          profileId:     pid,
-          language:      script.language || 'en',
-          duration,
-          waveformPeaks: peaks,
-        })
-        return true
-      } catch (e) {
-        if ((e as Error).name === 'AbortError') return false
-        console.error('[WorkspacePage] generateVoiceover error:', e)
-        return false
       }
+
+      // ── Extract duration + waveform peaks ────────────────────────
+      let duration: number | null = null
+      let peaks: number[] | undefined
+      try {
+        const arr      = await blob.arrayBuffer()
+        const audioCtx = new AudioContext()
+        const buf      = await audioCtx.decodeAudioData(arr)
+        duration       = Math.round(buf.duration * 10) / 10
+        const peakData = buf.getChannelData(0)
+        const numBars  = 60
+        const blockSize = Math.floor(peakData.length / numBars)
+        const rawPeaks: number[] = []
+        for (let i = 0; i < numBars; i++) {
+          let max = 0
+          for (let j = 0; j < blockSize; j++) {
+            const val = Math.abs(peakData[i * blockSize + j])
+            if (val > max) max = val
+          }
+          rawPeaks.push(max)
+        }
+        const maxP = Math.max(...rawPeaks, 0.001)
+        peaks = rawPeaks.map(p => p / maxP)
+        await audioCtx.close()
+      } catch {
+        // Duration/peaks are non-critical — continue without them
+      }
+
+      // ── Persist: save blob first, then mark script as having audio ─
+      await saveAudioBlob(`audio_${script.id}`, blob)
+      onUpdateScript(script.id, {
+        hasAudio:      true,
+        profileId:     pid,
+        language:      script.language || 'en',
+        duration,
+        waveformPeaks: peaks,
+      })
+      return true
     },
     [voiceProfiles, onUpdateScript]
   )
@@ -331,11 +355,40 @@ export function WorkspacePage({
       fd.append('file', voiceBlob, 'voice.wav')
 
       const blob = await api.enginePost('/clone-voice', fd) as Blob
-      const url  = URL.createObjectURL(blob)
-      setAudioUrl(url)
+      setAudioUrl(URL.createObjectURL(blob))
+
+      // Extract duration + peaks, persist blob (same path as authenticated synthesis)
+      let duration: number | null = null
+      let peaks: number[] | undefined
+      try {
+        const arr      = await blob.arrayBuffer()
+        const audioCtx = new AudioContext()
+        const buf      = await audioCtx.decodeAudioData(arr)
+        duration       = Math.round(buf.duration * 10) / 10
+        const peakData = buf.getChannelData(0)
+        const numBars  = 60
+        const blockSize = Math.floor(peakData.length / numBars)
+        const rawPeaks: number[] = []
+        for (let i = 0; i < numBars; i++) {
+          let max = 0
+          for (let j = 0; j < blockSize; j++) {
+            const val = Math.abs(peakData[i * blockSize + j])
+            if (val > max) max = val
+          }
+          rawPeaks.push(max)
+        }
+        peaks = rawPeaks.map(p => p / Math.max(...rawPeaks, 0.001))
+        await audioCtx.close()
+        await saveAudioBlob(`audio_${script.id}`, blob)
+        onUpdateScript(script.id, { hasAudio: true, duration, waveformPeaks: peaks })
+      } catch {
+        // Non-critical — playback still works
+      }
+
       onGuestSynthesisUsed?.()
-    } catch {
-      setSynthErr('Synthesis failed. Is the AI engine running?')
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError')
+        setSynthErr('Synthesis failed. Is the AI engine running?')
     } finally {
       setSynthesizing(false)
     }
@@ -374,25 +427,18 @@ export function WorkspacePage({
     setSynthesizing(true)
     setSynthErr('')
 
-    const ok = await generateVoiceover(
-      activeScript,
-      histState.present,
-      controller.signal,
-      engine
-    )
-
-    if (!ok && !controller.signal.aborted) {
-      setSynthErr(
-        engine === 'f5'
-          ? 'F5-TTS synthesis failed. Is the engine running and f5-tts installed?'
-          : 'Synthesis failed. Is the AI engine running?'
-      )
-    } else if (ok) {
-      const url = await loadAudioBlob(`audio_${activeScript.id}`)
-      setAudioUrl(url)
+    try {
+      const ok = await generateVoiceover(activeScript, histState.present, controller.signal, engine)
+      if (ok) {
+        const url = await loadAudioBlob(`audio_${activeScript.id}`)
+        setAudioUrl(url)
+      }
+      // ok === false means user cancelled — no error to show
+    } catch (e) {
+      setSynthErr((e as Error).message)
+    } finally {
+      setSynthesizing(false)
     }
-
-    setSynthesizing(false)
   }
 
   // ── Bulk synthesis ────────────────────────────────────────────────
@@ -430,13 +476,17 @@ export function WorkspacePage({
 
     for (const script of pending) {
       if (controller.signal.aborted) break
-      const ok = await generateVoiceover(script, script.content, controller.signal, engine)
-      if (!ok && !controller.signal.aborted) {
+      setBulkActiveId(script.id)
+      try {
+        const ok = await generateVoiceover(script, script.content, controller.signal, engine)
+        if (!ok && !controller.signal.aborted) setBulkErrors(prev => [...prev, script.title])
+      } catch {
         setBulkErrors(prev => [...prev, script.title])
       }
       setBulkProgress(p => p + 1)
     }
 
+    setBulkActiveId(null)
     setBulkGenerating(false)
     setBulkTotal(0)
     setBulkProgress(0)
@@ -766,16 +816,20 @@ export function WorkspacePage({
                     {s.duration ? ` · ${fmt(s.duration)}` : ''}
                   </div>
                 </div>
-                <span
-                  className={[
-                    'script-item__status',
-                    s.hasAudio
-                      ? 'script-item__status--done'
-                      : s.content
-                        ? 'script-item__status--pending'
-                        : 'script-item__status--none',
-                  ].join(' ')}
-                />
+                {bulkActiveId === s.id ? (
+                  <span className="spinner" style={{ width: 10, height: 10, flexShrink: 0 }} />
+                ) : (
+                  <span
+                    className={[
+                      'script-item__status',
+                      s.hasAudio
+                        ? 'script-item__status--done'
+                        : s.content
+                          ? 'script-item__status--pending'
+                          : 'script-item__status--none',
+                    ].join(' ')}
+                  />
+                )}
               </div>
             ))
           )}
