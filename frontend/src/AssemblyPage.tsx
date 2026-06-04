@@ -187,10 +187,12 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
     const ci = colorCursor % CLIP_COLORS.length
     setColorCursor(c => c + 1)
     const rawDur = script.duration ?? Math.max(5, Math.ceil((script.content.trim().split(/\s+/).length || 50) / 2.5))
+    // First clip always starts at 0; subsequent clips snap to drop position
+    const resolvedStart = timelineClips.length === 0 ? 0 : startSec
     setTimelineClips([...timelineClips, {
       id: 'tc_' + uid(),
       scriptId: script.id,
-      start: startSec,
+      start: resolvedStart,
       dur: rawDur,
       trimStart: 0,
       trimEnd: 0,
