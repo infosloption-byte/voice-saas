@@ -94,6 +94,39 @@ export async function computeWaveformPeaks(blob: Blob, numBars = 60): Promise<nu
   }
 }
 
+// ── Silence trimmer ────────────────────────────────────────────────
+// Removes leading/trailing silence below `threshold` amplitude.
+// Keeps a `padMs` millisecond pad around the detected audio so
+// the clip doesn't feel cut off.
+export async function trimSilence(blob: Blob, threshold = 0.008, padMs = 80): Promise<Blob> {
+  try {
+    const ctx = new AudioContext()
+    const buf = await ctx.decodeAudioData(await blob.arrayBuffer())
+    const data = buf.getChannelData(0)
+    const sr = buf.sampleRate
+    const pad = Math.round((padMs / 1000) * sr)
+
+    // Scan from end for last loud sample
+    let end = data.length - 1
+    while (end > 0 && Math.abs(data[end]) < threshold) end--
+    end = Math.min(data.length - 1, end + pad)
+
+    // Scan from start for first loud sample
+    let start = 0
+    while (start < end && Math.abs(data[start]) < threshold) start++
+    start = Math.max(0, start - pad)
+
+    await ctx.close()
+    if (end <= start) return blob
+
+    const trimmed = ctx.createBuffer(1, end - start + 1, sr)
+    trimmed.getChannelData(0).set(data.slice(start, end + 1))
+    return new Blob([audioBufferToWav(trimmed)], { type: 'audio/wav' })
+  } catch {
+    return blob
+  }
+}
+
 // ── WAV encoder ────────────────────────────────────────────────────
 export function audioBufferToWav(buf: AudioBuffer): ArrayBuffer {
   const data = buf.getChannelData(0), sr = buf.sampleRate
