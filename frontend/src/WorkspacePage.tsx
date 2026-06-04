@@ -65,6 +65,7 @@ export function WorkspacePage({
   getGuestVoiceBlob,
   onGuestGate,
   onGuestSynthesisUsed,
+  onRecheckEngine,
 }: {
   project: Project
   activeScriptId: string | null
@@ -81,6 +82,7 @@ export function WorkspacePage({
   getGuestVoiceBlob?: (profileId: string) => Promise<Blob | null>
   onGuestGate?: (type: GateType) => void
   onGuestSynthesisUsed?: () => void
+  onRecheckEngine?: () => void
 }) {
   const activeScript = project.scripts.find(s => s.id === activeScriptId) ?? null
 
@@ -108,10 +110,12 @@ export function WorkspacePage({
   // TTS engine preference (persisted in localStorage)
   const { engine, setEngine } = useTTSEngine()
 
-  const fileImportRef  = useRef<HTMLInputElement>(null)
-  const audioUploadRef = useRef<HTMLInputElement>(null)
-  const synthAbortRef  = useRef<AbortController | null>(null)
-  const dragIdx        = useRef<number | null>(null)
+  const fileImportRef       = useRef<HTMLInputElement>(null)
+  const audioUploadRef      = useRef<HTMLInputElement>(null)
+  const synthAbortRef       = useRef<AbortController | null>(null)
+  const dragIdx             = useRef<number | null>(null)
+  const onRecheckEngineRef  = useRef(onRecheckEngine)
+  onRecheckEngineRef.current = onRecheckEngine
 
   const isMobile =
     typeof window !== 'undefined' && window.innerWidth < 768
@@ -260,6 +264,7 @@ export function WorkspacePage({
           if (attempt < MAX_RETRIES) {
             await new Promise(r => setTimeout(r, 1500 * (attempt + 1)))
           } else {
+            onRecheckEngineRef.current?.()
             throw new Error('Cannot reach the AI engine after multiple attempts. Check that the engine server is running.')
           }
         }
@@ -480,8 +485,10 @@ export function WorkspacePage({
       try {
         const ok = await generateVoiceover(script, script.content, controller.signal, engine)
         if (!ok && !controller.signal.aborted) setBulkErrors(prev => [...prev, script.title])
-      } catch {
+      } catch (e) {
         setBulkErrors(prev => [...prev, script.title])
+        // Engine is unreachable — no point continuing the batch
+        if ((e as Error).message.includes('multiple attempts')) break
       }
       setBulkProgress(p => p + 1)
     }

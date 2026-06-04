@@ -33,6 +33,14 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
   )
   const timelineClips = tlHistory.present
   const setTimelineClips = (clips: TimelineClip[]) => dispatchTl({ type: 'SET', clips })
+
+  // Clips whose referenced script no longer exists or has lost its audio
+  const validScriptIds = new Set(withAudio.map(s => s.id))
+  const brokenClipIds  = new Set(
+    timelineClips
+      .filter(c => !c.isGap && !validScriptIds.has(c.scriptId))
+      .map(c => c.id)
+  )
   const [dragAssetId, setDragAssetId] = useState<string | null>(null)
   const [dragClipId, setDragClipId] = useState<string | null>(null)
   const [dragOffsetSec, setDragOffsetSec] = useState(0)
@@ -217,9 +225,20 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
   }
 
   function handleMerge() {
-    const ordered = [...timelineClips].sort((a, b) => a.start - b.start)
+    const ordered  = [...timelineClips].sort((a, b) => a.start - b.start)
+    const broken   = ordered.filter(c => brokenClipIds.has(c.id))
+    const valid    = ordered.filter(c => !brokenClipIds.has(c.id))
+
+    if (broken.length > 0) {
+      toast.info(`${broken.length} clip${broken.length > 1 ? 's' : ''} skipped — audio missing: ${broken.map(c => c.title).join(', ')}. Regenerate those scripts first.`)
+    }
+    if (!valid.some(c => !c.isGap)) {
+      toast.err('No clips with audio to assemble.')
+      return
+    }
+
     const bg = bgMusicBlob ? { blob: bgMusicBlob, volume: bgMusicVolume } : undefined
-    onMerge(ordered, bg)
+    onMerge(valid, bg)
   }
 
   async function handleExportMp3() {
@@ -525,6 +544,13 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
           )}
         </div>
 
+        {/* Broken clip warning banner */}
+        {brokenClipIds.size > 0 && (
+          <div style={{ margin: '0 12px 6px', padding: '7px 12px', background: 'rgba(192,57,43,0.10)', border: '1px solid rgba(192,57,43,0.35)', borderRadius: 6, fontSize: 12, color: '#c0392b', display: 'flex', alignItems: 'center', gap: 6 }}>
+            ⚠ {brokenClipIds.size} clip{brokenClipIds.size > 1 ? 's' : ''} {brokenClipIds.size > 1 ? 'have' : 'has'} missing audio (shown in red). Regenerate the script{brokenClipIds.size > 1 ? 's' : ''} or remove the clip{brokenClipIds.size > 1 ? 's' : ''} before assembling.
+          </div>
+        )}
+
         {/* Timeline */}
         <div style={S.timelineArea}>
           <div ref={timelineRef} style={S.timelineScroll}
@@ -591,9 +617,10 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
 
                 {/* Clips */}
                 {timelineClips.map(clip => {
-                  const isGap = clip.isGap
-                  const col = isGap ? 'var(--text-3)' : CLIP_COLORS[clip.ci % CLIP_COLORS.length]
-                  const lt  = isGap ? 'var(--bg-3)'   : CLIP_LIGHTS[clip.ci % CLIP_LIGHTS.length]
+                  const isGap    = clip.isGap
+                  const isBroken = brokenClipIds.has(clip.id)
+                  const col = isBroken ? '#c0392b' : isGap ? 'var(--text-3)' : CLIP_COLORS[clip.ci % CLIP_COLORS.length]
+                  const lt  = isBroken ? 'rgba(192,57,43,0.10)' : isGap ? 'var(--bg-3)' : CLIP_LIGHTS[clip.ci % CLIP_LIGHTS.length]
                   const clipW = Math.max(clip.dur * zoom, 30)
                   const isActive   = dragClipId === clip.id
                   const isSelected = selectedClipId === clip.id
@@ -612,7 +639,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
                         {/* Header */}
                         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 22, background: col + '22', borderBottom: `1px solid ${col}33`, display: 'flex', alignItems: 'center', padding: '0 8px', gap: 4 }}>
                           <span style={{ fontSize: 10.5, fontWeight: 600, color: isGap ? 'var(--text-3)' : col, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                            {isGap ? '⏸ ' : ''}{clip.title}
+                            {isBroken ? '⚠ ' : isGap ? '⏸ ' : ''}{clip.title}
                           </span>
                           <span style={{ fontSize: 9.5, color: col + 'aa', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>{fmt(Math.floor(clip.dur))}</span>
                           {clip.volume !== 1 && !isGap && (
