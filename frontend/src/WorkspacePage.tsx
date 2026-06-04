@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useReducer, useCallback } from 'react'
 import { api, ApiError } from './api'
 import { toast } from './toast'
 import { icons, LANGUAGES, TONE_PRESETS, type TonePreset } from './constants'
-import { loadAudioBlob, saveAudioBlob, deleteAudioBlob, historyReducer, fmt, trimSilence } from './audio'
+import { loadAudioBlob, saveAudioBlob, deleteAudioBlob, historyReducer, fmt, trimSilence, enhanceAudio, audioBufferToWav } from './audio'
 import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
 import { type GateType, type GuestUsage } from './hooks/useGuestSession'
 import { DEFAULT_GUEST_LIMITS } from './hooks/useGuestLimits'
@@ -27,6 +27,45 @@ const ENGINE_URL = import.meta.env.VITE_ENGINE_URL as string | undefined
 function parseSpeakers(text: string): string[] {
   const matches = [...text.matchAll(/^\[SPEAKER:([^\]]+)\]/gim)]
   return [...new Set(matches.map(m => m[1].trim()))].filter(Boolean)
+}
+
+// Splits text into ~150-word sentence-aligned chunks for chunked synthesis.
+function splitIntoChunks(text: string, maxWords = 150): string[] {
+  const sentences = text.match(/[^.!?]+[.!?]+/g) ?? [text]
+  const chunks: string[] = []
+  let current = ''
+  for (const sentence of sentences) {
+    const candidate = current ? current + ' ' + sentence.trim() : sentence.trim()
+    if (candidate.split(/\s+/).length > maxWords && current) {
+      chunks.push(current.trim())
+      current = sentence.trim()
+    } else {
+      current = candidate
+    }
+  }
+  if (current.trim()) chunks.push(current.trim())
+  return chunks.filter(Boolean)
+}
+
+// Concatenates multiple WAV blobs into a single WAV blob.
+async function concatAudioBlobs(blobs: Blob[]): Promise<Blob> {
+  if (blobs.length === 1) return blobs[0]
+  const ctx = new AudioContext()
+  const buffers: AudioBuffer[] = []
+  for (const b of blobs) {
+    buffers.push(await ctx.decodeAudioData(await b.arrayBuffer()))
+  }
+  await ctx.close()
+  const sr          = buffers[0].sampleRate
+  const totalLen    = buffers.reduce((s, b) => s + b.length, 0)
+  const out         = new AudioContext().createBuffer(1, totalLen, sr)
+  const outData     = out.getChannelData(0)
+  let offset = 0
+  for (const buf of buffers) {
+    outData.set(buf.getChannelData(0), offset)
+    offset += buf.length
+  }
+  return new Blob([audioBufferToWav(out)], { type: 'audio/wav' })
 }
 
 // ── Small engine badge shown in the footer ─────────────────────────
@@ -233,6 +272,8 @@ export function WorkspacePage({
       fd.append('top_k',       String(toneParams.top_k))
       fd.append('top_p',       String(toneParams.top_p))
       fd.append('gap_ms',      '60')
+      // Reduces word/phrase repetition loops in XTTS output
+      if (ttsEngine === 'xtts') fd.append('repetition_penalty', '5.0')
 
       // Multi-voice speaker map — resolve profile_ids to engine_keys before sending
       if (script.speakerMap && Object.keys(script.speakerMap).length > 0) {
@@ -244,33 +285,85 @@ export function WorkspacePage({
         fd.append('speaker_map', JSON.stringify(engineMap))
       }
 
-      // ── Fetch with up to 2 retries on transient network errors ──────
-      let blob!: Blob
-      const MAX_RETRIES = 2
-      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-        if (signal?.aborted) return false
-        try {
-          blob = await api.enginePost('/synthesize', fd, signal) as Blob
-          break
-        } catch (e) {
-          if ((e as Error).name === 'AbortError') return false
-          if (e instanceof ApiError) {
-            // HTTP errors from the engine — no point retrying
-            if (e.status >= 500)
-              throw new Error(`Engine returned HTTP ${e.status} — the model may have crashed or run out of memory.`)
-            throw new Error(`Synthesis failed: ${e.message}`)
-          }
-          // Network/connection error — retry with backoff
-          if (attempt < MAX_RETRIES) {
-            await new Promise(r => setTimeout(r, 1500 * (attempt + 1)))
-          } else {
-            onRecheckEngineRef.current?.()
-            throw new Error('Cannot reach the AI engine after multiple attempts. Check that the engine server is running.')
+      // ── Sentence-chunk synthesis (single-voice scripts only) ────────
+      const isMultiVoice = script.speakerMap && Object.keys(script.speakerMap).length > 0
+      const words        = text.trim().split(/\s+/).length
+      const useChunking  = !isMultiVoice && words > 150
+
+      const synthesizeText = async (chunkText: string): Promise<Blob> => {
+        const chunkFd = new FormData()
+        chunkFd.append('text',        chunkText)
+        chunkFd.append('profile_id',  fd.get('profile_id') as string)
+        chunkFd.append('language',    fd.get('language') as string)
+        chunkFd.append('speed',       fd.get('speed') as string)
+        chunkFd.append('tts_engine',  fd.get('tts_engine') as string)
+        chunkFd.append('temperature', fd.get('temperature') as string)
+        chunkFd.append('top_k',       fd.get('top_k') as string)
+        chunkFd.append('top_p',       fd.get('top_p') as string)
+        chunkFd.append('gap_ms',      fd.get('gap_ms') as string)
+        if (fd.get('repetition_penalty')) chunkFd.append('repetition_penalty', fd.get('repetition_penalty') as string)
+
+        const MAX_RETRIES = 2
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+          if (signal?.aborted) throw new Error('AbortError')
+          try {
+            return await api.enginePost('/synthesize', chunkFd, signal) as Blob
+          } catch (e) {
+            if ((e as Error).name === 'AbortError') throw e
+            if (e instanceof ApiError) {
+              if (e.status >= 500)
+                throw new Error(`Engine returned HTTP ${e.status} — the model may have crashed or run out of memory.`)
+              throw new Error(`Synthesis failed: ${e.message}`)
+            }
+            if (attempt < MAX_RETRIES) {
+              await new Promise(r => setTimeout(r, 1500 * (attempt + 1)))
+            } else {
+              onRecheckEngineRef.current?.()
+              throw new Error('Cannot reach the AI engine after multiple attempts. Check that the engine server is running.')
+            }
           }
         }
+        throw new Error('Synthesis failed after retries')
       }
 
-      // ── Trim leading/trailing silence ─────────────────────────────
+      let blob: Blob
+      if (useChunking) {
+        const chunks      = splitIntoChunks(text.trim())
+        const chunkBlobs: Blob[] = []
+        for (const chunk of chunks) {
+          if (signal?.aborted) return false
+          chunkBlobs.push(await synthesizeText(chunk))
+        }
+        blob = await concatAudioBlobs(chunkBlobs)
+      } else {
+        // ── Single-pass with up to 2 retries on transient network errors
+        const MAX_RETRIES = 2
+        let raw: Blob | undefined
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+          if (signal?.aborted) return false
+          try {
+            raw = await api.enginePost('/synthesize', fd, signal) as Blob
+            break
+          } catch (e) {
+            if ((e as Error).name === 'AbortError') return false
+            if (e instanceof ApiError) {
+              if (e.status >= 500)
+                throw new Error(`Engine returned HTTP ${e.status} — the model may have crashed or run out of memory.`)
+              throw new Error(`Synthesis failed: ${e.message}`)
+            }
+            if (attempt < MAX_RETRIES) {
+              await new Promise(r => setTimeout(r, 1500 * (attempt + 1)))
+            } else {
+              onRecheckEngineRef.current?.()
+              throw new Error('Cannot reach the AI engine after multiple attempts. Check that the engine server is running.')
+            }
+          }
+        }
+        blob = raw!
+      }
+
+      // ── Enhance: HPF + noise gate + normalization → trim silence ────
+      blob = await enhanceAudio(blob)
       blob = await trimSilence(blob)
 
       // ── Extract duration + waveform peaks ────────────────────────
