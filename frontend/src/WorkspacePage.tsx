@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useReducer, useCallback } from 'react'
 import { api, ApiError } from './api'
 import { toast } from './toast'
 import { icons, LANGUAGES, TONE_PRESETS, type TonePreset } from './constants'
-import { loadAudioBlob, saveAudioBlob, deleteAudioBlob, historyReducer, fmt } from './audio'
+import { loadAudioBlob, saveAudioBlob, deleteAudioBlob, historyReducer, fmt, trimSilence } from './audio'
 import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
 import { type GateType, type GuestUsage } from './hooks/useGuestSession'
 import { DEFAULT_GUEST_LIMITS } from './hooks/useGuestLimits'
@@ -270,6 +270,9 @@ export function WorkspacePage({
         }
       }
 
+      // ── Trim leading/trailing silence ─────────────────────────────
+      blob = await trimSilence(blob)
+
       // ── Extract duration + waveform peaks ────────────────────────
       let duration: number | null = null
       let peaks: number[] | undefined
@@ -359,7 +362,8 @@ export function WorkspacePage({
       fd.append('text', text)
       fd.append('file', voiceBlob, 'voice.wav')
 
-      const blob = await api.enginePost('/clone-voice', fd) as Blob
+      let blob = await api.enginePost('/clone-voice', fd) as Blob
+      blob = await trimSilence(blob)
       setAudioUrl(URL.createObjectURL(blob))
 
       // Extract duration + peaks, persist blob (same path as authenticated synthesis)
