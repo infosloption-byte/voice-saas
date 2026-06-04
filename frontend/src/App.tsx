@@ -200,7 +200,7 @@ export default function App() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Engine status + capability probe ─────────────────────────────
-  useEffect(() => {
+  const checkEngine = useCallback(() => {
     api.get('/')
       .then((data: unknown) => {
         setEngineStatus('online')
@@ -216,6 +216,16 @@ export default function App() {
         setEngineCaps({ xtts: false, f5: false })
       })
   }, [])
+
+  // Initial probe on mount
+  useEffect(() => { checkEngine() }, [checkEngine])
+
+  // Re-probe every 30 s while offline so the indicator auto-recovers
+  useEffect(() => {
+    if (engineStatus !== 'offline') return
+    const id = setInterval(checkEngine, 30_000)
+    return () => clearInterval(id)
+  }, [engineStatus, checkEngine])
 
   // ── Voice profiles ────────────────────────────────────────────────
   const loadProfiles = useCallback(() => {
@@ -733,6 +743,7 @@ export default function App() {
                 }}
                 voiceProfiles={wsProfiles}
                 engineCaps={engineCaps}
+                onRecheckEngine={checkEngine}
                 isGuest={guestMode}
                 guestUsage={guestSession.session?.usage}
                 guestLimits={guestLimits}
