@@ -162,6 +162,14 @@ export function WorkspacePage({
   // Is the currently selected engine actually available on the server?
   const currentEngineAvailable = engine === 'f5' ? engineCaps.f5 : engineCaps.xtts
 
+  // If a saved F5 preference can't run here (e.g. CPU-only server), fall back
+  // to XTTS automatically so the user isn't stuck on an unusable engine.
+  useEffect(() => {
+    if (engine === 'f5' && engineCaps.f5 === false && engineCaps.xtts) {
+      setEngine('xtts')
+    }
+  }, [engine, engineCaps.f5, engineCaps.xtts, setEngine])
+
   // ── Reset editor when active script changes ───────────────────────
   useEffect(() => {
     const content = activeScript?.content ?? ''
@@ -702,12 +710,19 @@ export function WorkspacePage({
             ] as const).map(opt => (
               <button
                 key={opt.id}
-                onClick={() => { setEngine(opt.id); setShowEngineMenu(false) }}
+                disabled={!opt.available}
+                onClick={() => {
+                  if (!opt.available) {
+                    toast.info(`${opt.label} is unavailable on this server. ${opt.id === 'f5' ? 'F5-TTS needs a GPU — use XTTS v2 instead.' : ''}`)
+                    return
+                  }
+                  setEngine(opt.id); setShowEngineMenu(false)
+                }}
                 style={{
                   display: 'flex', alignItems: 'flex-start', gap: 10,
                   width: '100%', padding: '9px 12px', border: 'none',
                   background: engine === opt.id ? `${opt.color}10` : 'transparent',
-                  cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s',
+                  cursor: opt.available ? 'pointer' : 'not-allowed', textAlign: 'left', transition: 'background 0.1s',
                   borderLeft: engine === opt.id ? `3px solid ${opt.color}` : '3px solid transparent',
                   opacity: opt.available ? 1 : 0.55,
                 }}
@@ -729,7 +744,7 @@ export function WorkspacePage({
                       border: `1px solid ${opt.available ? 'rgba(59,125,99,0.25)' : 'rgba(160,117,48,0.25)'}`,
                       letterSpacing: '0.3px',
                     }}>
-                      {opt.available ? 'Ready' : 'Not installed'}
+                      {opt.available ? 'Ready' : (opt.id === 'f5' ? 'Needs GPU' : 'Unavailable')}
                     </span>
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 1 }}>
