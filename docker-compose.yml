@@ -50,6 +50,8 @@ services:
         - VITE_ENGINE_URL=${VITE_ENGINE_URL:-https://usevoxora.online/ai}
         - VITE_ENGINE_API_KEY=${VITE_ENGINE_API_KEY:-}
         - VITE_PAYPAL_CLIENT_ID=${VITE_PAYPAL_CLIENT_ID:-}
+        - VITE_PAYPAL_PLAN_STARTER=${VITE_PAYPAL_PLAN_STARTER:-}
+        - VITE_PAYPAL_PLAN_PRO=${VITE_PAYPAL_PLAN_PRO:-}
     container_name: voice_frontend
     restart: unless-stopped
     ports:
