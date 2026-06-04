@@ -43,7 +43,22 @@ import soundfile as sf
 
 os.environ["COQUI_TOS_AGREED"] = "1"
 
+# ── Hardware capability detection ──────────────────────────────────
+# F5-TTS inference on CPU is extremely memory-hungry and will OOM-kill the
+# worker process — which takes XTTS down with it (the whole process dies and
+# every subsequent request, including XTTS, returns 502 until restart).
+# We therefore only expose / run F5-TTS when a CUDA GPU is present, unless
+# the operator explicitly opts in via F5_ALLOW_CPU=1.
+CUDA_AVAILABLE = bool(getattr(torch, "cuda", None) and torch.cuda.is_available())
+F5_ALLOW_CPU   = os.getenv("F5_ALLOW_CPU", "0").strip().lower() in ("1", "true", "yes", "on")
+
 models: dict = {"stt": None, "xtts": None, "f5tts": None}
+
+
+def f5_usable() -> bool:
+    """F5-TTS is only usable if it loaded AND we can run it without crashing
+    the process (GPU present, or operator explicitly allowed CPU)."""
+    return models["f5tts"] is not None and (CUDA_AVAILABLE or F5_ALLOW_CPU)
 
 VOICES_DIR = "voice_profiles"
 os.makedirs(VOICES_DIR, exist_ok=True)
@@ -300,6 +315,16 @@ async def load_all_models():
     except Exception as e:
         print(f"✗ XTTS v2 failed: {e}")
 
+    # F5-TTS — optional, GPU-only by default.
+    # Skip loading entirely on CPU-only servers: loading the model wastes
+    # memory and, more importantly, inference would OOM-kill the worker and
+    # take XTTS down with it. Set F5_ALLOW_CPU=1 to override on a big box.
+    if not (CUDA_AVAILABLE or F5_ALLOW_CPU):
+        print("ℹ F5-TTS disabled — no CUDA GPU detected (set F5_ALLOW_CPU=1 to force).")
+        print("  XTTS v2 remains fully available.")
+        print("--- Model Loading Complete ---")
+        return
+
     # F5-TTS — optional, graceful fallback
     f5_loaded = False
     for import_path in [
@@ -336,14 +361,17 @@ async def status():
     return {
         "status": "Online",
         "features": {
-            "transcription":       "Ready" if models["stt"]   else "Unavailable",
-            "voice_cloning_xtts":  "Ready" if models["xtts"]  else "Unavailable",
-            "voice_cloning_f5":    "Ready" if models["f5tts"] else "Unavailable",
+            "transcription":       "Ready" if models["stt"]  else "Unavailable",
+            "voice_cloning_xtts":  "Ready" if models["xtts"] else "Unavailable",
+            "voice_cloning_f5":    "Ready" if f5_usable()    else "Unavailable",
         },
         "engines": {
-            "xtts": models["xtts"]  is not None,
-            "f5":   models["f5tts"] is not None,
+            "xtts": models["xtts"] is not None,
+            # Report F5 as available only when it can actually run, so the
+            # frontend disables the F5 option on CPU-only servers.
+            "f5":   f5_usable(),
         },
+        "gpu": CUDA_AVAILABLE,
     }
 
 
@@ -485,7 +513,8 @@ def parse_speaker_segments(text: str) -> list[tuple[str, str]]:
 def synthesize_segment(text: str, ref_wav: str, engine: str,
                         language: str, temperature: float,
                         top_k: int, top_p: float,
-                        speed: float, gap_ms: int) -> list[str]:
+                        speed: float, gap_ms: int,
+                        repetition_penalty: float = 5.0) -> list[str]:
     """Synthesize one segment (may span multiple chunks). Returns list of chunk paths."""
     chunks = split_into_chunks(text)
     chunk_paths: list[str] = []
@@ -504,6 +533,7 @@ def synthesize_segment(text: str, ref_wav: str, engine: str,
                 top_k=max(1, min(100, top_k)),
                 top_p=max(0.1, min(1.0, top_p)),
                 speed=max(0.5, min(2.0, speed)),
+                repetition_penalty=max(1.0, min(10.0, repetition_penalty)),
                 enable_text_splitting=False,
             )
     return chunk_paths
@@ -521,6 +551,7 @@ async def synthesize(
     top_k: int         = Form(default=50),
     top_p: float       = Form(default=0.85),
     speed: float       = Form(default=1.0),
+    repetition_penalty: float = Form(default=5.0),
     gap_ms: int        = Form(default=60),
     # Multi-voice: JSON string mapping speaker label → profile_id
     speaker_map: str   = Form(default=""),
@@ -537,12 +568,17 @@ async def synthesize(
     if engine not in ("xtts", "f5"):
         engine = "xtts"
 
-    if engine == "f5" and not models["f5tts"]:
-        raise HTTPException(
-            503,
-            "F5-TTS is not available on this server. "
-            "Install it with: pip install f5-tts  — or switch to XTTS v2 in Settings."
-        )
+    if engine == "f5" and not f5_usable():
+        # Refuse BEFORE running inference. On a CPU-only server F5 would
+        # OOM-kill the worker and take XTTS down with it — returning a clean
+        # 503 here keeps XTTS healthy.
+        if models["f5tts"] is None and not (CUDA_AVAILABLE or F5_ALLOW_CPU):
+            detail = ("F5-TTS requires a GPU server and is disabled on this CPU-only "
+                      "instance. Please switch to XTTS v2 — it produces great results here.")
+        else:
+            detail = ("F5-TTS is not available on this server. "
+                      "Please switch to XTTS v2 in the engine selector.")
+        raise HTTPException(503, detail)
     if engine == "xtts" and not models["xtts"]:
         raise HTTPException(503, "XTTS v2 model is not available.")
 
@@ -581,6 +617,7 @@ async def synthesize(
                     text=seg_text, ref_wav=ref_wav, engine=engine,
                     language=language, temperature=temperature,
                     top_k=top_k, top_p=top_p, speed=speed, gap_ms=gap_ms,
+                    repetition_penalty=repetition_penalty,
                 )
                 all_chunk_paths.extend(seg_chunks)
 
@@ -627,6 +664,7 @@ async def synthesize(
                         top_k=max(1, min(100, top_k)),
                         top_p=max(0.1, min(1.0, top_p)),
                         speed=max(0.5, min(2.0, speed)),
+                        repetition_penalty=max(1.0, min(10.0, repetition_penalty)),
                         enable_text_splitting=False,
                     )
 

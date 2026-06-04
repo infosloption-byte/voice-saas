@@ -1,3 +1,4 @@
 # Logs
 venv
-voice_profiles
+voice_profiles__pycache__/
+*.pyc

@@ -47,11 +47,31 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
   const [resizingClip, setResizingClip] = useState<{ id: string; side: 'left' | 'right'; initX: number; initVal: number } | null>(null)
   const [audioUrls, setAudioUrls] = useState<Record<string, string>>({})
   const [colorCursor, setColorCursor] = useState(0)
-  const [dropActive, setDropActive] = useState(false)
   const [draggingPlayhead, setDraggingPlayhead] = useState(false)
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
   const [showGapDialog, setShowGapDialog] = useState(false)
   const [gapDuration, setGapDuration] = useState(1)
+  const [manualLaneCount, setManualLaneCount] = useState(1)
+  const [dropLane, setDropLane] = useState<number | null>(null)
+
+  // Number of vertical lanes to render: enough to cover every clip's lane,
+  // at least one, and never fewer than the user asked for via "Add Lane".
+  const laneCount = Math.max(
+    1,
+    manualLaneCount,
+    ...timelineClips.map(c => (c.lane ?? 0) + 1)
+  )
+  const laneRefs = useRef<Record<number, HTMLDivElement | null>>({})
+
+  function getLaneFromEvent(e: React.MouseEvent | React.DragEvent): number | null {
+    for (let i = 0; i < laneCount; i++) {
+      const el = laneRefs.current[i]
+      if (!el) continue
+      const r = el.getBoundingClientRect()
+      if (e.clientY >= r.top && e.clientY <= r.bottom) return i
+    }
+    return null
+  }
 
   // Background music state
   const [bgMusicName, setBgMusicName] = useState<string | null>(null)
@@ -123,6 +143,10 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
         setTimelineClips(timelineClips.filter(c => c.id !== selectedClipId))
         setSelectedClipId(null)
       }
+      if ((e.key === 's' || e.key === 'S') && selectedClipId && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault()
+        splitSelectedClip()
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); dispatchTl({ type: 'UNDO' }) }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); dispatchTl({ type: 'REDO' }) }
     }
@@ -183,12 +207,13 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
     return Math.max(0, Math.round((x / zoom) * 10) / 10)
   }
 
-  function addToTimeline(script: Script, startSec: number) {
+  function addToTimeline(script: Script, startSec: number, lane = 0) {
     const ci = colorCursor % CLIP_COLORS.length
     setColorCursor(c => c + 1)
     const rawDur = script.duration ?? Math.max(5, Math.ceil((script.content.trim().split(/\s+/).length || 50) / 2.5))
-    // First clip always starts at 0; subsequent clips snap to drop position
-    const resolvedStart = timelineClips.length === 0 ? 0 : startSec
+    // First clip on an empty lane starts at 0; otherwise snap to drop position
+    const laneHasClips = timelineClips.some(c => (c.lane ?? 0) === lane)
+    const resolvedStart = laneHasClips ? startSec : 0
     setTimelineClips([...timelineClips, {
       id: 'tc_' + uid(),
       scriptId: script.id,
@@ -201,7 +226,80 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
       ci,
       volume: 1,
       isGap: false,
+      lane,
     }])
+  }
+
+  // ── Per-clip editing actions (Split / Cut / Trim / Duplicate / Lane) ──
+  // All actions reference the same underlying source audio via trimStart/
+  // trimEnd offsets — the original clip in the library stays intact and
+  // reusable, and splits are just two windows onto the same recording.
+  function selectedClip(): TimelineClip | undefined {
+    return timelineClips.find(c => c.id === selectedClipId)
+  }
+
+  // Divide the selected clip at the playhead into two independent clips.
+  function splitSelectedClip() {
+    const clip = selectedClip()
+    if (!clip || clip.isGap) return
+    const rel = Math.round((playhead - clip.start) * 10) / 10
+    if (rel <= 0.1 || rel >= clip.dur - 0.1) {
+      toast.info('Move the playhead inside the clip, then split.')
+      return
+    }
+    const left: TimelineClip  = { ...clip, dur: rel, trimEnd: clip.rawDur - clip.trimStart - rel }
+    const right: TimelineClip = {
+      ...clip,
+      id: 'tc_' + uid(),
+      start: clip.start + rel,
+      trimStart: clip.trimStart + rel,
+      dur: clip.dur - rel,
+    }
+    setTimelineClips(timelineClips.flatMap(c => c.id === clip.id ? [left, right] : [c]))
+    setSelectedClipId(right.id)
+  }
+
+  // Cut: split at the playhead and discard the tail (keep the head).
+  function cutSelectedClip() {
+    const clip = selectedClip()
+    if (!clip || clip.isGap) return
+    const rel = Math.round((playhead - clip.start) * 10) / 10
+    if (rel <= 0.1 || rel >= clip.dur - 0.1) {
+      toast.info('Move the playhead inside the clip, then cut.')
+      return
+    }
+    const head: TimelineClip = { ...clip, dur: rel, trimEnd: clip.rawDur - clip.trimStart - rel }
+    setTimelineClips(timelineClips.map(c => c.id === clip.id ? head : c))
+  }
+
+  // Trim head: set the clip's in-point to the playhead (drop everything before).
+  function trimHeadToPlayhead() {
+    const clip = selectedClip()
+    if (!clip || clip.isGap) return
+    const rel = Math.round((playhead - clip.start) * 10) / 10
+    if (rel <= 0.1 || rel >= clip.dur - 0.1) {
+      toast.info('Move the playhead inside the clip, then trim.')
+      return
+    }
+    setTimelineClips(timelineClips.map(c => c.id === clip.id
+      ? { ...c, start: clip.start + rel, trimStart: clip.trimStart + rel, dur: clip.dur - rel }
+      : c))
+  }
+
+  function duplicateSelectedClip() {
+    const clip = selectedClip()
+    if (!clip) return
+    const copy: TimelineClip = { ...clip, id: 'tc_' + uid(), start: clip.start + clip.dur + 0.1 }
+    setTimelineClips([...timelineClips, copy])
+    setSelectedClipId(copy.id)
+  }
+
+  function moveSelectedClipLane(delta: number) {
+    const clip = selectedClip()
+    if (!clip) return
+    const newLane = Math.max(0, (clip.lane ?? 0) + delta)
+    setTimelineClips(timelineClips.map(c => c.id === clip.id ? { ...c, lane: newLane } : c))
+    if (newLane + 1 > laneCount) setManualLaneCount(newLane + 1)
   }
 
   function addGap(dur: number) {
@@ -288,14 +386,12 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
   }
 
   // Drag: asset → timeline
-  function onTimelineDragOver(e: React.DragEvent) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDropActive(true) }
-  function onTimelineDragLeave() { setDropActive(false) }
-  function onTimelineDrop(e: React.DragEvent) {
-    e.preventDefault(); setDropActive(false)
+  function onTimelineDrop(e: React.DragEvent, lane = 0) {
+    e.preventDefault(); setDropLane(null)
     if (!dragAssetId) return
     const script = project.scripts.find(s => s.id === dragAssetId)
     if (!script) return
-    addToTimeline(script, getSecFromEvent(e))
+    addToTimeline(script, getSecFromEvent(e), lane)
     setDragAssetId(null)
   }
 
@@ -316,7 +412,10 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
   function onTimelineMouseMove(e: React.MouseEvent) {
     if (dragClipId) {
       const newStart = Math.max(0, Math.round((getSecFromEvent(e) - dragOffsetSec) * 10) / 10)
-      setTimelineClips(timelineClips.map(c => c.id === dragClipId ? { ...c, start: newStart } : c))
+      const hoverLane = getLaneFromEvent(e)
+      setTimelineClips(timelineClips.map(c => c.id === dragClipId
+        ? { ...c, start: newStart, lane: hoverLane !== null ? hoverLane : (c.lane ?? 0) }
+        : c))
     }
     if (resizingClip) {
       const dx = e.clientX - resizingClip.initX
@@ -346,6 +445,119 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
     setDragClipId(null)
     setResizingClip(null)
     setDraggingPlayhead(false)
+  }
+
+  // ── Single clip renderer (used inside every lane row) ─────────────
+  const actBtn: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px',
+    borderRadius: 5, border: '1px solid var(--border-2)', background: 'var(--surface)',
+    color: 'var(--text-1)', fontSize: 11, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font)',
+  }
+
+  function renderClip(clip: TimelineClip) {
+    const isGap    = clip.isGap
+    const isBroken = brokenClipIds.has(clip.id)
+    const col = isBroken ? '#c0392b' : isGap ? 'var(--text-3)' : CLIP_COLORS[clip.ci % CLIP_COLORS.length]
+    const lt  = isBroken ? 'rgba(192,57,43,0.10)' : isGap ? 'var(--bg-3)' : CLIP_LIGHTS[clip.ci % CLIP_LIGHTS.length]
+    const clipW = Math.max(clip.dur * zoom, 30)
+    const isActive   = dragClipId === clip.id
+    const isSelected = selectedClipId === clip.id
+    const script = project.scripts.find(s => s.id === clip.scriptId)
+    const peaks  = script?.waveformPeaks
+    const bars   = Math.max(Math.floor((clipW - 16) / 7), 4)
+
+    return (
+      <div key={clip.id}
+        onMouseDown={e => onClipMouseDown(e, clip)}
+        onClick={e => { e.stopPropagation(); setSelectedClipId(clip.id) }}
+        style={{ position: 'absolute', left: clip.start * zoom, top: 4, height: 72, width: clipW, borderRadius: 7, background: lt, border: `1.5px solid ${isSelected ? col : col + '66'}`, cursor: isActive ? 'grabbing' : 'grab', overflow: 'visible', zIndex: isActive || isSelected ? 100 : 10, boxShadow: isSelected ? `0 0 0 2px ${col}44` : isActive ? '0 6px 18px rgba(30,22,10,0.14)' : 'none', transition: isActive ? 'none' : 'box-shadow 0.12s' }}>
+
+        {/* Clip inner — clipped */}
+        <div style={{ position: 'absolute', inset: 0, borderRadius: 7, overflow: 'hidden' }}>
+          {/* Header */}
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 22, background: col + '22', borderBottom: `1px solid ${col}33`, display: 'flex', alignItems: 'center', padding: '0 8px', gap: 4 }}>
+            <span style={{ fontSize: 10.5, fontWeight: 600, color: isGap ? 'var(--text-3)' : col, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+              {isBroken ? '⚠ ' : isGap ? '⏸ ' : ''}{clip.title}
+            </span>
+            <span style={{ fontSize: 9.5, color: col + 'aa', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>{fmt(Math.floor(clip.dur))}</span>
+            {clip.volume !== 1 && !isGap && (
+              <span style={{ fontSize: 9, color: col, fontFamily: 'var(--mono)' }}>{Math.round(clip.volume * 100)}%</span>
+            )}
+            <button onMouseDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); removeClip(clip.id) }}
+              style={{ width: 14, height: 14, borderRadius: 3, background: 'rgba(30,22,10,0.12)', border: 'none', cursor: 'pointer', color: 'var(--text-2)', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, flexShrink: 0, fontFamily: 'inherit' }}>×</button>
+          </div>
+
+          {/* Waveform */}
+          {!isGap && (
+            <div style={{ position: 'absolute', bottom: 6, left: 6, right: 6, display: 'flex', alignItems: 'flex-end', gap: 1.5, height: 30, overflow: 'hidden' }}>
+              {Array.from({ length: bars }).map((_, j) => {
+                const peakVal = peaks ? peaks[Math.floor(j / bars * peaks.length)] : (0.2 + Math.abs(Math.sin(clip.scriptId.charCodeAt(0) * 17 + j * 0.7)) * 0.5)
+                return (
+                  <div key={j} style={{ width: 3.5, borderRadius: 2, flexShrink: 0, height: Math.max(2, Math.round(peakVal * 28)) + 'px', background: col + '99' }} />
+                )
+              })}
+            </div>
+          )}
+
+          {/* Gap stripe */}
+          {isGap && (
+            <div style={{ position: 'absolute', inset: '22px 0 0 0', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.4 }}>
+              <span style={{ fontSize: 18 }}>⏸</span>
+            </div>
+          )}
+        </div>
+
+        {/* Left trim handle */}
+        {!isGap && (
+          <div onMouseDown={e => onResizeMouseDown(e, clip, 'left')}
+            style={{ position: 'absolute', left: -4, top: 0, bottom: 0, width: 10, cursor: 'ew-resize', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: 4, height: 28, borderRadius: 2, background: col + 'cc', boxShadow: '0 0 4px rgba(0,0,0,0.2)' }} />
+          </div>
+        )}
+        {/* Right trim handle */}
+        {!isGap && (
+          <div onMouseDown={e => onResizeMouseDown(e, clip, 'right')}
+            style={{ position: 'absolute', right: -4, top: 0, bottom: 0, width: 10, cursor: 'ew-resize', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: 4, height: 28, borderRadius: 2, background: col + 'cc', boxShadow: '0 0 4px rgba(0,0,0,0.2)' }} />
+          </div>
+        )}
+
+        {/* Clip action toolbar (shows when selected) */}
+        {isSelected && (
+          <div onMouseDown={e => e.stopPropagation()}
+            style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 8, padding: 8, boxShadow: 'var(--shadow-lg)', zIndex: 300, display: 'flex', flexDirection: 'column', gap: 6, whiteSpace: 'nowrap' }}>
+            {!isGap && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <button style={actBtn} onClick={e => { e.stopPropagation(); splitSelectedClip() }} title="Split at playhead (S)">✂ Split</button>
+                <button style={actBtn} onClick={e => { e.stopPropagation(); cutSelectedClip() }} title="Cut tail after playhead">⤿ Cut</button>
+                <button style={actBtn} onClick={e => { e.stopPropagation(); trimHeadToPlayhead() }} title="Trim head to playhead">⤾ Trim</button>
+                <button style={actBtn} onClick={e => { e.stopPropagation(); duplicateSelectedClip() }} title="Duplicate clip">⎘ Dup</button>
+              </div>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <button style={actBtn} onClick={e => { e.stopPropagation(); moveSelectedClipLane(-1) }} title="Move up a lane" disabled={(clip.lane ?? 0) === 0}>▲ Lane</button>
+              <button style={actBtn} onClick={e => { e.stopPropagation(); moveSelectedClipLane(1) }} title="Move down a lane">▼ Lane</button>
+              <span style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>L{(clip.lane ?? 0) + 1}</span>
+              <button style={actBtn} onClick={e => { e.stopPropagation(); removeClip(clip.id) }} title="Delete clip">🗑</button>
+            </div>
+            {!isGap && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ display: 'flex', width: 12, height: 12, color: 'var(--text-2)' }}>{icons.volume}</span>
+                <input type="range" min="0" max="2" step="0.05" value={clip.volume}
+                  onChange={e => setTimelineClips(timelineClips.map(c => c.id === clip.id ? { ...c, volume: parseFloat(e.target.value) } : c))}
+                  style={{ width: 110, accentColor: col }} />
+                <span style={{ fontSize: 11, color: col, fontFamily: 'var(--mono)', width: 30 }}>{Math.round(clip.volume * 100)}%</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Trim start indicator */}
+        {!isGap && clip.trimStart > 0 && (
+          <div style={{ position: 'absolute', left: 6, top: 24, fontSize: 9, color: col, fontFamily: 'var(--mono)' }}>↠{fmt(Math.floor(clip.trimStart))}</div>
+        )}
+      </div>
+    )
   }
 
   // Ruler ticks
@@ -590,126 +802,64 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
               </div>
 
               {/* Track label */}
-              <div style={{ padding: '4px 10px 0' }}>
-                <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Track 1 · Voiceover</span>
-              </div>
-
-              {/* Voice track lane */}
-              <div style={{ ...S.track, outline: dropActive ? '2px dashed var(--accent)' : 'none', outlineOffset: -3 }}
-                onDragOver={onTimelineDragOver}
-                onDragLeave={onTimelineDragLeave}
-                onDrop={onTimelineDrop}
-                onClick={e => {
-                  if (!dragClipId && !resizingClip) {
-                    setSelectedClipId(null)
-                    const pos = getSecFromEvent(e)
-                    setPlayhead(pos)
-                    if (playing) startPlayback(pos)
-                  }
-                }}>
-                {ticks.map(t => (
-                  <div key={t} style={{ position: 'absolute', left: t * zoom, top: 0, bottom: 0, width: 1, background: 'var(--border-3)' }} />
-                ))}
-
-                {timelineClips.length === 0 && (
-                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--text-3)', pointerEvents: 'none', letterSpacing: '0.2px' }}>
-                    {dropActive ? '✦ Drop to place clip' : 'Drag clips from the library onto this track'}
-                  </div>
+              <div style={{ padding: '4px 10px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Track 1 · Voiceover{laneCount > 1 ? ` · ${laneCount} lanes` : ''}
+                </span>
+                <button
+                  onClick={() => setManualLaneCount(laneCount + 1)}
+                  style={{ fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 5, border: '1px solid var(--border-2)', background: 'var(--surface)', color: 'var(--text-2)', cursor: 'pointer' }}
+                  title="Add a new vertical lane">+ Lane</button>
+                {laneCount > 1 && !timelineClips.some(c => (c.lane ?? 0) === laneCount - 1) && (
+                  <button
+                    onClick={() => setManualLaneCount(Math.max(1, laneCount - 1))}
+                    style={{ fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 5, border: '1px solid var(--border-2)', background: 'var(--surface)', color: 'var(--text-3)', cursor: 'pointer' }}
+                    title="Remove the empty bottom lane">− Lane</button>
                 )}
-
-                {/* Clips */}
-                {timelineClips.map(clip => {
-                  const isGap    = clip.isGap
-                  const isBroken = brokenClipIds.has(clip.id)
-                  const col = isBroken ? '#c0392b' : isGap ? 'var(--text-3)' : CLIP_COLORS[clip.ci % CLIP_COLORS.length]
-                  const lt  = isBroken ? 'rgba(192,57,43,0.10)' : isGap ? 'var(--bg-3)' : CLIP_LIGHTS[clip.ci % CLIP_LIGHTS.length]
-                  const clipW = Math.max(clip.dur * zoom, 30)
-                  const isActive   = dragClipId === clip.id
-                  const isSelected = selectedClipId === clip.id
-                  const script = project.scripts.find(s => s.id === clip.scriptId)
-                  const peaks  = script?.waveformPeaks
-                  const bars   = Math.max(Math.floor((clipW - 16) / 7), 4)
-
-                  return (
-                    <div key={clip.id}
-                      onMouseDown={e => onClipMouseDown(e, clip)}
-                      onClick={e => { e.stopPropagation(); setSelectedClipId(clip.id) }}
-                      style={{ position: 'absolute', left: clip.start * zoom, top: 4, height: 72, width: clipW, borderRadius: 7, background: lt, border: `1.5px solid ${isSelected ? col : col + '66'}`, cursor: isActive ? 'grabbing' : 'grab', overflow: 'visible', zIndex: isActive || isSelected ? 100 : 10, boxShadow: isSelected ? `0 0 0 2px ${col}44` : isActive ? '0 6px 18px rgba(30,22,10,0.14)' : 'none', transition: isActive ? 'none' : 'box-shadow 0.12s' }}>
-
-                      {/* Clip inner — clipped */}
-                      <div style={{ position: 'absolute', inset: 0, borderRadius: 7, overflow: 'hidden' }}>
-                        {/* Header */}
-                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 22, background: col + '22', borderBottom: `1px solid ${col}33`, display: 'flex', alignItems: 'center', padding: '0 8px', gap: 4 }}>
-                          <span style={{ fontSize: 10.5, fontWeight: 600, color: isGap ? 'var(--text-3)' : col, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                            {isBroken ? '⚠ ' : isGap ? '⏸ ' : ''}{clip.title}
-                          </span>
-                          <span style={{ fontSize: 9.5, color: col + 'aa', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>{fmt(Math.floor(clip.dur))}</span>
-                          {clip.volume !== 1 && !isGap && (
-                            <span style={{ fontSize: 9, color: col, fontFamily: 'var(--mono)' }}>{Math.round(clip.volume * 100)}%</span>
-                          )}
-                          <button onMouseDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); removeClip(clip.id) }}
-                            style={{ width: 14, height: 14, borderRadius: 3, background: 'rgba(30,22,10,0.12)', border: 'none', cursor: 'pointer', color: 'var(--text-2)', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, flexShrink: 0, fontFamily: 'inherit' }}>×</button>
-                        </div>
-
-                        {/* Waveform */}
-                        {!isGap && (
-                          <div style={{ position: 'absolute', bottom: 6, left: 6, right: 6, display: 'flex', alignItems: 'flex-end', gap: 1.5, height: 30, overflow: 'hidden' }}>
-                            {Array.from({ length: bars }).map((_, j) => {
-                              const peakVal = peaks ? peaks[Math.floor(j / bars * peaks.length)] : (0.2 + Math.abs(Math.sin(clip.scriptId.charCodeAt(0) * 17 + j * 0.7)) * 0.5)
-                              return (
-                                <div key={j} style={{ width: 3.5, borderRadius: 2, flexShrink: 0, height: Math.max(2, Math.round(peakVal * 28)) + 'px', background: col + '99' }} />
-                              )
-                            })}
-                          </div>
-                        )}
-
-                        {/* Gap stripe */}
-                        {isGap && (
-                          <div style={{ position: 'absolute', inset: '22px 0 0 0', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.4 }}>
-                            <span style={{ fontSize: 18 }}>⏸</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Left trim handle */}
-                      {!isGap && (
-                        <div onMouseDown={e => onResizeMouseDown(e, clip, 'left')}
-                          style={{ position: 'absolute', left: -4, top: 0, bottom: 0, width: 10, cursor: 'ew-resize', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <div style={{ width: 4, height: 28, borderRadius: 2, background: col + 'cc', boxShadow: '0 0 4px rgba(0,0,0,0.2)' }} />
-                        </div>
-                      )}
-                      {/* Right trim handle */}
-                      {!isGap && (
-                        <div onMouseDown={e => onResizeMouseDown(e, clip, 'right')}
-                          style={{ position: 'absolute', right: -4, top: 0, bottom: 0, width: 10, cursor: 'ew-resize', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <div style={{ width: 4, height: 28, borderRadius: 2, background: col + 'cc', boxShadow: '0 0 4px rgba(0,0,0,0.2)' }} />
-                        </div>
-                      )}
-
-                      {/* Volume popup (shows when selected and non-gap) */}
-                      {isSelected && !isGap && (
-                        <div onMouseDown={e => e.stopPropagation()}
-                          style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 8, padding: '8px 12px', boxShadow: 'var(--shadow-lg)', zIndex: 300, display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', minWidth: 160 }}>
-                          <span style={{ display: 'flex', width: 12, height: 12, color: 'var(--text-2)' }}>{icons.volume}</span>
-                          <span style={{ fontSize: 11, color: 'var(--text-2)' }}>Volume</span>
-                          <input type="range" min="0" max="2" step="0.05" value={clip.volume}
-                            onChange={e => setTimelineClips(timelineClips.map(c => c.id === clip.id ? { ...c, volume: parseFloat(e.target.value) } : c))}
-                            style={{ width: 80, accentColor: col }} />
-                          <span style={{ fontSize: 11, color: col, fontFamily: 'var(--mono)', width: 30 }}>{Math.round(clip.volume * 100)}%</span>
-                        </div>
-                      )}
-
-                      {/* Trim start indicator */}
-                      {!isGap && clip.trimStart > 0 && (
-                        <div style={{ position: 'absolute', left: 6, top: 24, fontSize: 9, color: col, fontFamily: 'var(--mono)' }}>↠{fmt(Math.floor(clip.trimStart))}</div>
-                      )}
-                    </div>
-                  )
-                })}
-
-                {/* Playhead in track */}
-                <div style={{ position: 'absolute', left: playhead * zoom, top: 0, bottom: 0, width: 2, background: 'var(--accent)', zIndex: 50, pointerEvents: 'none', opacity: 0.7 }} />
               </div>
+
+              {/* Voice track lanes (vertical rows, all part of Track 1) */}
+              {Array.from({ length: laneCount }).map((_, lane) => {
+                const laneClips = timelineClips.filter(c => (c.lane ?? 0) === lane)
+                const isDropTarget = dropLane === lane
+                return (
+                  <div key={lane}
+                    ref={el => { laneRefs.current[lane] = el }}
+                    style={{ ...S.track, marginTop: lane === 0 ? 4 : 2, outline: isDropTarget ? '2px dashed var(--accent)' : 'none', outlineOffset: -3 }}
+                    onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDropLane(lane) }}
+                    onDragLeave={() => { setDropLane(null) }}
+                    onDrop={e => onTimelineDrop(e, lane)}
+                    onClick={e => {
+                      if (!dragClipId && !resizingClip) {
+                        setSelectedClipId(null)
+                        const pos = getSecFromEvent(e)
+                        setPlayhead(pos)
+                        if (playing) startPlayback(pos)
+                      }
+                    }}>
+                    {ticks.map(t => (
+                      <div key={t} style={{ position: 'absolute', left: t * zoom, top: 0, bottom: 0, width: 1, background: 'var(--border-3)' }} />
+                    ))}
+
+                    {/* Lane badge */}
+                    {laneCount > 1 && (
+                      <span style={{ position: 'absolute', top: 2, left: 4, fontSize: 8.5, fontWeight: 700, color: 'var(--text-3)', fontFamily: 'var(--mono)', opacity: 0.6, pointerEvents: 'none', zIndex: 1 }}>L{lane + 1}</span>
+                    )}
+
+                    {timelineClips.length === 0 && lane === 0 && (
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--text-3)', pointerEvents: 'none', letterSpacing: '0.2px' }}>
+                        {isDropTarget ? '✦ Drop to place clip' : 'Drag clips from the library onto this track'}
+                      </div>
+                    )}
+
+                    {/* Clips on this lane */}
+                    {laneClips.map(renderClip)}
+
+                    {/* Playhead in lane */}
+                    <div style={{ position: 'absolute', left: playhead * zoom, top: 0, bottom: 0, width: 2, background: 'var(--accent)', zIndex: 50, pointerEvents: 'none', opacity: 0.7 }} />
+                  </div>
+                )
+              })}
 
               {/* Music track */}
               {bgMusicBlob && (
