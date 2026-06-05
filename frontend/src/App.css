@@ -1148,11 +1148,57 @@
 }
 
 /* ── Settings Page ───────────────────────────────────────────────── */
+/* Settings page — Claude-style drill-down */
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100svh - var(--topbar-h));
+}
+
+.settings-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  height: 52px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+  flex-shrink: 0;
+}
+
+.settings-topbar h1 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+  margin: 0;
+}
+
+.settings-topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.settings-topbar-brand .logo-mark {
+  width: 24px; height: 24px;
+  font-size: 12px;
+}
+
+.settings-saved-label {
+  font-size: 12px;
+  color: var(--success, #22c55e);
+  animation: fadeIn 0.2s ease;
+}
+
 .settings-layout {
   display: grid;
   grid-template-columns: 200px 1fr;
   gap: 0;
-  min-height: calc(100svh - var(--topbar-h));
+  flex: 1;
+  min-height: 0;
 }
 
 .settings-nav {
@@ -1184,6 +1230,74 @@
 .settings-nav-item:hover { background: var(--bg-3); color: var(--text-1) }
 .settings-nav-item--active { background: var(--accent-lt); color: var(--accent); }
 .settings-nav-item--active svg { opacity: 1 }
+
+/* Mobile menu items */
+.settings-nav-item__icon { display: flex; align-items: center; flex-shrink: 0 }
+.settings-nav-item__body { display: flex; flex-direction: column; flex: 1; min-width: 0 }
+.settings-nav-item__label { font-size: 14px; font-weight: 500; color: var(--text-1) }
+.settings-nav-item__hint { font-size: 12px; color: var(--text-3); margin-top: 1px }
+.settings-nav-item__chevron { margin-left: auto; color: var(--text-3); flex-shrink: 0 }
+.settings-nav-item__label--warn { color: var(--danger, #ef4444) }
+.settings-nav-item--signout { color: var(--danger, #ef4444) }
+.settings-nav-item--signout:hover { background: rgba(239,68,68,0.08) }
+
+/* Mobile profile card */
+.settings-profile-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+
+.settings-avatar {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 700;
+  flex-shrink: 0;
+}
+
+.settings-avatar--lg {
+  width: 64px; height: 64px;
+  font-size: 24px;
+}
+
+/* Mobile nav grouped card */
+.settings-menu-group {
+  margin: 0 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-2);
+}
+
+.settings-menu-group--danger {
+  border-color: rgba(239,68,68,0.25);
+}
+
+.settings-menu-group .settings-nav-item {
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 14px 16px;
+  margin: 0;
+  width: 100%;
+}
+
+.settings-menu-group .settings-nav-item:last-child {
+  border-bottom: none;
+}
+
+/* Row control column */
+.settings-row__control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 
 .settings-content {
   padding: 28px 32px;
@@ -2629,19 +2743,26 @@
   }
   .auth-brand { margin-bottom: 28px !important; }
 
-  /* Settings mobile */
-  .settings-layout { grid-template-columns: 1fr }
+  /* Settings mobile — drill-down, no horizontal tabs */
+  .settings-layout { display: block }
   .settings-nav {
     border-right: none;
-    border-bottom: 1px solid var(--border);
-    padding: 8px;
-    display: flex;
-    flex-direction: row;
-    gap: 4px;
-    overflow-x: auto;
+    padding: 16px 16px 8px;
+    background: var(--bg-1);
   }
-  .settings-nav-item { white-space: nowrap; flex-shrink: 0; width: auto }
+  .settings-nav-item {
+    white-space: normal;
+    width: 100%;
+    padding: 14px 16px;
+  }
   .settings-content { padding: 20px 16px; max-width: 100% }
+  .settings-topbar { padding: 0 16px }
+  .settings-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .settings-row__control { width: 100% }
 
   /* Prevent iOS auto-zoom on input focus */
   .full-input { font-size: 16px !important; }
