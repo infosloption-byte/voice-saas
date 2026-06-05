@@ -110,7 +110,8 @@
 }
 
 .sidebar__close {
-  display: none;
+  display: flex;
+  margin-left: auto;
   margin-left: auto;
 }
 
@@ -290,12 +291,24 @@
 
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.45} }
 
+/* ── Desktop sidebar collapse ───────────────────────────────────── */
+.shell--sidebar-collapsed .sidebar {
+  transform: translateX(-100%);
+}
+.shell--sidebar-collapsed .topbar__hamburger {
+  display: flex;
+}
+.shell--sidebar-collapsed .page {
+  margin-left: 0;
+}
+
 /* ── Page body ───────────────────────────────────────────────────── */
 .page {
   margin-left: var(--sidebar-w);
   flex: 1;
   display: flex;
   flex-direction: column;
+  transition: margin-left 0.22s ease;
   min-height: 100svh;
   overflow: hidden;
   background: var(--bg);
@@ -2291,9 +2304,8 @@
   }
 
   .sidebar-overlay { display: block }
-  .sidebar__close { display: flex }
 
-  .page { margin-left: 0 }
+  .page { margin-left: 0 !important }
 
   .topbar { padding: 0 14px; gap: 8px }
   .topbar__hamburger { display: flex }
