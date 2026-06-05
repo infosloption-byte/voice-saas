@@ -7,6 +7,7 @@ import type { GateType } from './hooks/useGuestSession'
 import type { LaneMix } from './hooks/useAudio'
 
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL as string | undefined
+const GUTTER_W = 68  // px width of the per-lane controls gutter
 
 interface BgMusic { blob: Blob; volume: number }
 
@@ -58,6 +59,19 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
   const [laneMute, setLaneMute] = useState<Record<number, boolean>>({})
   // Fade drag state: which clip handle is being dragged
   const [fadeDrag, setFadeDrag] = useState<{ id: string; side: 'in' | 'out'; initX: number; initVal: number } | null>(null)
+
+  // Responsive: collapsible library panel
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768)
+  const [libOpen, setLibOpen] = useState(() => window.innerWidth >= 768)
+  useEffect(() => {
+    const handler = () => {
+      const mobile = window.innerWidth < 768
+      setIsMobile(mobile)
+      if (!mobile) setLibOpen(true)
+    }
+    window.addEventListener('resize', handler)
+    return () => window.removeEventListener('resize', handler)
+  }, [])
 
   // Number of vertical lanes to render: enough to cover every clip's lane,
   // at least one, and never fewer than the user asked for via "Add Lane".
@@ -213,7 +227,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
   function getSecFromEvent(e: React.MouseEvent | React.DragEvent): number {
     if (!timelineRef.current) return 0
     const rect = timelineRef.current.getBoundingClientRect()
-    const x = e.clientX - rect.left + timelineRef.current.scrollLeft
+    const x = e.clientX - rect.left + timelineRef.current.scrollLeft - GUTTER_W
     return Math.max(0, Math.round((x / zoom) * 10) / 10)
   }
 
@@ -530,7 +544,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
       <div key={clip.id}
         onMouseDown={e => onClipMouseDown(e, clip)}
         onClick={e => { e.stopPropagation(); setSelectedClipId(clip.id) }}
-        style={{ position: 'absolute', left: clip.start * zoom, top: 4, height: 72, width: clipW, borderRadius: 7, background: lt, border: `1.5px solid ${isSelected ? col : col + '66'}`, cursor: isActive ? 'grabbing' : 'grab', overflow: 'visible', zIndex: isActive || isSelected ? 100 : 10, boxShadow: isSelected ? `0 0 0 2px ${col}44` : isActive ? '0 6px 18px rgba(30,22,10,0.14)' : 'none', transition: isActive ? 'none' : 'box-shadow 0.12s' }}>
+        style={{ position: 'absolute', left: GUTTER_W + clip.start * zoom, top: 4, height: 72, width: clipW, borderRadius: 7, background: lt, border: `1.5px solid ${isSelected ? col : col + '66'}`, cursor: isActive ? 'grabbing' : 'grab', overflow: 'visible', zIndex: isActive || isSelected ? 100 : 10, boxShadow: isSelected ? `0 0 0 2px ${col}44` : isActive ? '0 6px 18px rgba(30,22,10,0.14)' : 'none', transition: isActive ? 'none' : 'box-shadow 0.12s' }}>
 
         {/* Clip inner — clipped */}
         <div style={{ position: 'absolute', inset: 0, borderRadius: 7, overflow: 'hidden' }}>
@@ -625,22 +639,22 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
   const tickInterval = zoom >= 120 ? 2 : zoom >= 70 ? 5 : zoom >= 40 ? 10 : 30
   const ticks: number[] = []
   for (let t = 0; t <= totalDur + tickInterval; t += tickInterval) ticks.push(t)
-  const timelineWidth = Math.max(totalDur * zoom + 200, 800)
+  const timelineWidth = Math.max(totalDur * zoom + 200, 800) + GUTTER_W
 
   const S = {
     shell:         { display: 'flex', flexDirection: 'column' as const, height: 'calc(100svh - var(--topbar-h) - var(--tabs-h))', background: 'var(--bg)' } as React.CSSProperties,
-    transport:     { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderBottom: '1px solid var(--border)', background: 'var(--bg)', flexShrink: 0, flexWrap: 'wrap' as const } as React.CSSProperties,
+    transport:     { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderBottom: '1px solid var(--border)', background: 'var(--bg)', flexShrink: 0, flexWrap: 'wrap' as const, overflowX: 'auto' as const } as React.CSSProperties,
     sep:           { width: 1, height: 20, background: 'var(--border-2)', margin: '0 2px', flexShrink: 0 } as React.CSSProperties,
-    body:          { display: 'flex', flex: 1, overflow: 'hidden' } as React.CSSProperties,
-    libPanel:      { width: 210, flexShrink: 0, background: 'var(--bg-2)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column' as const, overflow: 'hidden' } as React.CSSProperties,
-    libHeader:     { padding: '9px 12px 5px', color: 'var(--text-3)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.7px', flexShrink: 0 } as React.CSSProperties,
-    libList:       { flex: 1, overflowY: 'auto' as const, padding: '4px 8px 8px', display: 'flex', flexDirection: 'column' as const, gap: 4 } as React.CSSProperties,
-    timelineArea:  { flex: 1, display: 'flex', flexDirection: 'column' as const, overflow: 'hidden' } as React.CSSProperties,
-    timelineScroll:{ flex: 1, overflowX: 'auto' as const, overflowY: 'auto' as const, cursor: dragClipId || resizingClip ? 'grabbing' : draggingPlayhead ? 'ew-resize' : 'default', userSelect: 'none' as const } as React.CSSProperties,
+    body:          { display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' as const } as React.CSSProperties,
+    libPanel:      { width: isMobile ? '100%' : 210, maxWidth: isMobile ? '100%' : 210, flexShrink: 0, background: 'var(--bg-2)', borderRight: '1px solid var(--border)', display: libOpen ? 'flex' : 'none', flexDirection: 'column' as const, overflow: 'hidden', position: isMobile ? 'absolute' as const : 'relative' as const, top: isMobile ? 0 : undefined, left: isMobile ? 0 : undefined, bottom: isMobile ? 0 : undefined, zIndex: isMobile ? 200 : undefined } as React.CSSProperties,
+    libHeader:     { padding: '9px 12px 5px', color: 'var(--text-3)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.7px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' } as React.CSSProperties,
+    libList:       { flex: 1, minHeight: 0, overflowY: 'auto' as const, padding: '4px 8px 8px', display: 'flex', flexDirection: 'column' as const, gap: 4 } as React.CSSProperties,
+    timelineArea:  { flex: 1, display: 'flex', flexDirection: 'column' as const, overflow: 'hidden', minWidth: 0 } as React.CSSProperties,
+    timelineScroll:{ flex: 1, overflowX: 'auto' as const, overflowY: 'auto' as const, cursor: dragClipId || resizingClip ? 'grabbing' : draggingPlayhead ? 'ew-resize' : 'default', userSelect: 'none' as const, WebkitOverflowScrolling: 'touch' as const } as React.CSSProperties,
     ruler:         { height: 30, background: 'var(--bg-3)', borderBottom: '1px solid var(--border-2)', position: 'sticky' as const, top: 0, zIndex: 10, overflow: 'hidden' } as React.CSSProperties,
-    track:         { height: 80, background: 'var(--bg-2)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', margin: '14px 0 4px', position: 'relative' as const } as React.CSSProperties,
+    track:         { height: 80, background: 'var(--bg-2)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', margin: '14px 0 4px', position: 'relative' as const, overflow: 'visible' } as React.CSSProperties,
     musicTrack:    { height: 40, background: 'var(--bg-3)', borderBottom: '1px solid var(--border)', position: 'relative' as const } as React.CSSProperties,
-    footer:        { padding: '7px 14px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-2)', flexShrink: 0, flexWrap: 'wrap' as const } as React.CSSProperties,
+    footer:        { padding: '7px 14px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-2)', flexShrink: 0, flexWrap: 'wrap' as const, overflowX: 'auto' as const } as React.CSSProperties,
   }
 
   const tBtn = (extra: React.CSSProperties = {}) => ({
@@ -660,6 +674,13 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
         </button>
         <button style={tBtn()} onClick={() => { stopPlayback(); setPlayhead(0) }} title="Stop">
           <span style={{ display: 'flex', width: 16, height: 16 }}>{icons.stop}</span>
+        </button>
+
+        {/* Library toggle — always visible, essential on mobile */}
+        <button style={tBtn({ background: libOpen && !isMobile ? 'var(--accent-muted,var(--bg-3))' : undefined })}
+          onClick={() => setLibOpen(o => !o)} title="Toggle clip library">
+          <span style={{ display: 'flex', width: 14, height: 14 }}>{icons.speaker}</span>
+          {!isMobile && <span style={{ fontSize: 11 }}>Library</span>}
         </button>
 
         <div style={S.sep} />
@@ -748,9 +769,21 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
 
       {/* Main body */}
       <div style={S.body}>
+        {/* Mobile overlay backdrop */}
+        {isMobile && libOpen && (
+          <div onClick={() => setLibOpen(false)}
+            style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 199 }} />
+        )}
+
         {/* Asset library */}
         <div style={S.libPanel}>
-          <div style={S.libHeader}>Clip Library</div>
+          <div style={S.libHeader}>
+            <span>Clip Library</span>
+            {isMobile && (
+              <button onClick={() => setLibOpen(false)}
+                style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-2)', fontSize: 18, lineHeight: 1, padding: '0 4px' }}>×</button>
+            )}
+          </div>
           <div style={S.libList}>
             {withAudio.length === 0 ? (
               <div className="empty-state" style={{ padding: '24px 8px', textAlign: 'center' }}>
@@ -835,7 +868,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
             if (!sel) return null
             const selCol = sel.isGap ? 'var(--text-3)' : CLIP_COLORS[sel.ci % CLIP_COLORS.length]
             return (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderBottom: '1px solid var(--border)', background: 'var(--bg-2)', flexShrink: 0, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderBottom: '1px solid var(--border)', background: 'var(--bg-2)', flexShrink: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' as const }}>
                 <span style={{ width: 9, height: 9, borderRadius: 2, background: selCol, flexShrink: 0 }} />
                 <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-1)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {sel.isGap ? '⏸ ' : ''}{sel.title}
@@ -895,17 +928,21 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
                   setDraggingPlayhead(true)
                   if (playing) stopPlayback()
                 }}>
+                {/* Gutter spacer in ruler */}
+                <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: GUTTER_W, background: 'var(--bg-3)', borderRight: '1px solid var(--border-2)', zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ fontSize: 9, color: 'var(--text-3)', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase' }}>LANE</span>
+                </div>
                 {ticks.map(t => (
-                  <div key={t} style={{ position: 'absolute', left: t * zoom, top: 0, bottom: 0 }}>
+                  <div key={t} style={{ position: 'absolute', left: GUTTER_W + t * zoom, top: 0, bottom: 0 }}>
                     <span style={{ fontSize: 10, color: 'var(--text-3)', paddingLeft: 3, paddingTop: 3, display: 'block', whiteSpace: 'nowrap', fontFamily: 'var(--mono)' }}>{fmt(t)}</span>
                     <div style={{ position: 'absolute', bottom: 0, left: 0, width: 1, height: 8, background: 'var(--border-2)' }} />
                   </div>
                 ))}
                 {ticks.slice(0, -1).flatMap(t => [0.25, 0.5, 0.75].map(frac => (
-                  <div key={`m${t}_${frac}`} style={{ position: 'absolute', left: t * zoom + frac * zoom * tickInterval, bottom: 0, width: 1, height: frac === 0.5 ? 7 : 4, background: 'var(--border)' }} />
+                  <div key={`m${t}_${frac}`} style={{ position: 'absolute', left: GUTTER_W + t * zoom + frac * zoom * tickInterval, bottom: 0, width: 1, height: frac === 0.5 ? 7 : 4, background: 'var(--border)' }} />
                 )))}
                 {/* Playhead on ruler */}
-                <div data-playhead="true" style={{ position: 'absolute', left: playhead * zoom, top: 0, bottom: 0, width: 2, background: 'var(--accent)', zIndex: 20 }}>
+                <div data-playhead="true" style={{ position: 'absolute', left: GUTTER_W + playhead * zoom, top: 0, bottom: 0, width: 2, background: 'var(--accent)', zIndex: 20 }}>
                   <div data-playhead="true"
                     onMouseDown={e => { e.preventDefault(); e.stopPropagation(); setDraggingPlayhead(true); if (playing) stopPlayback() }}
                     style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 14, height: 18, background: 'var(--accent)', borderRadius: '3px 3px 2px 2px', cursor: draggingPlayhead ? 'grabbing' : 'ew-resize', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', paddingBottom: 2, boxShadow: '0 2px 6px rgba(201,100,66,0.4)' }}>
@@ -915,17 +952,14 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
               </div>
 
               {/* Track label */}
-              <div style={{ padding: '4px 10px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ padding: '4px 10px 0', paddingLeft: GUTTER_W + 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Track 1 · Voiceover{laneCount > 1 ? ` · ${laneCount} lanes` : ''}
                 </span>
                 <button
                   onClick={() => setManualLaneCount(laneCount + 1)}
-                  style={{ fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 5, border: '1px solid var(--border-2)', background: 'var(--surface)', color: 'var(--text-2)', cursor: 'pointer' }}
+                  style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 5, border: '1px solid var(--border-2)', background: 'var(--surface)', color: 'var(--text-2)', cursor: 'pointer' }}
                   title="Add a new vertical lane">+ Lane</button>
-                {laneCount > 1 && (
-                  <span style={{ fontSize: 10, color: 'var(--text-3)' }}>· hover a lane's left edge to remove it</span>
-                )}
               </div>
 
               {/* Voice track lanes (vertical rows, all part of Track 1) */}
@@ -948,37 +982,40 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
                       }
                     }}>
                     {ticks.map(t => (
-                      <div key={t} style={{ position: 'absolute', left: t * zoom, top: 0, bottom: 0, width: 1, background: 'var(--border-3)' }} />
+                      <div key={t} style={{ position: 'absolute', left: GUTTER_W + t * zoom, top: 0, bottom: 0, width: 1, background: 'var(--border-3)' }} />
                     ))}
 
-                    {/* Lane label + Solo/Mute + remove — sticky left */}
-                    <div style={{ position: 'sticky', left: 4, top: 2, width: 0, height: 0, zIndex: 60 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                        <span style={{ fontSize: 8.5, fontWeight: 700, color: 'var(--text-3)', fontFamily: 'var(--mono)', opacity: 0.7, whiteSpace: 'nowrap' }}>L{lane + 1}</span>
-                        {/* Solo */}
+                    {/* Lane gutter — sticky at left:0 so it stays visible while scrolling horizontally */}
+                    <div
+                      onMouseDown={e => e.stopPropagation()}
+                      onClick={e => e.stopPropagation()}
+                      style={{ position: 'sticky', left: 0, top: 0, width: GUTTER_W, height: '100%', zIndex: 50, background: 'var(--bg-3)', borderRight: '2px solid var(--border)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 5, flexShrink: 0 }}>
+                      {/* Lane label */}
+                      <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>L{lane + 1}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        {/* Solo button */}
                         <button
                           onMouseDown={e => e.stopPropagation()}
                           onClick={e => { e.stopPropagation(); setLaneSolo(prev => ({ ...prev, [lane]: !prev[lane] })) }}
-                          title={`Solo lane ${lane + 1}`}
-                          style={{ width: 15, height: 15, borderRadius: 3, border: `1px solid ${laneSolo[lane] ? '#f5a623' : 'var(--border-2)'}`, background: laneSolo[lane] ? '#f5a623' : 'var(--surface)', color: laneSolo[lane] ? '#fff' : 'var(--text-3)', fontSize: 8, fontWeight: 700, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>S</button>
-                        {/* Mute */}
+                          title={`Solo lane ${lane + 1} — only this lane plays`}
+                          style={{ minWidth: 24, height: 24, borderRadius: 4, border: `1.5px solid ${laneSolo[lane] ? '#f5a623' : 'var(--border-2)'}`, background: laneSolo[lane] ? '#f5a623' : 'var(--surface)', color: laneSolo[lane] ? '#fff' : 'var(--text-2)', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', boxShadow: laneSolo[lane] ? '0 0 6px rgba(245,166,35,0.5)' : 'none' }}>S</button>
+                        {/* Mute button */}
                         <button
                           onMouseDown={e => e.stopPropagation()}
                           onClick={e => { e.stopPropagation(); setLaneMute(prev => ({ ...prev, [lane]: !prev[lane] })) }}
-                          title={`Mute lane ${lane + 1}`}
-                          style={{ width: 15, height: 15, borderRadius: 3, border: `1px solid ${laneMute[lane] ? '#e74c3c' : 'var(--border-2)'}`, background: laneMute[lane] ? '#e74c3c' : 'var(--surface)', color: laneMute[lane] ? '#fff' : 'var(--text-3)', fontSize: 8, fontWeight: 700, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>M</button>
-                        {laneClips.length === 0 && (
-                          <button
-                            onMouseDown={e => e.stopPropagation()}
-                            onClick={e => { e.stopPropagation(); removeLane(lane) }}
-                            title="Remove this empty lane"
-                            style={{ width: 15, height: 15, borderRadius: 3, border: '1px solid var(--border-2)', background: 'var(--surface)', color: 'var(--text-3)', fontSize: 11, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>×</button>
-                        )}
+                          title={`Mute lane ${lane + 1} — exclude from playback and export`}
+                          style={{ minWidth: 24, height: 24, borderRadius: 4, border: `1.5px solid ${laneMute[lane] ? '#e74c3c' : 'var(--border-2)'}`, background: laneMute[lane] ? '#e74c3c' : 'var(--surface)', color: laneMute[lane] ? '#fff' : 'var(--text-2)', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', boxShadow: laneMute[lane] ? '0 0 6px rgba(231,76,60,0.5)' : 'none' }}>M</button>
                       </div>
+                      {/* Remove lane button — always shown; warns if lane has clips */}
+                      <button
+                        onMouseDown={e => e.stopPropagation()}
+                        onClick={e => { e.stopPropagation(); removeLane(lane) }}
+                        title={laneClips.length === 0 ? 'Remove this lane' : 'Move or delete clips first'}
+                        style={{ minWidth: 24, height: 20, borderRadius: 4, border: '1px solid var(--border-2)', background: laneClips.length === 0 ? 'var(--surface)' : 'transparent', color: laneClips.length === 0 ? 'var(--text-2)' : 'var(--border-2)', fontSize: 13, fontWeight: 400, cursor: laneClips.length === 0 ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, opacity: laneClips.length === 0 ? 1 : 0.3, transition: 'opacity 0.15s' }}>×</button>
                     </div>
 
                     {timelineClips.length === 0 && lane === 0 && (
-                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--text-3)', pointerEvents: 'none', letterSpacing: '0.2px' }}>
+                      <div style={{ position: 'absolute', left: GUTTER_W, right: 0, top: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--text-3)', pointerEvents: 'none', letterSpacing: '0.2px' }}>
                         {isDropTarget ? '✦ Drop to place clip' : 'Drag clips from the library onto this track'}
                       </div>
                     )}
@@ -987,7 +1024,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
                     {laneClips.map(renderClip)}
 
                     {/* Playhead in lane */}
-                    <div style={{ position: 'absolute', left: playhead * zoom, top: 0, bottom: 0, width: 2, background: 'var(--accent)', zIndex: 50, pointerEvents: 'none', opacity: 0.7 }} />
+                    <div style={{ position: 'absolute', left: GUTTER_W + playhead * zoom, top: 0, bottom: 0, width: 2, background: 'var(--accent)', zIndex: 49, pointerEvents: 'none', opacity: 0.7 }} />
                   </div>
                 )
               })}
@@ -1008,7 +1045,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
                       <span style={{ display: 'flex', width: 12, height: 12, color: 'var(--accent)', opacity: 0.6 }}>{icons.music}</span>
                       <span style={{ fontSize: 11, color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bgMusicName} — loops to fill timeline</span>
                     </div>
-                    <div style={{ position: 'absolute', left: playhead * zoom, top: 0, bottom: 0, width: 2, background: 'var(--accent)', zIndex: 50, pointerEvents: 'none', opacity: 0.7 }} />
+                    <div style={{ position: 'absolute', left: GUTTER_W + playhead * zoom, top: 0, bottom: 0, width: 2, background: 'var(--accent)', zIndex: 50, pointerEvents: 'none', opacity: 0.7 }} />
                   </div>
                 </>
               )}
