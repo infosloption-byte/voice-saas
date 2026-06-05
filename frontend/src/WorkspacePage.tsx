@@ -123,7 +123,7 @@ export function WorkspacePage({
   onGuestGate?: (type: GateType) => void
   onGuestSynthesisUsed?: () => void
   onRecheckEngine?: () => void
-  onUploadAudio?: (scriptId: string, blob: Blob) => void
+  onUploadAudio?: (scriptId: string, blob: Blob) => Promise<void>
 }) {
   const activeScript = project.scripts.find(s => s.id === activeScriptId) ?? null
 
@@ -143,6 +143,8 @@ export function WorkspacePage({
   const [showScriptList, setShowScriptList] = useState(true)
   const [transcribing, setTranscribing]     = useState(false)
   const [showEngineMenu, setShowEngineMenu] = useState(false)
+  const [showLangMenu,   setShowLangMenu]   = useState(false)
+  const [showVoiceMenu,  setShowVoiceMenu]  = useState(false)
   const [showTemplateModal, setShowTemplateModal] = useState(false)
   const [pendingTranscription, setPendingTranscription] = useState<string | null>(null)
   const [importParagraphs, setImportParagraphs] = useState<string[] | null>(null)
@@ -180,13 +182,27 @@ export function WorkspacePage({
     setSynthErr('')
 
     if (activeScript?.hasAudio && activeScript.id) {
-      loadAudioBlob(`audio_${activeScript.id}`).then(url => {
+      const sid = activeScript.id
+      const audioUrl = activeScript.audioUrl
+      loadAudioBlob(`audio_${sid}`).then(async url => {
         if (url) {
           setAudioUrl(url)
+        } else if (audioUrl) {
+          // Not in IndexedDB — try to restore from the server (multi-device sync)
+          try {
+            const blob = await api.get(`/scripts/${sid}/audio`) as Blob
+            if (blob instanceof Blob) {
+              await saveAudioBlob(`audio_${sid}`, blob)
+              const restored = await loadAudioBlob(`audio_${sid}`)
+              if (restored) { setAudioUrl(restored); return }
+            }
+          } catch { /* server restore failed */ }
+          onUpdateScript(sid, { hasAudio: false, duration: null, waveformPeaks: undefined })
+          setSynthErr('Audio could not be loaded from the server. Please regenerate.')
         } else {
-          // Audio blob is gone (IndexedDB was cleared) — unmark so user knows to regenerate
-          onUpdateScript(activeScript.id, { hasAudio: false, duration: null, waveformPeaks: undefined })
-          setSynthErr('Audio was lost (browser storage was cleared). Please regenerate.')
+          // No server backup either — clear the stale flag
+          onUpdateScript(sid, { hasAudio: false, duration: null, waveformPeaks: undefined })
+          setSynthErr('Audio was lost (storage cleared). Please regenerate.')
         }
       })
     }
@@ -403,9 +419,11 @@ export function WorkspacePage({
         // Duration/peaks are non-critical — continue without them
       }
 
-      // ── Persist: save blob first, then mark script as having audio ─
+      // ── Persist: save blob locally, then upload to server so other
+      // devices can restore it.  Await upload before marking hasAudio
+      // so the DB never has has_audio=true with audio_url=null.
       await saveAudioBlob(`audio_${script.id}`, blob)
-      onUploadAudio?.(script.id, blob)
+      if (onUploadAudio) await onUploadAudio(script.id, blob)
       onUpdateScript(script.id, {
         hasAudio:      true,
         profileId:     pid,
@@ -1250,39 +1268,78 @@ export function WorkspacePage({
                 </span>
               </div>
 
-              {/*
-                Language — disabled for F5-TTS (English-first; the backend accepts
-                the field but ignores it, so we surface that clearly in the UI).
-              */}
-              <select
-                className="profile-select"
-                value={activeScript.language || 'en'}
-                onChange={e => onUpdateScript(activeScript.id, { language: e.target.value })}
-                disabled={engine === 'f5'}
-                title={
-                  engine === 'f5'
-                    ? 'Language selection is only used by XTTS v2. F5-TTS is English-first.'
-                    : 'Language'
-                }
-                style={{ opacity: engine === 'f5' ? 0.45 : 1 }}
-              >
-                {LANGUAGES.map(l => (
-                  <option key={l.code} value={l.code}>{l.label}</option>
-                ))}
-              </select>
+              {/* ── Language picker ── */}
+              {(() => {
+                const disabled = engine === 'f5'
+                const currentLang = LANGUAGES.find(l => l.code === (activeScript.language || 'en'))
+                return (
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      className="btn btn--sm btn--ghost"
+                      disabled={disabled}
+                      title={disabled ? 'Language selection is only used by XTTS v2' : 'Language'}
+                      style={{ gap: 5, paddingRight: 8, opacity: disabled ? 0.45 : 1 }}
+                      onClick={() => { if (!disabled) setShowLangMenu(v => !v) }}
+                    >
+                      <span style={{ fontSize: 12 }}>{currentLang?.label ?? 'English'}</span>
+                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ width: 10, height: 10, opacity: 0.5 }}><path d="M5 8l5 5 5-5" /></svg>
+                    </button>
+                    {showLangMenu && !disabled && (
+                      <>
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 199 }} onClick={() => setShowLangMenu(false)} />
+                        <div style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: 6, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)', zIndex: 200, minWidth: 160, maxHeight: 280, overflowY: 'auto', overflow: 'hidden auto' }}>
+                          <div style={{ padding: '8px 12px 6px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)' }}>Language</div>
+                          {LANGUAGES.map(l => (
+                            <button key={l.code} onClick={() => { onUpdateScript(activeScript.id, { language: l.code }); setShowLangMenu(false) }}
+                              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', background: (activeScript.language || 'en') === l.code ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--text-1)', transition: 'background 0.1s', borderLeft: (activeScript.language || 'en') === l.code ? '3px solid var(--accent)' : '3px solid transparent' }}>
+                              {l.label}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )
+              })()}
 
-              {/* Voice profile */}
-              {voiceProfiles.length > 0 && (
-                <select
-                  className="profile-select"
-                  value={activeScript.profileId ?? voiceProfiles[0]?.profile_id ?? ''}
-                  onChange={e => onUpdateScript(activeScript.id, { profileId: e.target.value })}
-                >
-                  {voiceProfiles.map(vp => (
-                    <option key={vp.profile_id} value={vp.profile_id}>{vp.profile_id}</option>
-                  ))}
-                </select>
-              )}
+              {/* ── Voice profile picker ── */}
+              {voiceProfiles.length > 0 && (() => {
+                const currentId = activeScript.profileId ?? voiceProfiles[0]?.profile_id ?? ''
+                const currentVp = voiceProfiles.find(vp => vp.profile_id === currentId)
+                return (
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      className="btn btn--sm btn--ghost"
+                      style={{ gap: 5, paddingRight: 8, maxWidth: 120 }}
+                      title="Voice profile"
+                      onClick={() => setShowVoiceMenu(v => !v)}
+                    >
+                      <span style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>{currentVp?.name ?? currentId}</span>
+                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ width: 10, height: 10, opacity: 0.5, flexShrink: 0 }}><path d="M5 8l5 5 5-5" /></svg>
+                    </button>
+                    {showVoiceMenu && (
+                      <>
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 199 }} onClick={() => setShowVoiceMenu(false)} />
+                        <div style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: 6, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)', zIndex: 200, minWidth: 180, maxHeight: 280, overflow: 'hidden auto' }}>
+                          <div style={{ padding: '8px 12px 6px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)' }}>Voice Profile</div>
+                          {voiceProfiles.map(vp => (
+                            <button key={vp.profile_id} onClick={() => { onUpdateScript(activeScript.id, { profileId: vp.profile_id }); setShowVoiceMenu(false) }}
+                              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 12px', border: 'none', background: currentId === vp.profile_id ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s', borderLeft: currentId === vp.profile_id ? '3px solid var(--accent)' : '3px solid transparent' }}>
+                              <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--accent-lt)', border: '1px solid var(--accent-mid)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <svg viewBox="0 0 20 20" fill="none" stroke="var(--accent)" strokeWidth="1.6" style={{ width: 11, height: 11 }}><path d="M12 2a3 3 0 0 1 3 3v4a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" /><path d="M19 10v1a7 7 0 0 1-14 0v-1" /></svg>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-1)' }}>{vp.name ?? vp.profile_id}</div>
+                                {vp.duration && <div style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>{vp.duration.toFixed(1)}s sample</div>}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )
+              })()}
 
               {/* Engine switcher */}
               <EngineSelector />

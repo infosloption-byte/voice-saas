@@ -67,6 +67,9 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
     }
   }, [project.id])
 
+  // Mobile lane picker: when user taps a library clip and there are multiple lanes
+  const [lanePickTarget, setLanePickTarget] = useState<{ script: Script; col: string; lt: string } | null>(null)
+
   // Fade drag state: which clip handle is being dragged
   const [fadeDrag, setFadeDrag] = useState<{ id: string; side: 'in' | 'out'; initX: number; initVal: number } | null>(null)
 
@@ -789,6 +792,49 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
         </button>
       </div>
 
+      {/* Lane picker modal — shown on mobile when tapping a library clip with multiple lanes */}
+      {lanePickTarget && (
+        <>
+          <div onClick={() => setLanePickTarget(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 299 }} />
+          <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)', zIndex: 300, width: 'min(340px, calc(100vw - 32px))', overflow: 'hidden' }}>
+            <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)', marginBottom: 4 }}>Add to Lane</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 26, height: 26, borderRadius: 6, background: lanePickTarget.lt, border: `1px solid ${lanePickTarget.col}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1.5, height: 14 }}>
+                    {(lanePickTarget.script.waveformPeaks ?? [0.4,0.7,0.5,0.9,0.6]).slice(0,5).map((p, j) => (
+                      <div key={j} style={{ width: 2, borderRadius: 1, height: Math.max(2, Math.round(p * 12)) + 'px', background: lanePickTarget.col }} />
+                    ))}
+                  </div>
+                </div>
+                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lanePickTarget.script.title}</span>
+              </div>
+            </div>
+            <div style={{ padding: '8px 12px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {Array.from({ length: laneCount }, (_, lane) => {
+                const clipsInLane = timelineClips.filter(c => (c.lane ?? 0) === lane)
+                const laneEnd = Math.max(0, ...clipsInLane.map(c => c.start + c.dur))
+                return (
+                  <button key={lane} onClick={() => {
+                    addToTimeline(lanePickTarget.script, laneEnd, lane)
+                    setLanePickTarget(null)
+                  }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-2)', cursor: 'pointer', textAlign: 'left', gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-1)' }}>Lane {lane + 1}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>
+                      {clipsInLane.length === 0 ? 'empty' : `${clipsInLane.length} clip${clipsInLane.length !== 1 ? 's' : ''} · ends ${fmt(laneEnd)}`}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+            <div style={{ padding: '0 12px 12px' }}>
+              <button onClick={() => setLanePickTarget(null)} style={{ width: '100%', padding: '9px', border: '1px solid var(--border-2)', borderRadius: 8, background: 'transparent', cursor: 'pointer', color: 'var(--text-2)', fontSize: 13 }}>Cancel</button>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Main body */}
       <div style={S.body}>
         {/* Mobile overlay backdrop */}
@@ -817,10 +863,17 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
               const lt  = CLIP_LIGHTS[i % CLIP_LIGHTS.length]
               const peaks = s.waveformPeaks ?? Array.from({ length: 5 }, (_, j) => 0.2 + Math.abs(Math.sin((s.id.charCodeAt(0) ?? 65) * 17 + j * 0.7)) * 0.6)
               const addAtLaneEnd = () => {
+                if (isMobile && laneCount > 1) {
+                  // Show lane picker so user can choose which lane
+                  setLanePickTarget({ script: s, col, lt })
+                  setLibOpen(false)
+                  return
+                }
+                const lane = 0
                 const laneEnd = Math.max(0, ...timelineClips
-                  .filter(c => (c.lane ?? 0) === 0)
+                  .filter(c => (c.lane ?? 0) === lane)
                   .map(c => c.start + c.dur))
-                addToTimeline(s, laneEnd, 0)
+                addToTimeline(s, laneEnd, lane)
                 if (isMobile) setLibOpen(false)
               }
               return (
