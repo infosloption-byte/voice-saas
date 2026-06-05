@@ -16,6 +16,8 @@ interface UseProjectsReturn {
   deleteScript: (projectId: string, scriptId: string) => Promise<void>
   reorderScripts: (projectId: string, scripts: Script[]) => Promise<void>
   saveTimeline: (projectId: string, clips: import('../types').TimelineClip[]) => Promise<void>
+  uploadAudio: (scriptId: string, blob: Blob) => Promise<void>
+  saveLaneConfig: (projectId: string, config: { solo: Record<number, boolean>; mute: Record<number, boolean> }) => Promise<void>
 }
 
 export function useProjects(): UseProjectsReturn {
@@ -179,6 +181,7 @@ export function useProjects(): UseProjectsReturn {
     if ('tone'          in update) payload.tone           = update.tone
     if ('speakerMap'    in update) payload.speaker_map    = update.speakerMap
     if ('waveformPeaks' in update) payload.waveform_peaks = update.waveformPeaks
+    if ('audioUrl'      in update) payload.audio_url      = update.audioUrl
 
     try {
       await api.post('/scripts/update', payload)
@@ -236,11 +239,39 @@ export function useProjects(): UseProjectsReturn {
     }
   }, [])
 
+  const uploadAudio = useCallback(async (scriptId: string, blob: Blob): Promise<void> => {
+    const fd = new FormData()
+    fd.append('file', blob, `${scriptId}.wav`)
+    try {
+      await api.post(`/scripts/${scriptId}/audio`, fd)
+      setProjects(prev => prev.map(p => ({
+        ...p,
+        scripts: p.scripts.map(s => s.id === scriptId ? { ...s, audioUrl: `/scripts/${scriptId}/audio` } : s),
+      })))
+    } catch (e) {
+      console.warn('[useProjects] uploadAudio failed (IndexedDB still holds the blob):', e)
+    }
+  }, [])
+
+  const saveLaneConfig = useCallback(async (
+    projectId: string,
+    config: { solo: Record<number, boolean>; mute: Record<number, boolean> }
+  ): Promise<void> => {
+    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, laneConfig: config } : p))
+    try {
+      await api.put(`/projects/${projectId}`, { lane_config: config })
+    } catch (e) {
+      console.error('[useProjects] saveLaneConfig:', e)
+    }
+  }, [])
+
   return {
     projects, loading, error,
     loadProjects,
     addProject, updateProject, deleteProject,
     addScript, updateScript, deleteScript, reorderScripts,
     saveTimeline,
+    uploadAudio,
+    saveLaneConfig,
   }
 }

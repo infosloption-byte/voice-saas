@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Project;
 use App\Models\Script;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class ScriptController extends Controller
 {
@@ -86,10 +87,53 @@ class ScriptController extends Controller
     {
         $project = $request->user()->projects()->findOrFail($projectId);
         $script = $project->scripts()->findOrFail($id);
-        
+
+        if ($script->audio_url && Storage::disk('local')->exists($script->audio_url)) {
+            Storage::disk('local')->delete($script->audio_url);
+        }
+
         $script->delete();
 
         return response()->json(null, 204);
+    }
+
+    public function saveAudio(Request $request, string $id)
+    {
+        $script = Script::whereHas('project', function ($q) use ($request) {
+            $q->where('user_id', $request->user()->id);
+        })->findOrFail($id);
+
+        $request->validate(['file' => 'required|file|max:102400']);
+
+        $path = 'audio/' . $request->user()->id . '/' . $id . '.wav';
+
+        if ($script->audio_url && Storage::disk('local')->exists($script->audio_url)) {
+            Storage::disk('local')->delete($script->audio_url);
+        }
+
+        Storage::disk('local')->put($path, $request->file('file')->get());
+        $script->update(['audio_url' => $path]);
+
+        return response()->json(['audio_url' => $path]);
+    }
+
+    public function serveAudio(Request $request, string $id)
+    {
+        $script = Script::whereHas('project', function ($q) use ($request) {
+            $q->where('user_id', $request->user()->id);
+        })->findOrFail($id);
+
+        if (!$script->audio_url || !Storage::disk('local')->exists($script->audio_url)) {
+            abort(404, 'Audio file not found');
+        }
+
+        $content = Storage::disk('local')->get($script->audio_url);
+        return response($content, 200, [
+            'Content-Type'        => 'audio/wav',
+            'Content-Disposition' => 'inline; filename="' . $id . '.wav"',
+            'Cache-Control'       => 'private, max-age=3600',
+            'Content-Length'      => strlen($content),
+        ]);
     }
 
     public function reorder(Request $request, string $projectId)

@@ -35,6 +35,7 @@ export interface Project {
   createdAt: string
   scripts: Script[]
   timelineClips?: TimelineClip[]
+  laneConfig?: { solo: Record<number, boolean>; mute: Record<number, boolean> }
 }
 
 export interface Script {
@@ -49,6 +50,7 @@ export interface Script {
   tone: string           // 'natural' | 'expressive' | 'calm' | 'energetic'
   speakerMap?: Record<string, string>  // speaker label → profile_id
   waveformPeaks?: number[]
+  audioUrl?: string       // server-side audio backup URL (storage path)
 }
 
 export interface TimelineClip {
