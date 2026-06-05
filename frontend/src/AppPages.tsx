@@ -255,6 +255,21 @@ export function DashboardPage({ projects, voiceProfiles, onOpenProject, onGoProj
 }
 
 // ── Projects ───────────────────────────────────────────────────────
+function projectStats(p: Project) {
+  const total = p.scripts.length
+  const withAudio = p.scripts.filter(s => s.hasAudio).length
+  const totalDur = p.scripts.reduce((acc, s) => acc + (s.duration ?? 0), 0)
+  const assemblyClips = (p.timelineClips ?? []).length
+  return { total, withAudio, totalDur, assemblyClips }
+}
+
+function fmtDur(secs: number): string {
+  if (secs <= 0) return '—'
+  const m = Math.floor(secs / 60)
+  const s = Math.round(secs % 60)
+  return m > 0 ? `${m}m ${s}s` : `${s}s`
+}
+
 export function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
   projects: Project[]
   onOpen: (id: string) => void
@@ -266,27 +281,103 @@ export function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
 
   return (
     <div>
-      <div className="section-head" style={{ marginBottom: 20 }}><div><h2>All Projects</h2><p>Manage your voiceover workspaces</p></div></div>
+      <div className="proj-page-head">
+        <div>
+          <h2 className="proj-page-head__title">All Projects</h2>
+          <p className="proj-page-head__sub">Manage your voiceover workspaces</p>
+        </div>
+        <button className="btn btn--primary btn--sm" onClick={onNew}>{icons.plus} New Project</button>
+      </div>
+
       <div className="project-grid">
-        <div className="project-card project-card--new" onClick={onNew}>{icons.plus}<span>New Project</span></div>
-        {projects.map(p => (
-          <div key={p.id} className="project-card" onClick={() => onOpen(p.id)}>
-            <div className="project-card__actions">
-              <button className="btn btn--sm btn--danger" onClick={e => { e.stopPropagation(); setConfirmId(p.id) }}>{icons.trash}</button>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div className="project-card__icon">{p.emoji}</div>
-              <div className="project-card__name">{p.name}</div>
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>{p.description || 'No description'}</div>
-            <div className="project-card__meta"><span>{p.scripts.length} scripts</span><span>{p.scripts.filter(s => s.hasAudio).length} with audio</span></div>
-            <div className="project-card__tags">
-              <span className="tag">{new Date(p.createdAt).toLocaleDateString()}</span>
-              {p.scripts.some(s => s.hasAudio) && <span className="tag tag--ok">Has Audio</span>}
-              {p.scripts.length === 0 && <span className="tag tag--warn">Empty</span>}
-            </div>
+        {/* New project card */}
+        <button className="project-card project-card--new" onClick={onNew}>
+          <div className="project-card--new__inner">
+            <div className="project-card--new__icon">{icons.plus}</div>
+            <span className="project-card--new__label">New Project</span>
+            <span className="project-card--new__hint">Create a blank workspace</span>
           </div>
-        ))}
+        </button>
+
+        {projects.map(p => {
+          const { total, withAudio, totalDur, assemblyClips } = projectStats(p)
+          const ready = withAudio > 0
+          const empty = total === 0
+          const pct = total > 0 ? Math.round((withAudio / total) * 100) : 0
+
+          return (
+            <div key={p.id} className="project-card" onClick={() => onOpen(p.id)}>
+              {/* Hover delete action */}
+              <div className="project-card__actions">
+                <button
+                  className="btn btn--icon btn--ghost btn--sm"
+                  title="Delete project"
+                  onClick={e => { e.stopPropagation(); setConfirmId(p.id) }}
+                >
+                  {icons.trash}
+                </button>
+              </div>
+
+              {/* Header */}
+              <div className="project-card__header">
+                <div className="project-card__icon">{p.emoji}</div>
+                <div className="project-card__header-text">
+                  <div className="project-card__name">{p.name}</div>
+                  <div className="project-card__date">
+                    {new Date(p.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Description */}
+              {p.description ? (
+                <p className="project-card__desc">{p.description}</p>
+              ) : (
+                <p className="project-card__desc project-card__desc--empty">No description</p>
+              )}
+
+              {/* Stats row */}
+              <div className="project-card__stats">
+                <div className="project-card__stat">
+                  <span className="project-card__stat-val">{total}</span>
+                  <span className="project-card__stat-lbl">Scripts</span>
+                </div>
+                <div className="project-card__stat-divider" />
+                <div className="project-card__stat">
+                  <span className="project-card__stat-val">{withAudio}</span>
+                  <span className="project-card__stat-lbl">With Audio</span>
+                </div>
+                <div className="project-card__stat-divider" />
+                <div className="project-card__stat">
+                  <span className="project-card__stat-val">{fmtDur(totalDur)}</span>
+                  <span className="project-card__stat-lbl">Total Duration</span>
+                </div>
+                {assemblyClips > 0 && <>
+                  <div className="project-card__stat-divider" />
+                  <div className="project-card__stat">
+                    <span className="project-card__stat-val">{assemblyClips}</span>
+                    <span className="project-card__stat-lbl">Timeline</span>
+                  </div>
+                </>}
+              </div>
+
+              {/* Progress bar */}
+              {total > 0 && (
+                <div className="project-card__progress">
+                  <div className="project-card__progress-bar" style={{ width: `${pct}%` }} />
+                </div>
+              )}
+
+              {/* Tags */}
+              <div className="project-card__tags">
+                {ready   && <span className="tag tag--ok">Has Audio</span>}
+                {empty   && <span className="tag tag--warn">Empty</span>}
+                {assemblyClips > 0 && <span className="tag tag--info">Assembly</span>}
+                {!ready && !empty && <span className="tag">In Progress</span>}
+              </div>
+            </div>
+          )
+        })}
       </div>
 
       {confirmId && confirmProject && (
