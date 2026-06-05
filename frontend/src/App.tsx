@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import './App.css'
 import { LandingPage } from './LandingPage'
 import { SignInPage, SignUpPage, ForgotPasswordPage, ResetPasswordPage } from './AuthPages'
@@ -17,7 +17,7 @@ import { useGuestLimits } from './hooks/useGuestLimits'
 import { GuestBanner } from './GuestBanner'
 import { GuestUpgradeModal } from './GuestUpgradeModal'
 import { icons } from './constants'
-import { loadAudioRawBlob, uid } from './audio'
+import { loadAudioRawBlob, saveAudioBlob, uid } from './audio'
 import {
   DashboardPage, ProjectsPage, ProfilesPage,
   NewProjectModal, ShortcutsModal,
@@ -153,6 +153,8 @@ export default function App() {
     addScript: addScriptBase,
     updateScript, deleteScript, reorderScripts,
     saveTimeline,
+    uploadAudio,
+    saveLaneConfig,
   } = useProjects()
   const { mergedUrl, mergedBlob, merging, mergeError, mergeSelected, resetMerge, exportZip } = useAudio()
 
@@ -226,6 +228,28 @@ export default function App() {
     const id = setInterval(checkEngine, 30_000)
     return () => clearInterval(id)
   }, [engineStatus, checkEngine])
+
+  // ── Audio hydration ───────────────────────────────────────────────
+  const hydratedAudioRef = useRef<Set<string>>(new Set())
+
+  // Hydrate audio blobs from backend for scripts where IndexedDB was cleared
+  useEffect(() => {
+    if (!user || !projects.length) return
+    projects.forEach(p => {
+      p.scripts.forEach(async s => {
+        if (!s.hasAudio || !s.audioUrl || hydratedAudioRef.current.has(s.id)) return
+        hydratedAudioRef.current.add(s.id)
+        const existing = await loadAudioRawBlob(`audio_${s.id}`)
+        if (existing) return // already in IndexedDB
+        try {
+          const blob = await api.get(`/scripts/${s.id}/audio`) as Blob
+          if (blob instanceof Blob) {
+            await saveAudioBlob(`audio_${s.id}`, blob)
+          }
+        } catch { /* non-critical; user can re-synthesize */ }
+      })
+    })
+  }, [user?.id, projects.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Voice profiles ────────────────────────────────────────────────
   const loadProfiles = useCallback(() => {
@@ -750,6 +774,7 @@ export default function App() {
                 getGuestVoiceBlob={pid => guestProfiles.getAudioBlob(pid)}
                 onGuestGate={type => setGuestGateType(type)}
                 onGuestSynthesisUsed={() => guestSession.updateUsage('synthesesUsed')}
+                onUploadAudio={guestMode ? undefined : uploadAudio}
               />
             )
           })()}
@@ -772,6 +797,7 @@ export default function App() {
                   onMerge={(clips, bg, lm) => mergeSelected(clips, bg, lm)}
                   onReorder={(scripts) => guestMode ? guestProject.reorderScripts(scripts) : reorderScripts(p.id, scripts)}
                   onSaveTimeline={(clips) => { if (!guestMode) saveTimeline(p.id, clips) }}
+                  onSaveLaneConfig={guestMode ? undefined : (cfg) => saveLaneConfig(p.id, cfg)}
                   isGuest={guestMode}
                   onGuestGate={type => setGuestGateType(type)}
                   isPaidUser={!guestMode && (user?.plan_name === 'starter' || user?.plan_name === 'pro')}

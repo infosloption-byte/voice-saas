@@ -193,6 +193,7 @@ export function mapScript(raw: Record<string, unknown>) {
     tone: (raw.tone as string) ?? 'natural',
     speakerMap: (raw.speaker_map as Record<string, string> | undefined) ?? undefined,
     waveformPeaks: (raw.waveform_peaks as number[] | undefined) ?? undefined,
+    audioUrl: (raw.audio_url as string | undefined) ?? undefined,
     orderIndex: (raw.order_index as number) ?? 0,
   }
 }
@@ -206,5 +207,6 @@ export function mapProject(raw: Record<string, unknown>) {
     createdAt: (raw.created_at as string) ?? (raw.createdAt as string) ?? new Date().toISOString(),
     scripts: ((raw.scripts as Record<string, unknown>[]) ?? []).map(mapScript),
     timelineClips: (raw.timeline_clips as import('./types').TimelineClip[] | undefined) ?? undefined,
+    laneConfig: (raw.lane_config as { solo: Record<number, boolean>; mute: Record<number, boolean> } | undefined) ?? undefined,
   }
 }

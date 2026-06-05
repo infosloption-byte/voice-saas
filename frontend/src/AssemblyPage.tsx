@@ -11,7 +11,7 @@ const GUTTER_W = 68  // px width of the per-lane controls gutter
 
 interface BgMusic { blob: Blob; volume: number }
 
-export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge, onReorder, onSaveTimeline, isGuest, onGuestGate, isPaidUser, onExportGate }: {
+export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge, onReorder, onSaveTimeline, onSaveLaneConfig, isGuest, onGuestGate, isPaidUser, onExportGate }: {
   project: Project
   mergedUrl: string | null
   mergedBlob: Blob | null
@@ -19,6 +19,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
   onMerge: (orderedClips: TimelineClip[], bgMusic?: BgMusic, laneMix?: LaneMix) => void
   onReorder: (scripts: Script[]) => void
   onSaveTimeline: (clips: TimelineClip[]) => void
+  onSaveLaneConfig?: (config: { solo: Record<number, boolean>; mute: Record<number, boolean> }) => void
   isGuest?: boolean
   onGuestGate?: (type: GateType) => void
   isPaidUser?: boolean
@@ -57,6 +58,15 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
   const [dropLane, setDropLane] = useState<number | null>(null)
   const [laneSolo, setLaneSolo] = useState<Record<number, boolean>>({})
   const [laneMute, setLaneMute] = useState<Record<number, boolean>>({})
+
+  // Initialize solo/mute from persisted project lane config
+  useEffect(() => {
+    if (project.laneConfig) {
+      setLaneSolo(project.laneConfig.solo ?? {})
+      setLaneMute(project.laneConfig.mute ?? {})
+    }
+  }, [project.id])
+
   // Fade drag state: which clip handle is being dragged
   const [fadeDrag, setFadeDrag] = useState<{ id: string; side: 'in' | 'out'; initX: number; initVal: number } | null>(null)
 
@@ -110,6 +120,16 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
   const playheadAtStartRef = useRef<number>(0)
   const saveTimelineRef = useRef(onSaveTimeline)
   saveTimelineRef.current = onSaveTimeline
+
+  const saveLaneRef = useRef(onSaveLaneConfig)
+  saveLaneRef.current = onSaveLaneConfig
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      saveLaneRef.current?.({ solo: laneSolo, mute: laneMute })
+    }, 800)
+    return () => clearTimeout(timer)
+  }, [laneSolo, laneMute])
 
   // Load audio URLs from IndexedDB
   useEffect(() => {
