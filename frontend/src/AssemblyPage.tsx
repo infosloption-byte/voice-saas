@@ -147,6 +147,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
         e.preventDefault()
         splitSelectedClip()
       }
+      if (e.key === 'Escape' && selectedClipId) { e.preventDefault(); setSelectedClipId(null) }
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); dispatchTl({ type: 'UNDO' }) }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); dispatchTl({ type: 'REDO' }) }
     }
@@ -300,6 +301,18 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
     const newLane = Math.max(0, (clip.lane ?? 0) + delta)
     setTimelineClips(timelineClips.map(c => c.id === clip.id ? { ...c, lane: newLane } : c))
     if (newLane + 1 > laneCount) setManualLaneCount(newLane + 1)
+  }
+
+  // Remove a specific (empty) lane and shift clips on lower lanes up by one.
+  function removeLane(laneIdx: number) {
+    if (timelineClips.some(c => (c.lane ?? 0) === laneIdx)) {
+      toast.info('Move or delete the clips on this lane before removing it.')
+      return
+    }
+    setTimelineClips(timelineClips.map(c =>
+      (c.lane ?? 0) > laneIdx ? { ...c, lane: (c.lane ?? 0) - 1 } : c
+    ))
+    setManualLaneCount(Math.max(1, laneCount - 1))
   }
 
   function addGap(dur: number) {
@@ -522,36 +535,6 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
           </div>
         )}
 
-        {/* Clip action toolbar (shows when selected) */}
-        {isSelected && (
-          <div onMouseDown={e => e.stopPropagation()}
-            style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 8, padding: 8, boxShadow: 'var(--shadow-lg)', zIndex: 300, display: 'flex', flexDirection: 'column', gap: 6, whiteSpace: 'nowrap' }}>
-            {!isGap && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <button style={actBtn} onClick={e => { e.stopPropagation(); splitSelectedClip() }} title="Split at playhead (S)">✂ Split</button>
-                <button style={actBtn} onClick={e => { e.stopPropagation(); cutSelectedClip() }} title="Cut tail after playhead">⤿ Cut</button>
-                <button style={actBtn} onClick={e => { e.stopPropagation(); trimHeadToPlayhead() }} title="Trim head to playhead">⤾ Trim</button>
-                <button style={actBtn} onClick={e => { e.stopPropagation(); duplicateSelectedClip() }} title="Duplicate clip">⎘ Dup</button>
-              </div>
-            )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <button style={actBtn} onClick={e => { e.stopPropagation(); moveSelectedClipLane(-1) }} title="Move up a lane" disabled={(clip.lane ?? 0) === 0}>▲ Lane</button>
-              <button style={actBtn} onClick={e => { e.stopPropagation(); moveSelectedClipLane(1) }} title="Move down a lane">▼ Lane</button>
-              <span style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>L{(clip.lane ?? 0) + 1}</span>
-              <button style={actBtn} onClick={e => { e.stopPropagation(); removeClip(clip.id) }} title="Delete clip">🗑</button>
-            </div>
-            {!isGap && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ display: 'flex', width: 12, height: 12, color: 'var(--text-2)' }}>{icons.volume}</span>
-                <input type="range" min="0" max="2" step="0.05" value={clip.volume}
-                  onChange={e => setTimelineClips(timelineClips.map(c => c.id === clip.id ? { ...c, volume: parseFloat(e.target.value) } : c))}
-                  style={{ width: 110, accentColor: col }} />
-                <span style={{ fontSize: 11, color: col, fontFamily: 'var(--mono)', width: 30 }}>{Math.round(clip.volume * 100)}%</span>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Trim start indicator */}
         {!isGap && clip.trimStart > 0 && (
           <div style={{ position: 'absolute', left: 6, top: 24, fontSize: 9, color: col, fontFamily: 'var(--mono)' }}>↠{fmt(Math.floor(clip.trimStart))}</div>
@@ -575,7 +558,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
     libHeader:     { padding: '9px 12px 5px', color: 'var(--text-3)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.7px', flexShrink: 0 } as React.CSSProperties,
     libList:       { flex: 1, overflowY: 'auto' as const, padding: '4px 8px 8px', display: 'flex', flexDirection: 'column' as const, gap: 4 } as React.CSSProperties,
     timelineArea:  { flex: 1, display: 'flex', flexDirection: 'column' as const, overflow: 'hidden' } as React.CSSProperties,
-    timelineScroll:{ flex: 1, overflowX: 'auto' as const, overflowY: 'hidden' as const, cursor: dragClipId || resizingClip ? 'grabbing' : draggingPlayhead ? 'ew-resize' : 'default', userSelect: 'none' as const } as React.CSSProperties,
+    timelineScroll:{ flex: 1, overflowX: 'auto' as const, overflowY: 'auto' as const, cursor: dragClipId || resizingClip ? 'grabbing' : draggingPlayhead ? 'ew-resize' : 'default', userSelect: 'none' as const } as React.CSSProperties,
     ruler:         { height: 30, background: 'var(--bg-3)', borderBottom: '1px solid var(--border-2)', position: 'sticky' as const, top: 0, zIndex: 10, overflow: 'hidden' } as React.CSSProperties,
     track:         { height: 80, background: 'var(--bg-2)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', margin: '14px 0 4px', position: 'relative' as const } as React.CSSProperties,
     musicTrack:    { height: 40, background: 'var(--bg-3)', borderBottom: '1px solid var(--border)', position: 'relative' as const } as React.CSSProperties,
@@ -767,6 +750,47 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
 
         {/* Timeline */}
         <div style={S.timelineArea}>
+          {/* Contextual action bar for the selected clip (always visible,
+              never clipped by lane edges or the lane scroller) */}
+          {(() => {
+            const sel = timelineClips.find(c => c.id === selectedClipId)
+            if (!sel) return null
+            const selCol = sel.isGap ? 'var(--text-3)' : CLIP_COLORS[sel.ci % CLIP_COLORS.length]
+            return (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderBottom: '1px solid var(--border)', background: 'var(--bg-2)', flexShrink: 0, flexWrap: 'wrap' }}>
+                <span style={{ width: 9, height: 9, borderRadius: 2, background: selCol, flexShrink: 0 }} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-1)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {sel.isGap ? '⏸ ' : ''}{sel.title}
+                </span>
+                <span style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>L{(sel.lane ?? 0) + 1} · {fmt(Math.floor(sel.dur))}</span>
+                <div style={S.sep} />
+                {!sel.isGap && (
+                  <>
+                    <button style={actBtn} onClick={splitSelectedClip} title="Split at playhead (S)">✂ Split</button>
+                    <button style={actBtn} onClick={cutSelectedClip} title="Cut — keep head, drop tail after playhead">⤿ Cut</button>
+                    <button style={actBtn} onClick={trimHeadToPlayhead} title="Trim — drop head before playhead">⤾ Trim</button>
+                    <button style={actBtn} onClick={duplicateSelectedClip} title="Duplicate clip">⎘ Dup</button>
+                    <div style={S.sep} />
+                  </>
+                )}
+                <button style={actBtn} onClick={() => moveSelectedClipLane(-1)} disabled={(sel.lane ?? 0) === 0} title="Move up a lane">▲ Lane</button>
+                <button style={actBtn} onClick={() => moveSelectedClipLane(1)} title="Move down a lane">▼ Lane</button>
+                {!sel.isGap && (
+                  <>
+                    <div style={S.sep} />
+                    <span style={{ display: 'flex', width: 12, height: 12, color: 'var(--text-2)' }}>{icons.volume}</span>
+                    <input type="range" min="0" max="2" step="0.05" value={sel.volume}
+                      onChange={e => setTimelineClips(timelineClips.map(c => c.id === sel.id ? { ...c, volume: parseFloat(e.target.value) } : c))}
+                      style={{ width: 100, accentColor: selCol }} />
+                    <span style={{ fontSize: 11, color: selCol, fontFamily: 'var(--mono)', width: 32 }}>{Math.round(sel.volume * 100)}%</span>
+                  </>
+                )}
+                <div style={{ flex: 1 }} />
+                <button style={actBtn} onClick={() => removeClip(sel.id)} title="Delete clip">🗑 Delete</button>
+              </div>
+            )
+          })()}
+
           <div ref={timelineRef} style={S.timelineScroll}
             onMouseMove={onTimelineMouseMove}
             onMouseUp={onTimelineMouseUp}
@@ -810,11 +834,8 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
                   onClick={() => setManualLaneCount(laneCount + 1)}
                   style={{ fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 5, border: '1px solid var(--border-2)', background: 'var(--surface)', color: 'var(--text-2)', cursor: 'pointer' }}
                   title="Add a new vertical lane">+ Lane</button>
-                {laneCount > 1 && !timelineClips.some(c => (c.lane ?? 0) === laneCount - 1) && (
-                  <button
-                    onClick={() => setManualLaneCount(Math.max(1, laneCount - 1))}
-                    style={{ fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 5, border: '1px solid var(--border-2)', background: 'var(--surface)', color: 'var(--text-3)', cursor: 'pointer' }}
-                    title="Remove the empty bottom lane">− Lane</button>
+                {laneCount > 1 && (
+                  <span style={{ fontSize: 10, color: 'var(--text-3)' }}>· hover a lane's left edge to remove it</span>
                 )}
               </div>
 
@@ -841,9 +862,21 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
                       <div key={t} style={{ position: 'absolute', left: t * zoom, top: 0, bottom: 0, width: 1, background: 'var(--border-3)' }} />
                     ))}
 
-                    {/* Lane badge */}
+                    {/* Lane label + remove control — sticky to the left edge so
+                        it stays visible while scrolling horizontally */}
                     {laneCount > 1 && (
-                      <span style={{ position: 'absolute', top: 2, left: 4, fontSize: 8.5, fontWeight: 700, color: 'var(--text-3)', fontFamily: 'var(--mono)', opacity: 0.6, pointerEvents: 'none', zIndex: 1 }}>L{lane + 1}</span>
+                      <div style={{ position: 'sticky', left: 4, top: 2, width: 0, height: 0, zIndex: 60 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                          <span style={{ fontSize: 8.5, fontWeight: 700, color: 'var(--text-3)', fontFamily: 'var(--mono)', opacity: 0.7, whiteSpace: 'nowrap' }}>L{lane + 1}</span>
+                          {laneClips.length === 0 && (
+                            <button
+                              onMouseDown={e => e.stopPropagation()}
+                              onClick={e => { e.stopPropagation(); removeLane(lane) }}
+                              title="Remove this empty lane"
+                              style={{ width: 15, height: 15, borderRadius: 3, border: '1px solid var(--border-2)', background: 'var(--surface)', color: 'var(--text-3)', fontSize: 11, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>×</button>
+                          )}
+                        </div>
+                      </div>
                     )}
 
                     {timelineClips.length === 0 && lane === 0 && (
