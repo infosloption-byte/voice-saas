@@ -144,6 +144,19 @@ export default function App() {
   const [showNewProject, setShowNewProject] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem('sidebar-collapsed') === '1'
+  )
+
+  const collapseSidebar = () => {
+    setSidebarCollapsed(true)
+    setSidebarOpen(false)
+    localStorage.setItem('sidebar-collapsed', '1')
+  }
+  const expandSidebar = () => {
+    setSidebarCollapsed(false)
+    localStorage.setItem('sidebar-collapsed', '0')
+  }
 
   const { user, loading: authLoading, checkUser, signIn, signUp, signOut: authSignOut } = useAuth()
   const {
@@ -478,7 +491,7 @@ export default function App() {
 
   // ── Main app shell ────────────────────────────────────────────────
   return (
-    <div className="shell">
+    <div className={`shell${sidebarCollapsed ? ' shell--sidebar-collapsed' : ''}`}>
       {sidebarOpen && (
         <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
       )}
@@ -490,7 +503,8 @@ export default function App() {
           <span className="logo-badge">AI</span>
           <button
             className="sidebar__close btn btn--ghost btn--sm"
-            onClick={() => setSidebarOpen(false)}
+            onClick={collapseSidebar}
+            title="Collapse sidebar"
           >
             {icons.close}
           </button>
@@ -621,7 +635,8 @@ export default function App() {
         <div className="topbar">
           <button
             className="btn btn--ghost btn--sm topbar__hamburger"
-            onClick={() => setSidebarOpen(true)}
+            onClick={() => { expandSidebar(); setSidebarOpen(true) }}
+            title="Open sidebar"
           >
             {icons.menu}
           </button>
