@@ -4,6 +4,7 @@ import { icons, CLIP_COLORS, CLIP_LIGHTS } from './constants'
 import { loadAudioBlob, loadAudioRawBlob, saveAudioBlob, deleteAudioBlob, timelineReducer, uid, fmt } from './audio'
 import type { Project, Script, TimelineClip, TimelineHistory } from './types'
 import type { GateType } from './hooks/useGuestSession'
+import type { LaneMix } from './hooks/useAudio'
 
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL as string | undefined
 
@@ -14,7 +15,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
   mergedUrl: string | null
   mergedBlob: Blob | null
   merging: boolean
-  onMerge: (orderedClips: TimelineClip[], bgMusic?: BgMusic) => void
+  onMerge: (orderedClips: TimelineClip[], bgMusic?: BgMusic, laneMix?: LaneMix) => void
   onReorder: (scripts: Script[]) => void
   onSaveTimeline: (clips: TimelineClip[]) => void
   isGuest?: boolean
@@ -53,6 +54,10 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
   const [gapDuration, setGapDuration] = useState(1)
   const [manualLaneCount, setManualLaneCount] = useState(1)
   const [dropLane, setDropLane] = useState<number | null>(null)
+  const [laneSolo, setLaneSolo] = useState<Record<number, boolean>>({})
+  const [laneMute, setLaneMute] = useState<Record<number, boolean>>({})
+  // Fade drag state: which clip handle is being dragged
+  const [fadeDrag, setFadeDrag] = useState<{ id: string; side: 'in' | 'out'; initX: number; initVal: number } | null>(null)
 
   // Number of vertical lanes to render: enough to cover every clip's lane,
   // at least one, and never fewer than the user asked for via "Add Lane".
@@ -174,7 +179,11 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
     const ctxNow = ctx.currentTime
     playStartCtxTimeRef.current = ctxNow
     playheadAtStartRef.current = fromPlayhead
+    const anySolo = Object.values(laneSolo).some(Boolean)
     timelineClips.filter(c => !c.isGap).forEach(clip => {
+      const lane = clip.lane ?? 0
+      if (laneMute[lane]) return
+      if (anySolo && !laneSolo[lane]) return
       const buf = audioBuffersRef.current[clip.scriptId]
       if (!buf) return
       const offsetIntoClip = Math.max(0, fromPlayhead - clip.start)
@@ -351,7 +360,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
     }
 
     const bg = bgMusicBlob ? { blob: bgMusicBlob, volume: bgMusicVolume } : undefined
-    onMerge(valid, bg)
+    onMerge(valid, bg, { solo: laneSolo, mute: laneMute })
   }
 
   async function handleExportMp3() {
@@ -422,13 +431,50 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
     setResizingClip({ id: clip.id, side, initX: e.clientX, initVal })
   }
 
+  // Snap threshold in screen pixels; convert to seconds at current zoom
+  const SNAP_PX = 8
+
+  function snapToGrid(rawStart: number, excludeId: string): number {
+    const threshold = SNAP_PX / zoom
+    const candidates = [
+      0,
+      playhead,
+      ...timelineClips
+        .filter(c => c.id !== excludeId)
+        .flatMap(c => [c.start, c.start + c.dur]),
+    ]
+    let best = rawStart
+    let bestDist = threshold
+    for (const s of candidates) {
+      const d = Math.abs(rawStart - s)
+      if (d < bestDist) { bestDist = d; best = s }
+    }
+    return best
+  }
+
   function onTimelineMouseMove(e: React.MouseEvent) {
     if (dragClipId) {
-      const newStart = Math.max(0, Math.round((getSecFromEvent(e) - dragOffsetSec) * 10) / 10)
+      const raw = Math.max(0, getSecFromEvent(e) - dragOffsetSec)
+      const snapped = snapToGrid(raw, dragClipId)
+      const newStart = Math.round(snapped * 10) / 10
       const hoverLane = getLaneFromEvent(e)
       setTimelineClips(timelineClips.map(c => c.id === dragClipId
         ? { ...c, start: newStart, lane: hoverLane !== null ? hoverLane : (c.lane ?? 0) }
         : c))
+    }
+    if (fadeDrag) {
+      const dx = e.clientX - fadeDrag.initX
+      const dSec = dx / zoom
+      setTimelineClips(timelineClips.map(c => {
+        if (c.id !== fadeDrag.id) return c
+        if (fadeDrag.side === 'in') {
+          const val = Math.max(0, Math.min(c.dur * 0.9, fadeDrag.initVal + dSec))
+          return { ...c, fadeIn: Math.round(val * 100) / 100 }
+        } else {
+          const val = Math.max(0, Math.min(c.dur * 0.9, fadeDrag.initVal - dSec))
+          return { ...c, fadeOut: Math.round(val * 100) / 100 }
+        }
+      }))
     }
     if (resizingClip) {
       const dx = e.clientX - resizingClip.initX
@@ -458,6 +504,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
     setDragClipId(null)
     setResizingClip(null)
     setDraggingPlayhead(false)
+    setFadeDrag(null)
   }
 
   // ── Single clip renderer (used inside every lane row) ─────────────
@@ -533,6 +580,37 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
             style={{ position: 'absolute', right: -4, top: 0, bottom: 0, width: 10, cursor: 'ew-resize', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div style={{ width: 4, height: 28, borderRadius: 2, background: col + 'cc', boxShadow: '0 0 4px rgba(0,0,0,0.2)' }} />
           </div>
+        )}
+
+        {/* Fade-in handle (triangle at left, above waveform area) */}
+        {!isGap && (
+          <div
+            onMouseDown={e => { e.preventDefault(); e.stopPropagation(); setFadeDrag({ id: clip.id, side: 'in', initX: e.clientX, initVal: clip.fadeIn ?? 0 }) }}
+            title={`Fade in: ${(clip.fadeIn ?? 0).toFixed(2)}s — drag right`}
+            style={{ position: 'absolute', left: Math.max(0, (clip.fadeIn ?? 0) * zoom - 6), bottom: 4, width: 12, height: 12, cursor: 'ew-resize', zIndex: 150, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="10" height="10" viewBox="0 0 10 10">
+              <polygon points="0,10 10,10 10,0" fill={col + 'cc'} />
+            </svg>
+          </div>
+        )}
+        {/* Fade-out handle (triangle at right) */}
+        {!isGap && (
+          <div
+            onMouseDown={e => { e.preventDefault(); e.stopPropagation(); setFadeDrag({ id: clip.id, side: 'out', initX: e.clientX, initVal: clip.fadeOut ?? 0 }) }}
+            title={`Fade out: ${(clip.fadeOut ?? 0).toFixed(2)}s — drag left`}
+            style={{ position: 'absolute', right: Math.max(0, (clip.fadeOut ?? 0) * zoom - 6), bottom: 4, width: 12, height: 12, cursor: 'ew-resize', zIndex: 150, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="10" height="10" viewBox="0 0 10 10">
+              <polygon points="10,10 0,10 0,0" fill={col + 'cc'} />
+            </svg>
+          </div>
+        )}
+
+        {/* Fade overlay — visual ramp drawn over waveform */}
+        {!isGap && (clip.fadeIn ?? 0) > 0 && (
+          <div style={{ position: 'absolute', bottom: 0, left: 0, width: (clip.fadeIn ?? 0) * zoom, height: '100%', background: `linear-gradient(to right, ${lt}, transparent)`, pointerEvents: 'none', borderRadius: '7px 0 0 7px', zIndex: 5 }} />
+        )}
+        {!isGap && (clip.fadeOut ?? 0) > 0 && (
+          <div style={{ position: 'absolute', bottom: 0, right: 0, width: (clip.fadeOut ?? 0) * zoom, height: '100%', background: `linear-gradient(to left, ${lt}, transparent)`, pointerEvents: 'none', borderRadius: '0 7px 7px 0', zIndex: 5 }} />
         )}
 
         {/* Trim start indicator */}
@@ -783,6 +861,17 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
                       onChange={e => setTimelineClips(timelineClips.map(c => c.id === sel.id ? { ...c, volume: parseFloat(e.target.value) } : c))}
                       style={{ width: 100, accentColor: selCol }} />
                     <span style={{ fontSize: 11, color: selCol, fontFamily: 'var(--mono)', width: 32 }}>{Math.round(sel.volume * 100)}%</span>
+                    <div style={S.sep} />
+                    <span style={{ fontSize: 10, color: 'var(--text-3)', flexShrink: 0 }}>FadeIn</span>
+                    <input type="range" min="0" max={Math.min(sel.dur * 0.9, 5)} step="0.05" value={sel.fadeIn ?? 0}
+                      onChange={e => setTimelineClips(timelineClips.map(c => c.id === sel.id ? { ...c, fadeIn: parseFloat(e.target.value) } : c))}
+                      style={{ width: 80, accentColor: selCol }} />
+                    <span style={{ fontSize: 11, color: selCol, fontFamily: 'var(--mono)', width: 32 }}>{(sel.fadeIn ?? 0).toFixed(1)}s</span>
+                    <span style={{ fontSize: 10, color: 'var(--text-3)', flexShrink: 0 }}>Out</span>
+                    <input type="range" min="0" max={Math.min(sel.dur * 0.9, 5)} step="0.05" value={sel.fadeOut ?? 0}
+                      onChange={e => setTimelineClips(timelineClips.map(c => c.id === sel.id ? { ...c, fadeOut: parseFloat(e.target.value) } : c))}
+                      style={{ width: 80, accentColor: selCol }} />
+                    <span style={{ fontSize: 11, color: selCol, fontFamily: 'var(--mono)', width: 32 }}>{(sel.fadeOut ?? 0).toFixed(1)}s</span>
                   </>
                 )}
                 <div style={{ flex: 1 }} />
@@ -846,7 +935,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
                 return (
                   <div key={lane}
                     ref={el => { laneRefs.current[lane] = el }}
-                    style={{ ...S.track, marginTop: lane === 0 ? 4 : 2, outline: isDropTarget ? '2px dashed var(--accent)' : 'none', outlineOffset: -3 }}
+                    style={{ ...S.track, marginTop: lane === 0 ? 4 : 2, outline: isDropTarget ? '2px dashed var(--accent)' : 'none', outlineOffset: -3, opacity: laneMute[lane] ? 0.35 : (Object.values(laneSolo).some(Boolean) && !laneSolo[lane]) ? 0.35 : 1 }}
                     onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDropLane(lane) }}
                     onDragLeave={() => { setDropLane(null) }}
                     onDrop={e => onTimelineDrop(e, lane)}
@@ -862,22 +951,31 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
                       <div key={t} style={{ position: 'absolute', left: t * zoom, top: 0, bottom: 0, width: 1, background: 'var(--border-3)' }} />
                     ))}
 
-                    {/* Lane label + remove control — sticky to the left edge so
-                        it stays visible while scrolling horizontally */}
-                    {laneCount > 1 && (
-                      <div style={{ position: 'sticky', left: 4, top: 2, width: 0, height: 0, zIndex: 60 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                          <span style={{ fontSize: 8.5, fontWeight: 700, color: 'var(--text-3)', fontFamily: 'var(--mono)', opacity: 0.7, whiteSpace: 'nowrap' }}>L{lane + 1}</span>
-                          {laneClips.length === 0 && (
-                            <button
-                              onMouseDown={e => e.stopPropagation()}
-                              onClick={e => { e.stopPropagation(); removeLane(lane) }}
-                              title="Remove this empty lane"
-                              style={{ width: 15, height: 15, borderRadius: 3, border: '1px solid var(--border-2)', background: 'var(--surface)', color: 'var(--text-3)', fontSize: 11, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>×</button>
-                          )}
-                        </div>
+                    {/* Lane label + Solo/Mute + remove — sticky left */}
+                    <div style={{ position: 'sticky', left: 4, top: 2, width: 0, height: 0, zIndex: 60 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <span style={{ fontSize: 8.5, fontWeight: 700, color: 'var(--text-3)', fontFamily: 'var(--mono)', opacity: 0.7, whiteSpace: 'nowrap' }}>L{lane + 1}</span>
+                        {/* Solo */}
+                        <button
+                          onMouseDown={e => e.stopPropagation()}
+                          onClick={e => { e.stopPropagation(); setLaneSolo(prev => ({ ...prev, [lane]: !prev[lane] })) }}
+                          title={`Solo lane ${lane + 1}`}
+                          style={{ width: 15, height: 15, borderRadius: 3, border: `1px solid ${laneSolo[lane] ? '#f5a623' : 'var(--border-2)'}`, background: laneSolo[lane] ? '#f5a623' : 'var(--surface)', color: laneSolo[lane] ? '#fff' : 'var(--text-3)', fontSize: 8, fontWeight: 700, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>S</button>
+                        {/* Mute */}
+                        <button
+                          onMouseDown={e => e.stopPropagation()}
+                          onClick={e => { e.stopPropagation(); setLaneMute(prev => ({ ...prev, [lane]: !prev[lane] })) }}
+                          title={`Mute lane ${lane + 1}`}
+                          style={{ width: 15, height: 15, borderRadius: 3, border: `1px solid ${laneMute[lane] ? '#e74c3c' : 'var(--border-2)'}`, background: laneMute[lane] ? '#e74c3c' : 'var(--surface)', color: laneMute[lane] ? '#fff' : 'var(--text-3)', fontSize: 8, fontWeight: 700, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>M</button>
+                        {laneClips.length === 0 && (
+                          <button
+                            onMouseDown={e => e.stopPropagation()}
+                            onClick={e => { e.stopPropagation(); removeLane(lane) }}
+                            title="Remove this empty lane"
+                            style={{ width: 15, height: 15, borderRadius: 3, border: '1px solid var(--border-2)', background: 'var(--surface)', color: 'var(--text-3)', fontSize: 11, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>×</button>
+                        )}
                       </div>
-                    )}
+                    </div>
 
                     {timelineClips.length === 0 && lane === 0 && (
                       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--text-3)', pointerEvents: 'none', letterSpacing: '0.2px' }}>
