@@ -1348,10 +1348,12 @@ export function WorkspacePage({
               <button
                 className="btn btn--primary btn--sm"
                 onClick={handleGenerateSingle}
-                disabled={synthesizing || !histState.present.trim()}
+                disabled={synthesizing || bulkGenerating || !histState.present.trim()}
               >
                 {synthesizing ? (
                   <><span className="spinner" /> Generating…</>
+                ) : bulkGenerating ? (
+                  <><span className="spinner" /> Generating {bulkProgress}/{bulkTotal}</>
                 ) : (
                   <>{icons.play} Generate</>
                 )}
