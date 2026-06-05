@@ -105,6 +105,7 @@ export function WorkspacePage({
   onGuestGate,
   onGuestSynthesisUsed,
   onRecheckEngine,
+  onUploadAudio,
 }: {
   project: Project
   activeScriptId: string | null
@@ -122,6 +123,7 @@ export function WorkspacePage({
   onGuestGate?: (type: GateType) => void
   onGuestSynthesisUsed?: () => void
   onRecheckEngine?: () => void
+  onUploadAudio?: (scriptId: string, blob: Blob) => void
 }) {
   const activeScript = project.scripts.find(s => s.id === activeScriptId) ?? null
 
@@ -403,6 +405,7 @@ export function WorkspacePage({
 
       // ── Persist: save blob first, then mark script as having audio ─
       await saveAudioBlob(`audio_${script.id}`, blob)
+      onUploadAudio?.(script.id, blob)
       onUpdateScript(script.id, {
         hasAudio:      true,
         profileId:     pid,

@@ -30,6 +30,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Projects
     Route::apiResource('projects', ProjectController::class);
 
+    Route::post('scripts/{script}/audio', [ScriptController::class, 'saveAudio']);
+    Route::get( 'scripts/{script}/audio', [ScriptController::class, 'serveAudio']);
+
     Route::post('scripts/update', [ScriptController::class, 'flatUpdate']);
 
     // Scripts (nested under projects)
