@@ -769,7 +769,7 @@ export default function App() {
                   mergedUrl={mergedUrl}
                   mergedBlob={mergedBlob}
                   merging={merging}
-                  onMerge={(clips, bg) => mergeSelected(clips, bg)}
+                  onMerge={(clips, bg, lm) => mergeSelected(clips, bg, lm)}
                   onReorder={(scripts) => guestMode ? guestProject.reorderScripts(scripts) : reorderScripts(p.id, scripts)}
                   onSaveTimeline={(clips) => { if (!guestMode) saveTimeline(p.id, clips) }}
                   isGuest={guestMode}
