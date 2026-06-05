@@ -703,11 +703,31 @@ export function WorkspacePage({
             onClick={() => setShowEngineMenu(false)}
           />
           <div style={{
-            position: 'absolute', bottom: '100%', right: 0, marginBottom: 6,
+            position: 'fixed', bottom: 'auto', right: 'auto',
+            left: '50%', transform: 'translateX(-50%)',
+            top: 'auto',
+            marginBottom: 6,
             background: 'var(--surface)', border: '1px solid var(--border-2)',
             borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)',
-            zIndex: 200, minWidth: 230, overflow: 'hidden',
-          }}>
+            zIndex: 200, width: 260, maxWidth: 'calc(100vw - 24px)', overflow: 'hidden',
+          }}
+            ref={el => {
+              if (!el) return
+              // Position above the trigger button, centered but kept within viewport
+              const trigger = el.parentElement?.querySelector('button') as HTMLElement | null
+              if (!trigger) return
+              const tb = trigger.getBoundingClientRect()
+              const panelH = el.offsetHeight || 200
+              const top = tb.top - panelH - 8
+              el.style.top = Math.max(8, top) + 'px'
+              el.style.left = ''
+              el.style.transform = ''
+              const halfW = (el.offsetWidth || 260) / 2
+              const cx = tb.left + tb.width / 2
+              const clampedLeft = Math.min(Math.max(12, cx - halfW), window.innerWidth - (el.offsetWidth || 260) - 12)
+              el.style.left = clampedLeft + 'px'
+            }}
+          >
             <div style={{ padding: '8px 12px 6px', fontSize: 10, fontWeight: 700,
               textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)' }}>
               TTS Engine
