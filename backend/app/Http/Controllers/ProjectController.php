@@ -36,6 +36,7 @@ class ProjectController extends Controller
             'emoji'          => 'nullable|string|max:10',
             'description'    => 'nullable|string|max:2000',
             'timeline_clips' => 'nullable|array',
+            'lane_config'    => 'nullable|array',
         ]);
 
         $project->update($validated);
