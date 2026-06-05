@@ -697,10 +697,12 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
         </button>
 
         {/* Library toggle — always visible, essential on mobile */}
-        <button style={tBtn({ background: libOpen && !isMobile ? 'var(--accent-muted,var(--bg-3))' : undefined })}
+        <button style={tBtn(libOpen
+          ? { background: 'var(--accent)', color: '#fff', border: 'none' }
+          : { background: 'var(--bg-3)' })}
           onClick={() => setLibOpen(o => !o)} title="Toggle clip library">
           <span style={{ display: 'flex', width: 14, height: 14 }}>{icons.speaker}</span>
-          {!isMobile && <span style={{ fontSize: 11 }}>Library</span>}
+          <span style={{ fontSize: 11 }}>Library</span>
         </button>
 
         <div style={S.sep} />
@@ -814,9 +816,20 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
               const col = CLIP_COLORS[i % CLIP_COLORS.length]
               const lt  = CLIP_LIGHTS[i % CLIP_LIGHTS.length]
               const peaks = s.waveformPeaks ?? Array.from({ length: 5 }, (_, j) => 0.2 + Math.abs(Math.sin((s.id.charCodeAt(0) ?? 65) * 17 + j * 0.7)) * 0.6)
+              const addAtLaneEnd = () => {
+                const laneEnd = Math.max(0, ...timelineClips
+                  .filter(c => (c.lane ?? 0) === 0)
+                  .map(c => c.start + c.dur))
+                addToTimeline(s, laneEnd, 0)
+                if (isMobile) setLibOpen(false)
+              }
               return (
-                <div key={s.id} draggable onDragStart={() => setDragAssetId(s.id)} onDragEnd={() => setDragAssetId(null)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', borderRadius: 8, border: '1px solid var(--border)', background: dragAssetId === s.id ? lt : 'var(--surface)', cursor: 'grab', transition: 'background 0.1s', opacity: dragAssetId === s.id ? 0.5 : 1 }}>
+                <div key={s.id}
+                  draggable={!isMobile}
+                  onDragStart={() => setDragAssetId(s.id)} onDragEnd={() => setDragAssetId(null)}
+                  onClick={isMobile ? addAtLaneEnd : undefined}
+                  title={isMobile ? 'Tap to add to timeline' : 'Drag onto the timeline'}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', borderRadius: 8, border: '1px solid var(--border)', background: dragAssetId === s.id ? lt : 'var(--surface)', cursor: isMobile ? 'pointer' : 'grab', transition: 'background 0.1s', opacity: dragAssetId === s.id ? 0.5 : 1 }}>
                   <div style={{ width: 30, height: 30, borderRadius: 6, flexShrink: 0, background: lt, border: `1px solid ${col}44`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1.5, height: 16 }}>
                       {peaks.slice(0, 5).map((p, j) => (
@@ -830,7 +843,11 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
                       {s.duration ? fmt(s.duration) : '—'}{s.content && ` · ${s.content.trim().split(/\s+/).length}w`}
                     </div>
                   </div>
-                  <span style={{ color: 'var(--text-3)', fontSize: 13, flexShrink: 0, cursor: 'grab' }}>{icons.drag}</span>
+                  {isMobile ? (
+                    <span aria-label="Add to timeline" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: 6, flexShrink: 0, background: 'var(--accent)', color: '#fff', fontSize: 18, lineHeight: 1, fontWeight: 600 }}>+</span>
+                  ) : (
+                    <span style={{ color: 'var(--text-3)', fontSize: 13, flexShrink: 0, cursor: 'grab' }}>{icons.drag}</span>
+                  )}
                 </div>
               )
             })}
@@ -867,7 +884,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
 
           {withAudio.length > 0 && (
             <div style={{ padding: '6px 10px 8px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
-              <p style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>Drag clips onto the timeline. Drag edges to trim. Space to play.</p>
+              <p style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>{isMobile ? 'Tap a clip to add it to the timeline. Drag edges to trim.' : 'Drag clips onto the timeline. Drag edges to trim. Space to play.'}</p>
             </div>
           )}
         </div>
@@ -1075,7 +1092,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
           {/* Footer */}
           <div style={S.footer}>
             {timelineClips.length === 0 ? (
-              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>No clips on timeline yet — drag from the library.</span>
+              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{isMobile ? 'No clips yet — tap a clip in the library to add it.' : 'No clips on timeline yet — drag from the library.'}</span>
             ) : (
               <>
                 {[...timelineClips].sort((a, b) => a.start - b.start).map(clip => {

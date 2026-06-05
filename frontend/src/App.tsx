@@ -498,7 +498,7 @@ export default function App() {
 
       <aside className={`sidebar ${sidebarOpen ? 'sidebar--open' : ''}`}>
         <div className="sidebar__logo">
-          <div className="logo-mark">V</div>
+          <div className="logo-mark" onClick={expandSidebar} style={{ cursor: 'pointer' }} title="VoiceStudio">V</div>
           <span className="logo-name">VoiceStudio</span>
           <span className="logo-badge">AI</span>
           <button
@@ -518,6 +518,7 @@ export default function App() {
                 key={key}
                 className={`nav-item ${page === key ? 'nav-item--active' : ''}`}
                 onClick={() => setPage(key)}
+                title={label}
               >
                 {icon}
                 {label}
@@ -640,6 +641,11 @@ export default function App() {
           >
             {icons.menu}
           </button>
+
+          <div className="topbar__brand" onClick={() => setPage('dashboard')}>
+            <div className="logo-mark">V</div>
+            <span className="logo-name">VoiceStudio</span>
+          </div>
 
           {page === 'workspace' && (activeProject || (guestMode && guestProject.project)) ? (() => {
             const p = guestMode ? guestProject.project! : activeProject!
