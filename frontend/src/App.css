@@ -483,11 +483,11 @@
   font-size: 30px;
   font-weight: 600;
   color: var(--text-1);
-  letter-spacing: -1.5px;
+  letter-spacing: -0.5px;
   line-height: 1;
   margin-bottom: 5px;
-  font-family: var(--serif);
-  font-style: italic;
+  font-family: var(--font);
+  font-style: normal;
 }
 
 .stat-card__sub {
@@ -1372,11 +1372,11 @@
   font-size: clamp(36px, 6vw, 68px);
   font-weight: 600;
   color: var(--text-1);
-  letter-spacing: -2px;
-  line-height: 1.05;
+  letter-spacing: -1.5px;
+  line-height: 1.08;
   margin-bottom: 20px;
   font-family: var(--serif);
-  font-style: italic;
+  font-style: normal;
   max-width: 720px;
 }
 
@@ -1568,7 +1568,7 @@
   color: var(--text-1);
   letter-spacing: -0.5px;
   font-family: var(--serif);
-  font-style: italic;
+  font-style: normal;
   line-height: 1.15;
 }
 
@@ -1725,7 +1725,7 @@
   letter-spacing: -1px;
   line-height: 1.1;
   font-family: var(--serif);
-  font-style: italic;
+  font-style: normal;
   text-align: center;
   margin-bottom: 16px;
   position: relative;
@@ -2007,38 +2007,39 @@
 
 .mic-btn {
   position: relative;
-  width: 72px; height: 72px;
-  border-radius: 50%;
+  height: 46px;
+  padding: 0 24px;
+  border-radius: 999px;
   background: var(--accent);
   border: none;
   cursor: pointer;
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 9px;
   color: #fff;
-  transition: transform 0.14s, box-shadow 0.14s;
+  transition: transform 0.14s, box-shadow 0.14s, background 0.14s;
   flex-shrink: 0;
-  box-shadow: 0 4px 14px rgba(201,100,66,0.38);
+  box-shadow: 0 4px 14px rgba(201,100,66,0.30);
 }
 
 .mic-btn:hover:not(:disabled) {
-  transform: scale(1.05);
-  box-shadow: 0 8px 22px rgba(201,100,66,0.45);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(201,100,66,0.40);
 }
 .mic-btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none }
-.mic-btn svg { width: 22px; height: 22px }
+.mic-btn svg { width: 18px; height: 18px }
 .mic-btn__label {
-  font-size: 8px;
+  font-size: 13px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
+  text-transform: none;
+  letter-spacing: 0;
 }
 .mic-btn__ring {
   position: absolute;
-  inset: -6px;
-  border-radius: 50%;
+  inset: -4px;
+  border-radius: 999px;
   border: 2px solid var(--accent);
   opacity: 0;
 }
@@ -2072,11 +2073,12 @@
 }
 
 .record-script__text {
-  font-size: 14px;
+  font-size: 15px;
   color: var(--text-1);
-  line-height: 1.7;
-  font-style: italic;
-  font-family: var(--serif);
+  line-height: 1.6;
+  font-family: var(--font);
+  font-weight: 400;
+  letter-spacing: 0;
 }
 
 .input-row {

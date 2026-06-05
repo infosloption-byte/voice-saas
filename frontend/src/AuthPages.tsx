@@ -169,6 +169,8 @@ export function SignInPage({ onSignIn, onSignUp, onBack, onForgotPassword }: Sig
               style={{ paddingLeft: 35, paddingRight: 38 }}
             />
             <button
+              type="button"
+              aria-label={showPw ? 'Hide password' : 'Show password'}
               onClick={() => setShowPw(v => !v)}
               style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', width: 16, height: 16, padding: 0 }}
             >{showPw ? icons.eyeOff : icons.eye}</button>
@@ -289,7 +291,7 @@ export function SignUpPage({ onSignUp, onSignIn, onBack, onTerms, onPrivacy }: S
             <input className="full-input" type={showPw ? 'text' : 'password'} value={password}
               onChange={e => { setPassword(e.target.value); setError('') }}
               placeholder="Min. 8 characters" style={{ paddingLeft: 35, paddingRight: 38 }} />
-            <button onClick={() => setShowPw(v => !v)} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', width: 16, height: 16, padding: 0 }}>
+            <button type="button" aria-label={showPw ? 'Hide password' : 'Show password'} onClick={() => setShowPw(v => !v)} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', width: 16, height: 16, padding: 0 }}>
               {showPw ? icons.eyeOff : icons.eye}
             </button>
           </div>
