@@ -64,6 +64,8 @@ export interface TimelineClip {
   volume: number      // 0–2 gain
   isGap: boolean      // silence pad
   lane?: number       // vertical lane index (0-based); undefined = lane 0
+  fadeIn?: number     // fade-in duration in seconds (applied at clip head)
+  fadeOut?: number    // fade-out duration in seconds (applied at clip tail)
 }
 
 export type TimelineAction =

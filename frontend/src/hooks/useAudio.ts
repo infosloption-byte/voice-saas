@@ -6,12 +6,14 @@ import type { TimelineClip, Script } from '../types'
 
 interface BgMusic { blob: Blob; volume: number }
 
+interface LaneMix { solo: Record<number, boolean>; mute: Record<number, boolean> }
+
 interface UseAudioReturn {
   mergedUrl: string | null
   mergedBlob: Blob | null
   merging: boolean
   mergeError: string | null
-  mergeSelected: (orderedClips: TimelineClip[], bgMusic?: BgMusic) => Promise<void>
+  mergeSelected: (orderedClips: TimelineClip[], bgMusic?: BgMusic, laneMix?: LaneMix) => Promise<void>
   resetMerge: () => void
   exportZip: (scripts: Script[], projectName: string) => Promise<void>
 }
@@ -33,7 +35,7 @@ export function useAudio(): UseAudioReturn {
     setMergeError(null)
   }, [])
 
-  const mergeSelected = useCallback(async (orderedClips: TimelineClip[], bgMusic?: BgMusic): Promise<void> => {
+  const mergeSelected = useCallback(async (orderedClips: TimelineClip[], bgMusic?: BgMusic, laneMix?: LaneMix): Promise<void> => {
     if (!orderedClips.length) return
     setMerging(true)
     setMergeError(null)
@@ -75,18 +77,31 @@ export function useAudio(): UseAudioReturn {
       // mixed (added) into the master buffer. Clips on different lanes that
       // overlap in time are layered together, just like a DAW. Gap clips
       // contribute nothing — silence is implicit from clip positions.
+
+      // Determine which lanes are audible (solo/mute logic)
+      const anySolo = laneMix ? Object.values(laneMix.solo).some(Boolean) : false
+
       type Placed = {
         buffer: AudioBuffer
-        start: number       // absolute timeline start (s)
-        trimStart: number   // seconds into the source buffer
-        dur: number         // visible duration (s)
+        start: number
+        trimStart: number
+        dur: number
         volume: number
+        fadeIn: number
+        fadeOut: number
       }
 
       const placed: Placed[] = []
 
       for (const clip of orderedClips) {
-        if (clip.isGap) continue // silence is implicit in a position-based mix
+        if (clip.isGap) continue
+
+        // Solo/mute filtering
+        if (laneMix) {
+          const lane = clip.lane ?? 0
+          if (laneMix.mute[lane]) continue
+          if (anySolo && !laneMix.solo[lane]) continue
+        }
 
         const raw = await loadAudioRawBlob(`audio_${clip.scriptId}`)
         if (!raw) {
@@ -102,6 +117,8 @@ export function useAudio(): UseAudioReturn {
           trimStart: clip.trimStart,
           dur: clip.dur,
           volume: clip.volume,
+          fadeIn: clip.fadeIn ?? 0,
+          fadeOut: clip.fadeOut ?? 0,
         })
       }
 
@@ -121,6 +138,8 @@ export function useAudio(): UseAudioReturn {
         const destStart  = Math.round(seg.start * sr)
         const srcStart   = Math.round(seg.trimStart * sr)
         const durSamples = Math.round(seg.dur * sr)
+        const fadeInSamples  = Math.round(seg.fadeIn * sr)
+        const fadeOutSamples = Math.round(seg.fadeOut * sr)
         const src = seg.buffer.getChannelData(0)
 
         for (let i = 0; i < durSamples; i++) {
@@ -128,8 +147,13 @@ export function useAudio(): UseAudioReturn {
           if (destIdx < 0 || destIdx >= totalSamples) continue
           const srcIdx = srcStart + i
           const sample = srcIdx < src.length ? src[srcIdx] : 0
-          // Mix (add) and clamp to avoid clipping when lanes overlap.
-          out[destIdx] = Math.max(-1, Math.min(1, out[destIdx] + sample * seg.volume))
+
+          // Linear fade envelope
+          let env = 1.0
+          if (fadeInSamples > 0 && i < fadeInSamples) env = i / fadeInSamples
+          if (fadeOutSamples > 0 && i >= durSamples - fadeOutSamples) env = (durSamples - i) / fadeOutSamples
+
+          out[destIdx] = Math.max(-1, Math.min(1, out[destIdx] + sample * seg.volume * env))
         }
       }
 
@@ -223,4 +247,7 @@ export function useAudio(): UseAudioReturn {
   }, [])
 
   return { mergedUrl, mergedBlob, merging, mergeError, mergeSelected, resetMerge, exportZip }
+}
+
+export type { LaneMix }
 }
