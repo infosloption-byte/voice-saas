@@ -87,21 +87,9 @@ export function SettingsPage({
         )}
       </div>
 
-      <div
-        className="settings-layout"
-        style={{ display: 'grid', gridTemplateColumns: '220px 1fr', flex: 1 }}
-      >
+      <div className="settings-layout">
         {/* Sidebar nav */}
-        <div
-          className="settings-nav"
-          style={{
-            borderRight: '1px solid var(--border)',
-            padding: '16px 8px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 2,
-          }}
-        >
+        <div className="settings-nav">
           {navItems.map(item => (
             <button
               key={item.id}
