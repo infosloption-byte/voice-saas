@@ -9,7 +9,7 @@ import { EmailVerifiedPage } from './EmailVerifiedPage'
 import { api } from './api'
 import { toast, subscribeToast, type ToastItem } from './toast'
 import { useAuth } from './hooks/useAuth'
-import { useProjects } from './hooks/useProjects'
+import { useProjects, notifyPlanLimit } from './hooks/useProjects'
 import { useAudio } from './hooks/useAudio'
 import { useGuestSession, type GateType } from './hooks/useGuestSession'
 import { useGuestProject } from './hooks/useGuestProject'
@@ -353,7 +353,10 @@ export default function App() {
       setWorkspaceTab('scripts')
       setPage('workspace')
     } catch (e) {
-      toast.err('Failed to create project: ' + (e instanceof Error ? e.message : 'Unknown error'))
+      // Plan-limit errors get a clean upgrade message; everything else is generic.
+      if (!notifyPlanLimit(e)) {
+        toast.err('Failed to create project: ' + (e instanceof Error ? e.message : 'Unknown error'))
+      }
     }
   }
 
