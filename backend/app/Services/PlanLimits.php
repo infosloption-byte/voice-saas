@@ -26,6 +26,17 @@ class PlanLimits
      * These are only used when the plan_limits table is empty / missing rows.
      */
     private static array $defaults = [
+        'guest' => [
+            'project_limit' => 1,
+            'profile_limit' => 2,
+            'word_limit'    => 100,
+            'multi_voice'   => false,
+            'data_export'   => false,
+            'synth_limit'   => 1,
+            'preview_limit' => 2,
+            'script_limit'  => 3,
+            'session_days'  => 7,
+        ],
         'free' => [
             'project_limit' => 1,
             'profile_limit' => 1,
@@ -68,6 +79,11 @@ class PlanLimits
                     'word_limit'    => (int)  $row->word_limit,
                     'multi_voice'   => (bool) $row->multi_voice,
                     'data_export'   => (bool) $row->data_export,
+                    // Guest-specific columns (NULL for paid plans)
+                    'synth_limit'   => isset($row->synth_limit)   ? (int) $row->synth_limit   : null,
+                    'preview_limit' => isset($row->preview_limit) ? (int) $row->preview_limit : null,
+                    'script_limit'  => isset($row->script_limit)  ? (int) $row->script_limit  : null,
+                    'session_days'  => isset($row->session_days)  ? (int) $row->session_days  : null,
                 ]
                 : (self::$defaults[$key] ?? self::$defaults['free']);
         }
@@ -130,8 +146,7 @@ class PlanLimits
     }
 
     /**
-     * Return all three plans' limits for the API endpoint.
-     * This lets the frontend and admin panel read current DB values.
+     * Return all plans' limits for the API/admin endpoint (guest + paid tiers).
      */
     public static function all(): array
     {
@@ -140,6 +155,25 @@ class PlanLimits
         return array_map(function (string $plan) {
             $cfg = self::forPlan($plan);
             return array_merge(['plan' => $plan], $cfg);
-        }, ['free', 'starter', 'pro']);
+        }, ['guest', 'free', 'starter', 'pro']);
+    }
+
+    /**
+     * Guest limits in the legacy shape expected by the frontend
+     * (GET /api/guest-limits). Reads the 'guest' row of plan_limits.
+     */
+    public static function guestLimits(): array
+    {
+        $cfg = self::forPlan('guest');
+        $g   = self::$defaults['guest'];
+
+        return [
+            'synth_limit'   => $cfg['synth_limit']   ?? $g['synth_limit'],
+            'word_limit'    => $cfg['word_limit']    ?? $g['word_limit'],
+            'preview_limit' => $cfg['preview_limit'] ?? $g['preview_limit'],
+            'script_limit'  => $cfg['script_limit']  ?? $g['script_limit'],
+            'profile_limit' => $cfg['profile_limit'] ?? $g['profile_limit'],
+            'session_days'  => $cfg['session_days']  ?? $g['session_days'],
+        ];
     }
 }
