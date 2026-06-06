@@ -5,22 +5,22 @@
 
 <div class="info-box">
   <div class="info-row">
-    <span class="label">Plan</span>
+    <span class="label">Plan:</span>
     <span class="value">{{ ucfirst($plan) }}</span>
   </div>
   <div class="info-row">
-    <span class="label">Status</span>
+    <span class="label">Status:</span>
     <span class="value">Active</span>
   </div>
   @if($nextBillingDate)
   <div class="info-row">
-    <span class="label">Next billing date</span>
+    <span class="label">Next billing date:</span>
     <span class="value">{{ $nextBillingDate }}</span>
   </div>
   @endif
   @if($subscriptionId)
   <div class="info-row">
-    <span class="label">Subscription ID</span>
+    <span class="label">Subscription ID:</span>
     <span class="value">{{ $subscriptionId }}</span>
   </div>
   @endif
