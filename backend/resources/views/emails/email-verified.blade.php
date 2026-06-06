@@ -18,11 +18,11 @@
 
 <div class="info-box">
     <div class="info-row">
-        <span class="label">Account</span>
+        <span class="label">Account:</span>
         <span class="value">{{ $user->email }}</span>
     </div>
     <div class="info-row">
-        <span class="label">Verified on</span>
+        <span class="label">Verified on:</span>
         <span class="value">{{ now()->format('M j, Y') }}</span>
     </div>
 </div>

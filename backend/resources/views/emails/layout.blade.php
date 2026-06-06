@@ -10,9 +10,9 @@
     .wrapper { max-width: 580px; margin: 0 auto; padding: 40px 20px; }
     .card { background: #1a1a1e; border: 1px solid #2a2a30; border-radius: 12px; overflow: hidden; }
     /* Header */
-    .header { background: #141416; border-bottom: 1px solid #2a2a30; padding: 28px 36px; display: flex; align-items: center; gap: 12px; }
-    .logo-mark { width: 36px; height: 36px; background: #c0533a; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 800; color: #fff; text-decoration: none; }
-    .logo-name { font-size: 20px; font-weight: 700; color: #f0f0f0; letter-spacing: -0.4px; }
+    .header { background: #141416; border-bottom: 1px solid #2a2a30; padding: 28px 36px; }
+    .logo-mark { width: 36px; height: 36px; background: #c0533a; border-radius: 8px; display: inline-block; font-size: 18px; font-weight: 800; color: #fff !important; text-decoration: none; text-align: center; line-height: 36px; vertical-align: middle; }
+    .logo-name { font-size: 20px; font-weight: 700; color: #f0f0f0; letter-spacing: -0.4px; display: inline-block; vertical-align: middle; margin-left: 10px; }
     /* Body */
     .body { padding: 36px; }
     h1 { font-size: 22px; font-weight: 700; color: #f0f0f0; letter-spacing: -0.3px; margin-bottom: 12px; }
@@ -24,10 +24,10 @@
     /* Info box */
     .info-box { background: #111113; border: 1px solid #2a2a30; border-radius: 8px; padding: 18px 20px; margin: 20px 0; }
     .info-box p { margin: 0; color: #a0a0b0; font-size: 14px; }
-    .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #222228; font-size: 14px; }
+    .info-row { display: table; width: 100%; padding: 8px 0; border-bottom: 1px solid #222228; font-size: 14px; }
     .info-row:last-child { border-bottom: none; padding-bottom: 0; }
-    .info-row .label { color: #686878; }
-    .info-row .value { color: #e2e2e2; font-weight: 500; }
+    .info-row .label { display: table-cell; color: #686878; white-space: nowrap; padding-right: 16px; width: 1%; }
+    .info-row .value { display: table-cell; color: #e2e2e2; font-weight: 500; }
     /* Feature list */
     .feature-list { list-style: none; margin: 16px 0; }
     .feature-list li { padding: 6px 0; font-size: 14px; color: #a0a0b0; display: flex; align-items: flex-start; gap: 10px; }

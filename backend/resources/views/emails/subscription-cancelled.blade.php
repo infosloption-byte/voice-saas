@@ -5,12 +5,12 @@
 
 <div class="info-box">
   <div class="info-row">
-    <span class="label">Plan</span>
+    <span class="label">Plan:</span>
     <span class="value">{{ ucfirst($plan) }}</span>
   </div>
   @if($activeUntil)
   <div class="info-row">
-    <span class="label">Access until</span>
+    <span class="label">Access until:</span>
     <span class="value">{{ $activeUntil }}</span>
   </div>
   @endif
