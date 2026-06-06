@@ -80,6 +80,12 @@ def sanitize_profile_id(raw: str) -> str:
     safe = re.sub(r'[^\w\-]', '_', raw)   # allow only word chars and hyphens
     return safe[:100]
 
+def parse_builtin_speaker(raw: str) -> tuple[bool, str]:
+    """Return (True, speaker_name) when profile_id is a Voxora Library speaker."""
+    if raw.startswith("builtin:"):
+        return True, raw[len("builtin:"):]
+    return False, ""
+
 async def check_file_size(file: UploadFile) -> UploadFile:
     """Reject uploads over MAX_UPLOAD_BYTES to prevent memory exhaustion."""
     data = await file.read()
@@ -375,6 +381,19 @@ async def status():
     }
 
 
+# ── BUILT-IN VOICES ──────────────────────────────────────────────
+@app.get("/built-in-voices")
+async def built_in_voices(_key: None = Depends(verify_api_key)):
+    """Return the list of XTTS v2 built-in studio speakers."""
+    if not models["xtts"]:
+        raise HTTPException(503, "XTTS v2 model is not available.")
+    try:
+        speakers = list(models["xtts"].speakers or [])
+    except Exception:
+        speakers = []
+    return {"speakers": speakers}
+
+
 # ── FEATURE 1: TRANSCRIPTION ──────────────────────────────────────
 @app.post("/transcribe")
 async def transcribe(
@@ -510,23 +529,29 @@ def parse_speaker_segments(text: str) -> list[tuple[str, str]]:
     return segments
 
 
-def synthesize_segment(text: str, ref_wav: str, engine: str,
+def synthesize_segment(text: str, engine: str,
                         language: str, temperature: float,
                         top_k: int, top_p: float,
                         speed: float, gap_ms: int,
-                        repetition_penalty: float = 5.0) -> list[str]:
-    """Synthesize one segment (may span multiple chunks). Returns list of chunk paths."""
+                        repetition_penalty: float = 5.0,
+                        ref_wav: str | None = None,
+                        speaker_name: str | None = None) -> list[str]:
+    """Synthesize one segment (may span multiple chunks). Returns list of chunk paths.
+
+    Provide either ref_wav (custom clone) or speaker_name (XTTS built-in).
+    """
     chunks = split_into_chunks(text)
     chunk_paths: list[str] = []
     for i, chunk in enumerate(chunks):
         chunk_path = tmp_path(f"seg_chunk_{i}", ".wav")
         chunk_paths.append(chunk_path)
         if engine == "f5":
+            if ref_wav is None:
+                raise HTTPException(400, "F5-TTS requires a custom voice profile.")
             synthesize_chunk_f5(chunk=chunk, ref_wav=ref_wav, speed=speed, chunk_path=chunk_path)
         else:
-            models["xtts"].tts_to_file(
+            kwargs: dict = dict(
                 text=chunk,
-                speaker_wav=ref_wav,
                 language=language,
                 file_path=chunk_path,
                 temperature=max(0.1, min(1.0, temperature)),
@@ -536,6 +561,11 @@ def synthesize_segment(text: str, ref_wav: str, engine: str,
                 repetition_penalty=max(1.0, min(10.0, repetition_penalty)),
                 enable_text_splitting=False,
             )
+            if speaker_name:
+                kwargs["speaker"] = speaker_name
+            else:
+                kwargs["speaker_wav"] = ref_wav
+            models["xtts"].tts_to_file(**kwargs)
     return chunk_paths
 
 
@@ -563,7 +593,10 @@ async def synthesize(
     if len(text) > 50_000:
         raise HTTPException(400, "Text exceeds 50 000 character limit.")
 
-    profile_id = sanitize_profile_id(profile_id)
+    # Detect and extract built-in speaker BEFORE sanitization (sanitizer would mangle the name)
+    is_builtin_voice, builtin_speaker = parse_builtin_speaker(profile_id)
+    if not is_builtin_voice:
+        profile_id = sanitize_profile_id(profile_id)
     engine = tts_engine.lower().strip()
     if engine not in ("xtts", "f5"):
         engine = "xtts"
@@ -598,26 +631,36 @@ async def synthesize(
     out_path = tmp_path("synth_final", ".wav")
 
     try:
+        def resolve_voice(pid_raw: str) -> tuple[str | None, str | None]:
+            """Return (ref_wav_path_or_None, builtin_speaker_name_or_None)."""
+            is_b, spk = parse_builtin_speaker(pid_raw)
+            if is_b:
+                return None, spk
+            safe = sanitize_profile_id(pid_raw)
+            path = os.path.join(VOICES_DIR, f"{safe}.wav")
+            return (path if os.path.exists(path) else None), None
+
         if is_multi:
             # ── Multi-voice path ─────────────────────────────────
             seg_wavs: list[str] = []
             for spk_label, seg_text in segments:
                 if not seg_text.strip():
                     continue
-                # Resolve profile: use map, fall back to default profile_id
-                pid = spk_map.get(spk_label, profile_id)
-                ref_wav = os.path.join(VOICES_DIR, f"{pid}.wav")
-                if not os.path.exists(ref_wav):
-                    # Fall back to default voice if mapped profile missing
-                    ref_wav = os.path.join(VOICES_DIR, f"{profile_id}.wav")
-                if not os.path.exists(ref_wav):
-                    raise HTTPException(404, f"Voice profile '{pid}' not found.")
+                raw_pid = spk_map.get(spk_label, profile_id if not is_builtin_voice else f"builtin:{builtin_speaker}")
+                seg_ref_wav, seg_speaker = resolve_voice(raw_pid)
+                # Fall back to default voice if mapped profile missing
+                if seg_ref_wav is None and seg_speaker is None:
+                    seg_ref_wav = None if is_builtin_voice else os.path.join(VOICES_DIR, f"{profile_id}.wav")
+                    seg_speaker = builtin_speaker if is_builtin_voice else None
+                if seg_ref_wav is None and seg_speaker is None:
+                    raise HTTPException(404, f"Voice profile '{raw_pid}' not found.")
 
                 seg_chunks = synthesize_segment(
-                    text=seg_text, ref_wav=ref_wav, engine=engine,
+                    text=seg_text, engine=engine,
                     language=language, temperature=temperature,
                     top_k=top_k, top_p=top_p, speed=speed, gap_ms=gap_ms,
                     repetition_penalty=repetition_penalty,
+                    ref_wav=seg_ref_wav, speaker_name=seg_speaker,
                 )
                 all_chunk_paths.extend(seg_chunks)
 
@@ -639,10 +682,13 @@ async def synthesize(
             all_chunk_paths.extend(seg_wavs)
 
         else:
-            # ── Single-voice path (original behaviour) ────────────
-            ref_wav = os.path.join(VOICES_DIR, f"{profile_id}.wav")
-            if not os.path.exists(ref_wav):
-                raise HTTPException(404, f"Voice profile '{profile_id}' not found.")
+            # ── Single-voice path ─────────────────────────────────
+            if is_builtin_voice:
+                ref_wav_path: str | None = None
+            else:
+                ref_wav_path = os.path.join(VOICES_DIR, f"{profile_id}.wav")
+                if not os.path.exists(ref_wav_path):
+                    raise HTTPException(404, f"Voice profile '{profile_id}' not found.")
 
             chunks = split_into_chunks(text.strip())
             if not chunks:
@@ -653,11 +699,10 @@ async def synthesize(
                 all_chunk_paths.append(chunk_path)
 
                 if engine == "f5":
-                    synthesize_chunk_f5(chunk=chunk, ref_wav=ref_wav, speed=speed, chunk_path=chunk_path)
+                    synthesize_chunk_f5(chunk=chunk, ref_wav=ref_wav_path, speed=speed, chunk_path=chunk_path)
                 else:
-                    models["xtts"].tts_to_file(
+                    xtts_kwargs: dict = dict(
                         text=chunk,
-                        speaker_wav=ref_wav,
                         language=language,
                         file_path=chunk_path,
                         temperature=max(0.1, min(1.0, temperature)),
@@ -667,6 +712,11 @@ async def synthesize(
                         repetition_penalty=max(1.0, min(10.0, repetition_penalty)),
                         enable_text_splitting=False,
                     )
+                    if is_builtin_voice:
+                        xtts_kwargs["speaker"] = builtin_speaker
+                    else:
+                        xtts_kwargs["speaker_wav"] = ref_wav_path
+                    models["xtts"].tts_to_file(**xtts_kwargs)
 
             if len(all_chunk_paths) == 1:
                 shutil.copy(all_chunk_paths[0], out_path)
