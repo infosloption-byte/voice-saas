@@ -5,6 +5,7 @@ import { toast } from './toast'
 import { icons } from './constants'
 import { LogoMark } from './LandingPage'
 import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
+import { getAudioPrefs, saveAudioPrefs, getAppearancePrefs, saveAppearancePrefs } from './hooks/useAudioSettings'
 import type { EngineCaps, Subscription, Plan } from './types'
 
 // ═══════════════════════════════════════════════════════════════════
@@ -27,6 +28,8 @@ interface SettingsPageProps {
   user?: { name: string; email: string; email_verified_at?: string | null; plan_name?: Plan }
   engineCaps?: EngineCaps
   onGoPricing?: () => void
+  sidebarCollapsed?: boolean
+  onToggleSidebar?: () => void
 }
 
 export function SettingsPage({
@@ -38,6 +41,8 @@ export function SettingsPage({
   user = { name: '', email: '' },
   engineCaps = { xtts: false, f5: false },
   onGoPricing,
+  sidebarCollapsed,
+  onToggleSidebar,
 }: SettingsPageProps) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768)
   // null = "menu view" on mobile; on desktop always has a section selected
@@ -199,7 +204,7 @@ export function SettingsPage({
             {section === 'account'       && <AccountSettings                        onSave={handleSave} />}
             {section === 'billing'       && <BillingSettings currentPlan={user.plan_name ?? 'free'} onGoPricing={onGoPricing} />}
             {section === 'audio'         && <AudioSettings          engineCaps={engineCaps} onSave={handleSave} />}
-            {section === 'appearance'    && <AppearanceSettings     darkMode={darkMode} onToggleDark={onToggleDark} onSave={handleSave} />}
+            {section === 'appearance'    && <AppearanceSettings     darkMode={darkMode} onToggleDark={onToggleDark} onSave={handleSave} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={onToggleSidebar} />}
             {section === 'notifications' && <NotificationSettings                   onSave={handleSave} />}
             {section === 'api'           && <ApiSettings                            onSave={handleSave} />}
             {section === 'danger'        && <DangerSettings         onSignOut={onSignOut} onDeleteAccount={onDeleteAccount} />}
@@ -337,11 +342,13 @@ function AccountSettings({ onSave }: { onSave: () => void }) {
 // ── Audio & Synthesis ────────────────────────────────────────────────
 
 function AudioSettings({ engineCaps, onSave }: { engineCaps: EngineCaps; onSave: () => void }) {
-  const [defaultLang, setDefaultLang]           = useState('en')
-  const [defaultSpeed, setDefaultSpeed]         = useState(1.0)
-  const [noiseSuppression, setNoiseSuppression] = useState(true)
-  const [autoGain, setAutoGain]                 = useState(true)
-  const [defaultGain, setDefaultGain]           = useState(0.85)
+  const [prefs, setPrefs] = useState(() => getAudioPrefs())
+  const { defaultLang, defaultSpeed, noiseSuppression, autoGain, defaultGain } = prefs
+  const setDefaultLang      = (v: string)  => setPrefs(p => ({ ...p, defaultLang: v }))
+  const setDefaultSpeed     = (v: number)  => setPrefs(p => ({ ...p, defaultSpeed: v }))
+  const setNoiseSuppression = (v: boolean) => setPrefs(p => ({ ...p, noiseSuppression: v }))
+  const setAutoGain         = (v: boolean) => setPrefs(p => ({ ...p, autoGain: v }))
+  const setDefaultGain      = (v: number)  => setPrefs(p => ({ ...p, defaultGain: v }))
   const { engine, setEngine } = useTTSEngine()
 
   const languages = [
@@ -405,16 +412,31 @@ function AudioSettings({ engineCaps, onSave }: { engineCaps: EngineCaps; onSave:
           <span style={{ fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--accent)', minWidth: 32, textAlign: 'right' }}>{defaultGain.toFixed(2)}</span>
         </div>
       </SettingsRow>
-      <button className="btn btn--primary" onClick={onSave} style={{ gap: 6 }}>{icons.check} Save audio settings</button>
+      <button className="btn btn--primary" onClick={() => { saveAudioPrefs(prefs); onSave(); toast.ok('Audio settings saved') }} style={{ gap: 6 }}>{icons.check} Save audio settings</button>
     </div>
   )
 }
 
 // ── Appearance ───────────────────────────────────────────────────────
 
-function AppearanceSettings({ darkMode, onToggleDark, onSave }: { darkMode?: boolean; onToggleDark?: () => void; onSave: () => void }) {
-  const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable')
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+function AppearanceSettings({ darkMode, onToggleDark, onSave, sidebarCollapsed: sidebarCollapsedProp, onToggleSidebar }: { darkMode?: boolean; onToggleDark?: () => void; onSave: () => void; sidebarCollapsed?: boolean; onToggleSidebar?: () => void }) {
+  const [prefs, setPrefs] = useState(() => getAppearancePrefs())
+
+  // Keep density persisted
+  const setDensity = (v: 'comfortable' | 'compact') => {
+    const next = { ...prefs, density: v }
+    setPrefs(next)
+    saveAppearancePrefs(next)
+  }
+
+  // Sidebar toggle is live (calls App.tsx handler) + persisted
+  const handleSidebarToggle = (v: boolean) => {
+    const next = { ...prefs, sidebarCollapsed: v }
+    setPrefs(next)
+    saveAppearancePrefs(next)
+    // sync the shell via the prop callback so the sidebar actually collapses
+    if (v !== sidebarCollapsedProp) onToggleSidebar?.()
+  }
 
   return (
     <div>
@@ -428,12 +450,12 @@ function AppearanceSettings({ darkMode, onToggleDark, onSave }: { darkMode?: boo
       <SettingsRow label="Layout density" hint="Controls spacing throughout the interface.">
         <div style={{ display: 'flex', gap: 6 }}>
           {(['comfortable', 'compact'] as const).map(d => (
-            <button key={d} onClick={() => setDensity(d)} className={density === d ? 'btn btn--primary btn--sm' : 'btn btn--ghost btn--sm'} style={{ fontSize: 12, textTransform: 'capitalize' }}>{d}</button>
+            <button key={d} onClick={() => setDensity(d)} className={prefs.density === d ? 'btn btn--primary btn--sm' : 'btn btn--ghost btn--sm'} style={{ fontSize: 12, textTransform: 'capitalize' }}>{d}</button>
           ))}
         </div>
       </SettingsRow>
       <SettingsRow label="Collapsed sidebar" hint="Hides text labels in the sidebar navigation.">
-        <Toggle checked={sidebarCollapsed} onChange={setSidebarCollapsed} />
+        <Toggle checked={sidebarCollapsedProp ?? prefs.sidebarCollapsed} onChange={handleSidebarToggle} />
       </SettingsRow>
       <div style={{ margin: '20px 0', padding: 16, background: 'var(--bg-2)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)' }}>
         <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, color: 'var(--text-3)', marginBottom: 10 }}>Preview</div>
@@ -448,7 +470,7 @@ function AppearanceSettings({ darkMode, onToggleDark, onSave }: { darkMode?: boo
           </div>
         </div>
       </div>
-      <button className="btn btn--primary" onClick={onSave} style={{ gap: 6 }}>{icons.check} Save appearance</button>
+      <button className="btn btn--primary" onClick={() => { saveAppearancePrefs(prefs); onSave(); toast.ok('Appearance settings saved') }} style={{ gap: 6 }}>{icons.check} Save appearance</button>
     </div>
   )
 }

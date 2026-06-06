@@ -40,6 +40,7 @@ class ProjectController extends Controller
         ]);
 
         $project->update($validated);
+        $project->load('scripts');
 
         return response()->json($project);
     }

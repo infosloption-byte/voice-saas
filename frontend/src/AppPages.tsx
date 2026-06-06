@@ -4,6 +4,7 @@ import { toast } from './toast'
 import { icons, EMOJIS } from './constants'
 import { fmt, uid, useAudioRecorder } from './audio'
 import { useTTSEngine } from './hooks/useTTSEngine'
+import { getAudioPrefs } from './hooks/useAudioSettings'
 import { type GateType } from './hooks/useGuestSession'
 import { DEFAULT_GUEST_LIMITS } from './hooks/useGuestLimits'
 import type { Project, Script, VoiceProfile, VoiceProfileSaveResult, EngineCaps, GuestLimits } from './types'
@@ -430,8 +431,8 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
   const [msgWarn, setMsgWarn] = useState('')
-  const [noiseSuppression, setNoiseSuppression] = useState(true)
-  const [gainVal, setGainVal] = useState(0.85)
+  const [noiseSuppression, setNoiseSuppression] = useState(() => getAudioPrefs().noiseSuppression)
+  const [gainVal, setGainVal] = useState(() => getAudioPrefs().defaultGain)
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [previewText, setPreviewText] = useState('Hello, this is a preview of my voice profile.')
   const [previewing, setPreviewing] = useState(false)
@@ -561,7 +562,9 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
         fd.append('tts_engine', engine)
         audioBlob = await api.enginePost('/synthesize', fd) as Blob
       }
-      const audio = new Audio(URL.createObjectURL(audioBlob))
+      const previewUrl = URL.createObjectURL(audioBlob)
+      const audio = new Audio(previewUrl)
+      audio.addEventListener('ended', () => URL.revokeObjectURL(previewUrl), { once: true })
       audio.play()
       if (isGuest) onIncrementPreview?.()
     } catch (e: unknown) {
