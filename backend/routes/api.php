@@ -40,10 +40,12 @@ Route::middleware('auth:sanctum')->group(function () {
         'projects/{project}/scripts/reorder',
         [ScriptController::class, 'reorder']
     );
-    Route::apiResource('projects.scripts', ScriptController::class)->scoped([
-        'script'  => 'id',
-        'project' => 'id',
-    ]);
+    Route::apiResource('projects.scripts', ScriptController::class)
+        ->only(['store', 'update', 'destroy'])
+        ->scoped([
+            'script'  => 'id',
+            'project' => 'id',
+        ]);
 
     // Voice profiles
     // GET  /api/voice-profiles        → list user's profiles

@@ -140,6 +140,15 @@ export function WorkspacePage({
   const [synthErr, setSynthErr]             = useState('')
   const [saveState, setSaveState]           = useState<SaveState>('saved')
   const [audioUrl, setAudioUrl]             = useState<string | null>(null)
+  // Track the current object URL so we can revoke the previous one whenever it
+  // changes (and on unmount) — prevents WAV blobs leaking into memory.
+  const audioUrlRef = useRef<string | null>(null)
+  useEffect(() => {
+    const prev = audioUrlRef.current
+    if (prev && prev !== audioUrl) URL.revokeObjectURL(prev)
+    audioUrlRef.current = audioUrl
+  }, [audioUrl])
+  useEffect(() => () => { if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current) }, [])
   const [showScriptList, setShowScriptList] = useState(true)
   const [transcribing, setTranscribing]     = useState(false)
   const [showEngineMenu, setShowEngineMenu] = useState(false)
@@ -460,7 +469,7 @@ export function WorkspacePage({
     const used = guestUsage?.synthesesUsed ?? 0
     if (used >= guestLimits.synth_limit) {
       onGuestGate?.('synth_limit')
-      return
+      return 'gated' as const
     }
 
     if (!ENGINE_URL) {
@@ -581,7 +590,10 @@ export function WorkspacePage({
     // Guest path: use /clone-voice for each pending script, respecting synth gate
     if (isGuest) {
       for (const script of pending) {
-        await handleGuestGenerate(script, script.content)
+        const result = await handleGuestGenerate(script, script.content)
+        // Stop the whole batch once the synth limit gate fires — otherwise the
+        // gate modal would re-trigger for every remaining script.
+        if (result === 'gated') break
       }
       return
     }
@@ -1223,7 +1235,7 @@ export function WorkspacePage({
                             onUpdateScript(activeScript.id, { speakerMap: newMap })
                           }}>
                           {voiceProfiles.map(vp => (
-                            <option key={vp.profile_id} value={vp.profile_id}>{vp.profile_id}</option>
+                            <option key={vp.profile_id} value={vp.profile_id}>{vp.name}</option>
                           ))}
                         </select>
                       </div>

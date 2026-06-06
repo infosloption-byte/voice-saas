@@ -12,6 +12,7 @@ class Script extends Model
     protected $casts = [
         'has_audio' => 'boolean',
         'waveform_peaks' => 'array',
+        'speaker_map' => 'array',
     ];
 
     public function project()
