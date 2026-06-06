@@ -290,15 +290,6 @@ export function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
       </div>
 
       <div className="project-grid">
-        {/* New project card */}
-        <button className="project-card project-card--new" onClick={onNew}>
-          <div className="project-card--new__inner">
-            <div className="project-card--new__icon">{icons.plus}</div>
-            <span className="project-card--new__label">New Project</span>
-            <span className="project-card--new__hint">Create a blank workspace</span>
-          </div>
-        </button>
-
         {projects.map(p => {
           const { total, withAudio, totalDur, assemblyClips } = projectStats(p)
           const ready = withAudio > 0
