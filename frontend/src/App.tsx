@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import './App.css'
 import { LandingPage } from './LandingPage'
 import { SignInPage, SignUpPage, ForgotPasswordPage, ResetPasswordPage } from './AuthPages'
@@ -245,24 +245,36 @@ export default function App() {
   // ── Audio hydration ───────────────────────────────────────────────
   const hydratedAudioRef = useRef<Set<string>>(new Set())
 
+  // Signature of every script that currently has server-backed audio. Changes
+  // whenever a script gains/loses audio anywhere (not just when the count
+  // changes), so cross-device additions are picked up.
+  const audioHydrationKey = useMemo(
+    () => projects
+      .flatMap(p => p.scripts)
+      .filter(s => s.hasAudio && s.audioUrl)
+      .map(s => s.id)
+      .join(','),
+    [projects],
+  )
+
   // Hydrate audio blobs from backend for scripts where IndexedDB was cleared
   useEffect(() => {
     if (!user || !projects.length) return
     projects.forEach(p => {
       p.scripts.forEach(async s => {
         if (!s.hasAudio || !s.audioUrl || hydratedAudioRef.current.has(s.id)) return
-        hydratedAudioRef.current.add(s.id)
         const existing = await loadAudioRawBlob(`audio_${s.id}`)
-        if (existing) return // already in IndexedDB
+        if (existing) { hydratedAudioRef.current.add(s.id); return } // already in IndexedDB
         try {
           const blob = await api.get(`/scripts/${s.id}/audio`) as Blob
           if (blob instanceof Blob) {
             await saveAudioBlob(`audio_${s.id}`, blob)
+            hydratedAudioRef.current.add(s.id) // only mark done on success
           }
-        } catch { /* non-critical; user can re-synthesize */ }
+        } catch { /* non-critical; retried on next change; user can re-synthesize */ }
       })
     })
-  }, [user?.id, projects.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user?.id, audioHydrationKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Voice profiles ────────────────────────────────────────────────
   const loadProfiles = useCallback(() => {
@@ -858,6 +870,8 @@ export default function App() {
               onProfileSaved={checkUser}
               engineCaps={engineCaps}
               onGoPricing={() => setPage('pricing')}
+              sidebarCollapsed={sidebarCollapsed}
+              onToggleSidebar={() => sidebarCollapsed ? expandSidebar() : collapseSidebar()}
               user={user
                 ? { name: user.name, email: user.email, email_verified_at: user.email_verified_at, plan_name: user.plan_name }
                 : { name: '', email: '' }}

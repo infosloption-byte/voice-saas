@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useReducer, useCallback } from 'react'
 import { toast } from './toast'
+import { api } from './api'
 import { icons, CLIP_COLORS, CLIP_LIGHTS } from './constants'
 import { loadAudioBlob, loadAudioRawBlob, saveAudioBlob, deleteAudioBlob, timelineReducer, uid, fmt } from './audio'
 import type { Project, Script, TimelineClip, TimelineHistory } from './types'
@@ -49,6 +50,9 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
   const [dragOffsetSec, setDragOffsetSec] = useState(0)
   const [resizingClip, setResizingClip] = useState<{ id: string; side: 'left' | 'right'; initX: number; initVal: number } | null>(null)
   const [audioUrls, setAudioUrls] = useState<Record<string, string>>({})
+  // Track every object URL we create so they can be revoked on unmount.
+  const audioUrlsRef = useRef<string[]>([])
+  useEffect(() => () => { audioUrlsRef.current.forEach(u => URL.revokeObjectURL(u)) }, [])
   const [colorCursor, setColorCursor] = useState(0)
   const [draggingPlayhead, setDraggingPlayhead] = useState(false)
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
@@ -140,6 +144,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
       if (!audioUrls[s.id]) {
         const url = await loadAudioBlob(`audio_${s.id}`)
         if (!url) return
+        audioUrlsRef.current.push(url)
         setAudioUrls(prev => ({ ...prev, [s.id]: url }))
         try {
           if (!audioCtxRef.current) audioCtxRef.current = new AudioContext()
@@ -406,9 +411,8 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
     try {
       const fd = new FormData()
       fd.append('file', mergedBlob, 'audio.wav')
-      const res = await fetch(`${ENGINE_URL}/export/mp3`, { method: 'POST', body: fd })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const blob = await res.blob()
+      const blob = await api.enginePost('/export/mp3', fd) as Blob
+      if (!(blob instanceof Blob)) throw new Error('Unexpected response from engine')
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
