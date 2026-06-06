@@ -67,6 +67,10 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
   const [dropLane, setDropLane] = useState<number | null>(null)
   const [laneSolo, setLaneSolo] = useState<Record<number, boolean>>({})
   const [laneMute, setLaneMute] = useState<Record<number, boolean>>({})
+  const [laneCollapsed, setLaneCollapsed] = useState<Record<number, boolean>>({})
+  // Mirror of timelineScroll.scrollLeft so the minimap viewport rectangle re-renders on scroll.
+  const [scrollLeft, setScrollLeft] = useState(0)
+  const [viewportW, setViewportW] = useState(0)
 
   // Initialize solo/mute from persisted project lane config
   useEffect(() => {
@@ -453,6 +457,56 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
     setZoom(Math.max(20, Math.min(200, Math.floor(totalW / total))))
   }
 
+  // Keep scrollLeft/viewportW state in sync with the timeline scroll container so
+  // the minimap's viewport rectangle reflects the visible region as it changes.
+  useEffect(() => {
+    const el = timelineRef.current
+    if (!el) return
+    const update = () => {
+      setScrollLeft(el.scrollLeft)
+      setViewportW(el.clientWidth)
+    }
+    update()
+    el.addEventListener('scroll', update, { passive: true })
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => { el.removeEventListener('scroll', update); ro.disconnect() }
+  }, [])
+
+  // Ctrl/⌘ + wheel zooms the timeline while keeping the time under the cursor anchored.
+  // Native wheel listener (instead of React onWheel) so we can call preventDefault.
+  useEffect(() => {
+    const el = timelineRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return
+      e.preventDefault()
+      const rect = el.getBoundingClientRect()
+      const cursorX = e.clientX - rect.left
+      // Time (in seconds) currently under the cursor — anchor for the zoom.
+      const tAtCursor = (el.scrollLeft + cursorX - GUTTER_W) / zoom
+      // 10% per notch; negative deltaY = wheel up = zoom in.
+      const factor = Math.exp(-e.deltaY * 0.0015)
+      const newZoom = Math.max(20, Math.min(200, Math.round(zoom * factor)))
+      if (newZoom === zoom) return
+      setZoom(newZoom)
+      requestAnimationFrame(() => {
+        if (!el) return
+        el.scrollLeft = Math.max(0, tAtCursor * newZoom + GUTTER_W - cursorX)
+      })
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [zoom])
+
+  // Jump the timeline scroll position so a given seconds value sits at viewport center.
+  function scrollToSec(sec: number) {
+    const el = timelineRef.current
+    if (!el) return
+    const target = Math.max(0, sec * zoom + GUTTER_W - el.clientWidth / 2)
+    el.scrollLeft = target
+  }
+
   // Drag: asset → timeline
   function onTimelineDrop(e: React.DragEvent, lane = 0) {
     e.preventDefault(); setDropLane(null)
@@ -571,6 +625,22 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
     const script = project.scripts.find(s => s.id === clip.scriptId)
     const peaks  = script?.waveformPeaks
     const bars   = Math.max(Math.floor((clipW - 16) / 7), 4)
+    const collapsed = !!laneCollapsed[clip.lane ?? 0]
+
+    // Collapsed lane: render the clip as a thin colored bar with just the title.
+    if (collapsed) {
+      return (
+        <div key={clip.id}
+          onMouseDown={e => onClipMouseDown(e, clip)}
+          onClick={e => { e.stopPropagation(); setSelectedClipId(clip.id) }}
+          title={clip.title}
+          style={{ position: 'absolute', left: GUTTER_W + clip.start * zoom, top: 3, height: 18, width: clipW, borderRadius: 3, background: col + '44', border: `1px solid ${isSelected ? col : col + '88'}`, cursor: isActive ? 'grabbing' : 'grab', overflow: 'hidden', zIndex: isActive || isSelected ? 100 : 10, display: 'flex', alignItems: 'center', padding: '0 6px' }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: col, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {isBroken ? '⚠ ' : isGap ? '⏸ ' : ''}{clip.title}
+          </span>
+        </div>
+      )
+    }
 
     return (
       <div key={clip.id}
@@ -739,8 +809,9 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
 
         <div style={S.sep} />
 
-        <span style={{ fontSize: 11, color: 'var(--text-3)', flexShrink: 0 }}>Zoom</span>
+        <span style={{ fontSize: 11, color: 'var(--text-3)', flexShrink: 0 }} title="Tip: Ctrl/⌘ + scroll over the timeline to zoom at the cursor">Zoom</span>
         <input type="range" min="30" max="200" step="10" value={zoom} onChange={e => setZoom(Number(e.target.value))}
+          title="Ctrl/⌘ + scroll over the timeline to zoom at the cursor"
           style={{ width: 70, accentColor: 'var(--accent)', flexShrink: 0 }} />
         <span style={{ fontSize: 11, color: 'var(--text-3)', width: 28, flexShrink: 0 }}>{zoom}</span>
 
@@ -1012,6 +1083,61 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
             )
           })()}
 
+          {/* ── Minimap: bird's-eye view of all clips, click/drag to navigate ── */}
+          {timelineClips.length > 0 && (() => {
+            const MAP_H = 36
+            const totalContentW = totalDur * zoom + GUTTER_W + 200  // matches timelineWidth approx
+            // Compute how much horizontal space the viewport rectangle covers in minimap-space.
+            const viewportRatio = totalContentW > 0 ? Math.min(1, viewportW / totalContentW) : 1
+            const scrollRatio   = totalContentW > 0 ? scrollLeft / totalContentW : 0
+            const handlePointer = (e: React.MouseEvent<HTMLDivElement>) => {
+              const rect = e.currentTarget.getBoundingClientRect()
+              const ratio = (e.clientX - rect.left) / rect.width
+              const targetSec = ratio * totalDur
+              scrollToSec(targetSec)
+            }
+            return (
+              <div
+                onMouseDown={e => {
+                  handlePointer(e)
+                  const onMove = (ev: MouseEvent) => {
+                    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+                    const ratio = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
+                    scrollToSec(ratio * totalDur)
+                  }
+                  const onUp = () => {
+                    window.removeEventListener('mousemove', onMove)
+                    window.removeEventListener('mouseup', onUp)
+                  }
+                  window.addEventListener('mousemove', onMove)
+                  window.addEventListener('mouseup', onUp)
+                }}
+                title="Overview — click or drag to navigate"
+                style={{ position: 'relative', height: MAP_H, background: 'var(--bg-3)', borderBottom: '1px solid var(--border-2)', cursor: 'pointer', flexShrink: 0, overflow: 'hidden' }}
+              >
+                {/* Compressed clip rects, one row per lane */}
+                {Array.from({ length: laneCount }).map((_, lane) => {
+                  const laneClips = timelineClips.filter(c => (c.lane ?? 0) === lane)
+                  const rowH = Math.max(4, (MAP_H - 4) / Math.max(1, laneCount))
+                  const top = 2 + lane * rowH
+                  return laneClips.map(c => {
+                    const col = c.isGap ? 'var(--text-3)' : CLIP_COLORS[c.ci % CLIP_COLORS.length]
+                    const left = `${(c.start / totalDur) * 100}%`
+                    const width = `${Math.max(0.2, (c.dur / totalDur) * 100)}%`
+                    return (
+                      <div key={c.id}
+                        style={{ position: 'absolute', left, width, top, height: rowH - 2, background: col, borderRadius: 1.5, opacity: c.id === selectedClipId ? 1 : 0.75 }} />
+                    )
+                  })
+                })}
+                {/* Playhead marker */}
+                <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${(playhead / totalDur) * 100}%`, width: 1, background: 'var(--accent)', opacity: 0.8, pointerEvents: 'none' }} />
+                {/* Viewport rectangle */}
+                <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${scrollRatio * 100}%`, width: `${viewportRatio * 100}%`, border: '1.5px solid var(--accent)', background: 'rgba(201,100,66,0.10)', borderRadius: 3, pointerEvents: 'none' }} />
+              </div>
+            )
+          })()}
+
           <div ref={timelineRef} style={S.timelineScroll}
             onMouseMove={onTimelineMouseMove}
             onMouseUp={onTimelineMouseUp}
@@ -1065,10 +1191,11 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
               {Array.from({ length: laneCount }).map((_, lane) => {
                 const laneClips = timelineClips.filter(c => (c.lane ?? 0) === lane)
                 const isDropTarget = dropLane === lane
+                const collapsed = !!laneCollapsed[lane]
                 return (
                   <div key={lane}
                     ref={el => { laneRefs.current[lane] = el }}
-                    style={{ ...S.track, marginTop: lane === 0 ? 4 : 2, outline: isDropTarget ? '2px dashed var(--accent)' : 'none', outlineOffset: -3, opacity: laneMute[lane] ? 0.35 : (Object.values(laneSolo).some(Boolean) && !laneSolo[lane]) ? 0.35 : 1 }}
+                    style={{ ...S.track, height: collapsed ? 24 : 80, marginTop: lane === 0 ? 4 : 2, outline: isDropTarget ? '2px dashed var(--accent)' : 'none', outlineOffset: -3, opacity: laneMute[lane] ? 0.35 : (Object.values(laneSolo).some(Boolean) && !laneSolo[lane]) ? 0.35 : 1 }}
                     onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDropLane(lane) }}
                     onDragLeave={() => { setDropLane(null) }}
                     onDrop={e => onTimelineDrop(e, lane)}
@@ -1088,29 +1215,39 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
                     <div
                       onMouseDown={e => e.stopPropagation()}
                       onClick={e => e.stopPropagation()}
-                      style={{ position: 'sticky', left: 0, top: 0, width: GUTTER_W, height: '100%', zIndex: 50, background: 'var(--bg-3)', borderRight: '2px solid var(--border)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 5, flexShrink: 0 }}>
+                      style={{ position: 'sticky', left: 0, top: 0, width: GUTTER_W, height: '100%', zIndex: 50, background: 'var(--bg-3)', borderRight: '2px solid var(--border)', display: 'flex', flexDirection: collapsed ? 'row' : 'column', alignItems: 'center', justifyContent: 'center', gap: collapsed ? 6 : 5, flexShrink: 0, padding: collapsed ? '0 4px' : 0 }}>
                       {/* Lane label */}
                       <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>L{lane + 1}</span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        {/* Solo button */}
-                        <button
-                          onMouseDown={e => e.stopPropagation()}
-                          onClick={e => { e.stopPropagation(); setLaneSolo(prev => ({ ...prev, [lane]: !prev[lane] })) }}
-                          title={`Solo lane ${lane + 1} — only this lane plays`}
-                          style={{ minWidth: 24, height: 24, borderRadius: 4, border: `1.5px solid ${laneSolo[lane] ? '#f5a623' : 'var(--border-2)'}`, background: laneSolo[lane] ? '#f5a623' : 'var(--surface)', color: laneSolo[lane] ? '#fff' : 'var(--text-2)', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', boxShadow: laneSolo[lane] ? '0 0 6px rgba(245,166,35,0.5)' : 'none' }}>S</button>
-                        {/* Mute button */}
-                        <button
-                          onMouseDown={e => e.stopPropagation()}
-                          onClick={e => { e.stopPropagation(); setLaneMute(prev => ({ ...prev, [lane]: !prev[lane] })) }}
-                          title={`Mute lane ${lane + 1} — exclude from playback and export`}
-                          style={{ minWidth: 24, height: 24, borderRadius: 4, border: `1.5px solid ${laneMute[lane] ? '#e74c3c' : 'var(--border-2)'}`, background: laneMute[lane] ? '#e74c3c' : 'var(--surface)', color: laneMute[lane] ? '#fff' : 'var(--text-2)', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', boxShadow: laneMute[lane] ? '0 0 6px rgba(231,76,60,0.5)' : 'none' }}>M</button>
-                      </div>
-                      {/* Remove lane button — always shown; warns if lane has clips */}
+                      {!collapsed && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          {/* Solo button */}
+                          <button
+                            onMouseDown={e => e.stopPropagation()}
+                            onClick={e => { e.stopPropagation(); setLaneSolo(prev => ({ ...prev, [lane]: !prev[lane] })) }}
+                            title={`Solo lane ${lane + 1} — only this lane plays`}
+                            style={{ minWidth: 24, height: 24, borderRadius: 4, border: `1.5px solid ${laneSolo[lane] ? '#f5a623' : 'var(--border-2)'}`, background: laneSolo[lane] ? '#f5a623' : 'var(--surface)', color: laneSolo[lane] ? '#fff' : 'var(--text-2)', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', boxShadow: laneSolo[lane] ? '0 0 6px rgba(245,166,35,0.5)' : 'none' }}>S</button>
+                          {/* Mute button */}
+                          <button
+                            onMouseDown={e => e.stopPropagation()}
+                            onClick={e => { e.stopPropagation(); setLaneMute(prev => ({ ...prev, [lane]: !prev[lane] })) }}
+                            title={`Mute lane ${lane + 1} — exclude from playback and export`}
+                            style={{ minWidth: 24, height: 24, borderRadius: 4, border: `1.5px solid ${laneMute[lane] ? '#e74c3c' : 'var(--border-2)'}`, background: laneMute[lane] ? '#e74c3c' : 'var(--surface)', color: laneMute[lane] ? '#fff' : 'var(--text-2)', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', boxShadow: laneMute[lane] ? '0 0 6px rgba(231,76,60,0.5)' : 'none' }}>M</button>
+                        </div>
+                      )}
+                      {/* Collapse/expand toggle */}
                       <button
                         onMouseDown={e => e.stopPropagation()}
-                        onClick={e => { e.stopPropagation(); removeLane(lane) }}
-                        title={laneClips.length === 0 ? 'Remove this lane' : 'Move or delete clips first'}
-                        style={{ minWidth: 24, height: 20, borderRadius: 4, border: '1px solid var(--border-2)', background: laneClips.length === 0 ? 'var(--surface)' : 'transparent', color: laneClips.length === 0 ? 'var(--text-2)' : 'var(--border-2)', fontSize: 13, fontWeight: 400, cursor: laneClips.length === 0 ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, opacity: laneClips.length === 0 ? 1 : 0.3, transition: 'opacity 0.15s' }}>×</button>
+                        onClick={e => { e.stopPropagation(); setLaneCollapsed(prev => ({ ...prev, [lane]: !prev[lane] })) }}
+                        title={collapsed ? `Expand lane ${lane + 1}` : `Collapse lane ${lane + 1}`}
+                        style={{ minWidth: collapsed ? 16 : 24, height: collapsed ? 16 : 18, borderRadius: 3, border: '1px solid var(--border-2)', background: 'var(--surface)', color: 'var(--text-2)', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>{collapsed ? '▸' : '▾'}</button>
+                      {!collapsed && (
+                        /* Remove lane button — always shown; warns if lane has clips */
+                        <button
+                          onMouseDown={e => e.stopPropagation()}
+                          onClick={e => { e.stopPropagation(); removeLane(lane) }}
+                          title={laneClips.length === 0 ? 'Remove this lane' : 'Move or delete clips first'}
+                          style={{ minWidth: 24, height: 20, borderRadius: 4, border: '1px solid var(--border-2)', background: laneClips.length === 0 ? 'var(--surface)' : 'transparent', color: laneClips.length === 0 ? 'var(--text-2)' : 'var(--border-2)', fontSize: 13, fontWeight: 400, cursor: laneClips.length === 0 ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, opacity: laneClips.length === 0 ? 1 : 0.3, transition: 'opacity 0.15s' }}>×</button>
+                      )}
                     </div>
 
                     {timelineClips.length === 0 && lane === 0 && (
