@@ -7,6 +7,7 @@ export type Page =
   | 'forgot-password' | 'reset-password'
   | 'dashboard' | 'projects' | 'workspace' | 'profiles' | 'settings'
   | 'pricing' | 'privacy' | 'terms'
+  | 'email-verified'
 
 export type WorkspaceTab = 'scripts' | 'assembly'
 export type SaveState = 'saved' | 'saving' | 'unsaved'
