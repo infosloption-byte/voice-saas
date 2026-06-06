@@ -593,12 +593,17 @@ function BillingSettings({ currentPlan, onGoPricing }: { currentPlan: Plan; onGo
     setExporting(true)
     try {
       const response = await fetch(`${import.meta.env.VITE_API_URL}/user/export`, { credentials: 'include', headers: { Accept: 'application/json' } })
-      if (!response.ok) throw new Error('Export failed')
+      if (!response.ok) {
+        // Surface the server's message (e.g. the Pro-only gate) when present
+        let message = 'Export failed. Please try again.'
+        try { const body = await response.json(); if (body?.message) message = body.message } catch { /* ignore */ }
+        throw new Error(message)
+      }
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a'); a.href = url; a.download = 'my-voicestudio-data.json'; a.click()
       URL.revokeObjectURL(url); toast.ok('Data export downloaded')
-    } catch { toast.err('Export failed. Please try again.') }
+    } catch (e) { toast.err(e instanceof Error ? e.message : 'Export failed. Please try again.') }
     finally { setExporting(false) }
   }
 
@@ -684,10 +689,16 @@ function BillingSettings({ currentPlan, onGoPricing }: { currentPlan: Plan; onGo
       <SettingsRow label="View all plans" hint="Compare features across Free, Starter, and Pro.">
         <button className="btn btn--ghost btn--sm" onClick={onGoPricing} style={{ gap: 6 }}>{icons.externalLink} View pricing</button>
       </SettingsRow>
-      <SettingsRow label="Export your data" hint="Download all your projects, scripts, and voice profile metadata as JSON.">
-        <button className="btn btn--ghost btn--sm" onClick={handleExport} disabled={exporting} style={{ gap: 6 }}>
-          {exporting ? <span className="spinner" style={{ width: 12, height: 12 }} /> : icons.download} Export data
-        </button>
+      <SettingsRow label="Export your data" hint={currentPlan === 'pro' ? 'Download all your projects, scripts, and voice profile metadata as JSON.' : 'Data export (GDPR) is a Pro feature.'}>
+        {currentPlan === 'pro' ? (
+          <button className="btn btn--ghost btn--sm" onClick={handleExport} disabled={exporting} style={{ gap: 6 }}>
+            {exporting ? <span className="spinner" style={{ width: 12, height: 12 }} /> : icons.download} Export data
+          </button>
+        ) : (
+          <button className="btn btn--ghost btn--sm" onClick={onGoPricing} style={{ gap: 6 }}>
+            {icons.externalLink} Upgrade to Pro
+          </button>
+        )}
       </SettingsRow>
     </div>
   )
