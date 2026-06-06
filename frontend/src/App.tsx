@@ -5,6 +5,7 @@ import { SignInPage, SignUpPage, ForgotPasswordPage, ResetPasswordPage } from '.
 import { SettingsPage } from './SettingsPage'
 import { PrivacyPage, TermsPage } from './LegalPages'
 import { PricingPage } from './PricingPage'
+import { EmailVerifiedPage } from './EmailVerifiedPage'
 import { api } from './api'
 import { toast, subscribeToast, type ToastItem } from './toast'
 import { useAuth } from './hooks/useAuth'
@@ -122,6 +123,7 @@ export default function App() {
   const [resetEmail] = useState(() => new URLSearchParams(window.location.search).get('email') ?? '')
 
   const [page, setPage] = useState<Page>(() => {
+    if (window.location.pathname === '/email-verified') return 'email-verified'
     if (new URLSearchParams(window.location.search).get('token')) return 'reset-password'
     return 'landing'
   })
@@ -190,12 +192,7 @@ export default function App() {
 
   // ── Bootstrap ─────────────────────────────────────────────────────
   useEffect(() => {
-    // Show email verified toast if coming from verification link
-    const params = new URLSearchParams(window.location.search)
-    if (params.get('verified') === '1') {
-      toast.ok('Email verified! Welcome to VoiceStudio.')
-      window.history.replaceState({}, '', window.location.pathname)
-    }
+
 
     if (resetToken) return // Don't auto-navigate when handling password reset
 
@@ -407,6 +404,13 @@ export default function App() {
   }
 
   // ── Public pages ──────────────────────────────────────────────────
+  if (page === 'email-verified') return (
+    <EmailVerifiedPage onGoToLogin={() => {
+      window.history.replaceState({}, '', '/')
+      setPage('signin')
+    }} />
+  )
+
   if (page === 'landing') return (
     <>
       <LandingPage

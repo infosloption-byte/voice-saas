@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\EmailVerifiedMail;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Auth\Events\Verified;
+use Illuminate\Support\Facades\Mail;
 
 class EmailVerificationController extends Controller
 {
@@ -36,12 +38,18 @@ class EmailVerificationController extends Controller
             return response()->json(['message' => 'Invalid verification link.'], 403);
         }
 
-        if (!$user->hasVerifiedEmail()) {
+        $alreadyVerified = $user->hasVerifiedEmail();
+
+        if (!$alreadyVerified) {
             $user->markEmailAsVerified();
             event(new Verified($user));
+
+            try {
+                Mail::to($user)->send(new EmailVerifiedMail($user));
+            } catch (\Throwable) { /* non-fatal */ }
         }
 
         $frontendUrl = rtrim(config('services.paypal.frontend_url', 'http://localhost:5173'), '/');
-        return redirect("{$frontendUrl}?verified=1");
+        return redirect("{$frontendUrl}/email-verified");
     }
 }
