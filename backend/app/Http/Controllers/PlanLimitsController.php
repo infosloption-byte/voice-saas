@@ -35,7 +35,7 @@ class PlanLimitsController extends Controller
      */
     public function update(Request $request, string $plan): JsonResponse
     {
-        if (! in_array($plan, ['free', 'starter', 'pro'], true)) {
+        if (! in_array($plan, ['guest', 'free', 'starter', 'pro'], true)) {
             return response()->json(['message' => 'Invalid plan name.'], 422);
         }
 
@@ -45,6 +45,11 @@ class PlanLimitsController extends Controller
             'word_limit'    => 'sometimes|integer|min:0',
             'multi_voice'   => 'sometimes|boolean',
             'data_export'   => 'sometimes|boolean',
+            // Guest-specific fields (only meaningful for the 'guest' tier)
+            'synth_limit'   => 'sometimes|integer|min:0',
+            'preview_limit' => 'sometimes|integer|min:0',
+            'script_limit'  => 'sometimes|integer|min:0',
+            'session_days'  => 'sometimes|integer|min:0',
         ]);
 
         if (empty($validated)) {
