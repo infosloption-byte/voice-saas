@@ -4,6 +4,7 @@ import { toast } from './toast'
 import { icons, LANGUAGES, TONE_PRESETS, type TonePreset } from './constants'
 import { loadAudioBlob, saveAudioBlob, deleteAudioBlob, historyReducer, fmt, trimSilence, enhanceAudio, audioBufferToWav } from './audio'
 import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
+import { useEscapeKey } from './hooks/useEscapeKey'
 import { type GateType, type GuestUsage } from './hooks/useGuestSession'
 import { DEFAULT_GUEST_LIMITS } from './hooks/useGuestLimits'
 import type { Project, Script, VoiceProfile, SaveState, EngineCaps, GuestLimits } from './types'
@@ -158,6 +159,14 @@ export function WorkspacePage({
   const [pendingTranscription, setPendingTranscription] = useState<string | null>(null)
   const [importParagraphs, setImportParagraphs] = useState<string[] | null>(null)
   const [deleteScriptPending, setDeleteScriptPending] = useState(false)
+
+  // Escape closes whichever modal is open — highest-priority one wins
+  useEscapeKey(() => {
+    if (deleteScriptPending)         { setDeleteScriptPending(false); return }
+    if (importParagraphs)            { setImportParagraphs(null);     return }
+    if (pendingTranscription !== null){ setPendingTranscription(null);return }
+    if (showTemplateModal)           { setShowTemplateModal(false);   return }
+  })
 
   // TTS engine preference (persisted in localStorage)
   const { engine, setEngine } = useTTSEngine()
@@ -824,7 +833,7 @@ export function WorkspacePage({
     <div className="workspace">
       {/* Script template modal */}
       {showTemplateModal && (
-        <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && setShowTemplateModal(false)}>
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="New Script" onClick={e => e.target === e.currentTarget && setShowTemplateModal(false)}>
           <div className="modal" style={{ maxWidth: 500 }}>
             <div className="modal__title">New Script</div>
             <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 14 }}>Choose a template or start blank.</p>
@@ -851,7 +860,7 @@ export function WorkspacePage({
 
       {/* Transcription choice modal */}
       {pendingTranscription !== null && (
-        <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && setPendingTranscription(null)}>
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Transcription Complete" onClick={e => e.target === e.currentTarget && setPendingTranscription(null)}>
           <div className="modal" style={{ maxWidth: 400 }}>
             <div className="modal__title">Transcription Complete</div>
             <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 4 }}>What would you like to do with the transcribed text?</p>
@@ -879,7 +888,7 @@ export function WorkspacePage({
 
       {/* File import confirm modal */}
       {importParagraphs && (
-        <div className="modal-backdrop" onClick={() => setImportParagraphs(null)}>
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Import Paragraphs" onClick={() => setImportParagraphs(null)}>
           <div className="modal" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
             <div className="modal__title">Import paragraphs</div>
             <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 14 }}>
@@ -898,7 +907,7 @@ export function WorkspacePage({
 
       {/* Delete script confirm modal */}
       {deleteScriptPending && activeScript && (
-        <div className="modal-backdrop" onClick={() => setDeleteScriptPending(false)}>
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete Script" onClick={() => setDeleteScriptPending(false)}>
           <div className="modal" style={{ maxWidth: 380 }} onClick={e => e.stopPropagation()}>
             <div className="modal__title">Delete script?</div>
             <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 14 }}>
