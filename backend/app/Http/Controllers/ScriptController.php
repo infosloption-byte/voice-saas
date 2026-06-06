@@ -111,7 +111,12 @@ class ScriptController extends Controller
             Storage::disk('local')->delete($script->audio_url);
         }
 
-        Storage::disk('local')->put($path, $request->file('file')->get());
+        try {
+            Storage::disk('local')->put($path, $request->file('file')->get());
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Failed to store audio file.'], 500);
+        }
+
         $script->update(['audio_url' => $path]);
 
         return response()->json(['audio_url' => $path]);
@@ -131,7 +136,7 @@ class ScriptController extends Controller
         return response($content, 200, [
             'Content-Type'        => 'audio/wav',
             'Content-Disposition' => 'inline; filename="' . $id . '.wav"',
-            'Cache-Control'       => 'private, max-age=3600',
+            'Cache-Control'       => 'private, no-cache, must-revalidate',
             'Content-Length'      => strlen($content),
         ]);
     }

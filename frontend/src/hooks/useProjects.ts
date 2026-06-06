@@ -112,15 +112,24 @@ export function useProjects(): UseProjectsReturn {
   // ── Scripts ───────────────────────────────────────────────────────
 
   const addScript = useCallback(async (projectId: string, template?: { title?: string; content?: string }): Promise<Script | null> => {
+    // Pull persisted audio prefs so new scripts inherit the user's defaults
+    let defaultLang = 'en', defaultSpeed = 1.0
+    try {
+      const { getAudioPrefs } = await import('./useAudioSettings')
+      const p = getAudioPrefs()
+      defaultLang  = p.defaultLang
+      defaultSpeed = p.defaultSpeed
+    } catch { /* fall back to hard-coded defaults */ }
+
     const script: Script = {
       id: uid(),
       title: template?.title ?? 'Untitled Script',
       content: template?.content ?? '',
       hasAudio: false,
       profileId: null,
-      language: 'en',
+      language: defaultLang,
       duration: null,
-      speed: 1.0,
+      speed: defaultSpeed,
       tone: 'natural',
     }
 
