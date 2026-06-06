@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GuestLimitsController;
+use App\Http\Controllers\PlanLimitsController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\ScriptController;
@@ -85,3 +86,9 @@ Route::post('/subscription/webhook', [SubscriptionController::class, 'webhook'])
 
 // ── Guest limits (public — used before login) ─────────────────────────
 Route::get('/guest-limits', [GuestLimitsController::class, 'show']);
+
+// ── Plan limits: public read, admin-only write ────────────────────────
+Route::get('/plan-limits', [PlanLimitsController::class, 'index']);
+Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+    Route::put('/admin/plan-limits/{plan}', [PlanLimitsController::class, 'update']);
+});
