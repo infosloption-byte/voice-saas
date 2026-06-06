@@ -570,7 +570,10 @@ function BillingSettings({ currentPlan, onGoPricing }: { currentPlan: Plan; onGo
         const s = d as Subscription; setSub(s)
         if (s?.paypal_subscription_id) {
           setTxnLoading(true)
-          api.get('/subscription/transactions').then(r => setTxns((r as any).transactions ?? [])).catch(() => {}).finally(() => setTxnLoading(false))
+          api.get('/subscription/transactions').then(r => {
+            const data = r as { transactions?: PayPalTransaction[] }
+            setTxns(data.transactions ?? [])
+          }).catch(() => {}).finally(() => setTxnLoading(false))
         }
       }).catch(() => {}).finally(() => setLoading(false))
   }, [])
