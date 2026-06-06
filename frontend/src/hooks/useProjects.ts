@@ -5,7 +5,7 @@ import { deleteAudioBlob, uid } from '../audio'
 import type { Project, Script } from '../types'
 
 /** Surface plan-limit (422 with a plan_* code) errors to the user via toast. */
-function notifyPlanLimit(e: unknown): boolean {
+export function notifyPlanLimit(e: unknown): boolean {
   if (e instanceof ApiError && e.status === 422) {
     const code = (e.data as { code?: string })?.code ?? ''
     if (code.startsWith('plan_')) {
