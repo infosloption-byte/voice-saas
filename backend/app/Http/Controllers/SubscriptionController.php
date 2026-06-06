@@ -2,10 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\PaymentReceivedMail;
+use App\Mail\SubscriptionActivatedMail;
+use App\Mail\SubscriptionCancelledMail;
+use App\Mail\SubscriptionSuspendedMail;
 use App\Models\Subscription;
 use App\Services\PayPalService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 
 class SubscriptionController extends Controller
 {
@@ -120,6 +125,17 @@ class SubscriptionController extends Controller
             ]
         );
 
+        try {
+            Mail::to($request->user())->send(new SubscriptionActivatedMail(
+                user:            $request->user(),
+                plan:            $resolvedPlan,
+                nextBillingDate: $nextBillingTime
+                    ? \Carbon\Carbon::parse($nextBillingTime)->format('M j, Y')
+                    : null,
+                subscriptionId:  $validated['subscription_id'],
+            ));
+        } catch (\Throwable) { /* non-fatal */ }
+
         return response()->json([
             'plan'   => $sub->plan,
             'status' => $sub->status,
@@ -176,6 +192,14 @@ class SubscriptionController extends Controller
 
         $sub->update(['status' => 'cancelled']);
 
+        try {
+            Mail::to($request->user())->send(new SubscriptionCancelledMail(
+                user:        $request->user(),
+                plan:        $sub->plan,
+                activeUntil: $sub->current_period_end?->format('M j, Y'),
+            ));
+        } catch (\Throwable) { /* non-fatal */ }
+
         return response()->json(['message' => 'Subscription cancelled successfully.']);
     }
 
@@ -212,22 +236,60 @@ class SubscriptionController extends Controller
         }
 
         match ($eventType) {
-            'BILLING.SUBSCRIPTION.ACTIVATED' => $sub->update([
-                'status'             => 'active',
-                'current_period_end' => isset($resource['billing_info']['next_billing_time'])
-                    ? \Carbon\Carbon::parse($resource['billing_info']['next_billing_time'])
-                    : null,
-            ]),
-
-            'BILLING.SUBSCRIPTION.CANCELLED' => $sub->update(['status' => 'cancelled']),
-
-            'BILLING.SUBSCRIPTION.SUSPENDED' => $sub->update(['status' => 'suspended']),
-
-            'PAYMENT.SALE.COMPLETED' => (function () use ($sub) {
-                // A sale resource is a payment object — it has no billing_info.
-                // Re-fetch the subscription from PayPal to get the updated next_billing_time.
+            'BILLING.SUBSCRIPTION.ACTIVATED' => (function () use ($sub, $resource) {
+                $nextBillingTime = $resource['billing_info']['next_billing_time'] ?? null;
+                $sub->update([
+                    'status'             => 'active',
+                    'current_period_end' => $nextBillingTime
+                        ? \Carbon\Carbon::parse($nextBillingTime)
+                        : null,
+                ]);
                 try {
-                    $details = $this->paypal->getSubscription($sub->paypal_subscription_id);
+                    $user = $sub->user;
+                    if ($user) {
+                        Mail::to($user)->send(new SubscriptionActivatedMail(
+                            user:            $user,
+                            plan:            $sub->plan,
+                            nextBillingDate: $nextBillingTime
+                                ? \Carbon\Carbon::parse($nextBillingTime)->format('M j, Y')
+                                : null,
+                            subscriptionId:  $sub->paypal_subscription_id,
+                        ));
+                    }
+                } catch (\Throwable) { /* non-fatal */ }
+            })(),
+
+            'BILLING.SUBSCRIPTION.CANCELLED' => (function () use ($sub) {
+                $sub->update(['status' => 'cancelled']);
+                try {
+                    $user = $sub->user;
+                    if ($user) {
+                        Mail::to($user)->send(new SubscriptionCancelledMail(
+                            user:        $user,
+                            plan:        $sub->plan,
+                            activeUntil: $sub->current_period_end?->format('M j, Y'),
+                        ));
+                    }
+                } catch (\Throwable) { /* non-fatal */ }
+            })(),
+
+            'BILLING.SUBSCRIPTION.SUSPENDED' => (function () use ($sub) {
+                $sub->update(['status' => 'suspended']);
+                try {
+                    $user = $sub->user;
+                    if ($user) {
+                        Mail::to($user)->send(new SubscriptionSuspendedMail(
+                            user: $user,
+                            plan: $sub->plan,
+                        ));
+                    }
+                } catch (\Throwable) { /* non-fatal */ }
+            })(),
+
+            'PAYMENT.SALE.COMPLETED' => (function () use ($sub, $resource) {
+                // A sale resource has no billing_info — re-fetch from PayPal API.
+                try {
+                    $details         = $this->paypal->getSubscription($sub->paypal_subscription_id);
                     $nextBillingTime = $details['billing_info']['next_billing_time'] ?? null;
                     $sub->update([
                         'status'             => 'active',
@@ -235,8 +297,26 @@ class SubscriptionController extends Controller
                             ? \Carbon\Carbon::parse($nextBillingTime)
                             : $sub->current_period_end,
                     ]);
+
+                    $user = $sub->user;
+                    if ($user) {
+                        $gross  = $resource['amount'] ?? [];
+                        $amount = isset($gross['total'], $gross['currency'])
+                            ? $gross['currency'] . ' ' . number_format((float) $gross['total'], 2)
+                            : null;
+
+                        Mail::to($user)->send(new PaymentReceivedMail(
+                            user:            $user,
+                            plan:            $sub->plan,
+                            amount:          $amount,
+                            nextBillingDate: $nextBillingTime
+                                ? \Carbon\Carbon::parse($nextBillingTime)->format('M j, Y')
+                                : null,
+                            transactionId:   $resource['id'] ?? null,
+                        ));
+                    }
                 } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::warning('PAYMENT.SALE.COMPLETED: could not refresh billing period', [
+                    \Illuminate\Support\Facades\Log::warning('PAYMENT.SALE.COMPLETED handler error', [
                         'subscription_id' => $sub->paypal_subscription_id,
                         'error'           => $e->getMessage(),
                     ]);

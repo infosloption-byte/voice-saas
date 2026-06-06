@@ -2,7 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\AccountDeletedMail;
+use App\Mail\WelcomeMail;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -27,6 +30,12 @@ class AuthController extends Controller
         ]);
 
         Auth::login($user);
+
+        // Send welcome email and verification email (non-fatal if mail fails)
+        try {
+            Mail::to($user)->send(new WelcomeMail($user));
+            $user->sendEmailVerificationNotification();
+        } catch (\Throwable) { /* mail failure must not block registration */ }
 
         return response()->json([
             'user' => $user,
@@ -97,7 +106,15 @@ class AuthController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
+        $userName  = $user->name;
+        $userEmail = $user->email;
+
         $user->delete(); // cascades to projects, scripts, voice_profiles
+
+        // Send farewell email after deletion (use captured values — model is gone)
+        try {
+            Mail::to($userEmail)->send(new AccountDeletedMail($userName, $userEmail));
+        } catch (\Throwable) { /* non-fatal */ }
 
         return response()->json(['message' => 'Account deleted successfully']);
     }
