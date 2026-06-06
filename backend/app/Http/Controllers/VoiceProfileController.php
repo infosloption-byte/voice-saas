@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\PlanLimits;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -88,6 +89,23 @@ class VoiceProfileController extends Controller
         $existingProfile = $request->user()->voiceProfiles()
             ->where('profile_id', $profileId)
             ->first();
+
+        // Enforce per-plan profile count, but only when creating a NEW profile
+        // (re-saving / updating an existing profile must always be allowed).
+        if (! $existingProfile) {
+            $user  = $request->user();
+            $limit = PlanLimits::limit($user, 'profiles');
+
+            if ($user->voiceProfiles()->count() >= $limit) {
+                return response()->json([
+                    'message' => "You've reached your plan's limit of {$limit} voice profile"
+                        . ($limit === 1 ? '' : 's') . '. ' . PlanLimits::nextPlanHint($user->plan_name) . ' for more.',
+                    'code'    => 'plan_limit_profiles',
+                    'limit'   => $limit,
+                ], 422);
+            }
+        }
+
         $engineKey = $existingProfile?->engine_key ?? (string) Str::uuid();
 
         // If a file was uploaded, forward it to the AI engine
