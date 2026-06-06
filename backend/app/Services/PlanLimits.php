@@ -99,13 +99,33 @@ class PlanLimits
         return self::forPlan($user->plan_name);
     }
 
+    /** Shorthand aliases accepted by limit() so callers can use either form. */
+    private const LIMIT_ALIASES = [
+        'projects' => 'project_limit',
+        'profiles' => 'profile_limit',
+        'words'    => 'word_limit',
+    ];
+
     /**
-     * Return the numeric limit for a given key (project_limit|profile_limit|word_limit).
-     * 0 means unlimited (PHP_INT_MAX returned so callers can use >= comparisons directly).
+     * Return the numeric limit for a given key. Accepts either the canonical
+     * column name (project_limit|profile_limit|word_limit) or the shorthand
+     * (projects|profiles|words).
+     *
+     * 0 means unlimited (PHP_INT_MAX returned so callers can use >= directly).
+     * NULL means "inherit" — the value is taken from the free tier (this is how
+     * guest shared limits defer to free).
      */
     public static function limit(User $user, string $key): int
     {
-        $value = (int) (self::forUser($user)[$key] ?? 0);
+        $key   = self::LIMIT_ALIASES[$key] ?? $key;
+        $value = self::forUser($user)[$key] ?? null;
+
+        // NULL = inherit from the free tier (e.g. guest shared columns)
+        if ($value === null) {
+            $value = self::forPlan('free')[$key] ?? null;
+        }
+
+        $value = (int) ($value ?? 0);
         return $value === 0 ? PHP_INT_MAX : $value;
     }
 
