@@ -10,6 +10,7 @@ use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\ScriptController;
 use App\Http\Controllers\SubscriptionController;
+use App\Http\Controllers\SynthesisUsageController;
 use App\Http\Controllers\VoiceProfileController;
 
 // ── Public auth routes ────────────────────────────────────────────────
@@ -66,6 +67,12 @@ Route::middleware('throttle:5,1')->group(function () {
 // ── Email verification: verify link is public (comes from email) ─────
 Route::get('/email/verify/{id}/{hash}', [EmailVerificationController::class, 'verify'])
      ->name('verification.verify');
+
+// ── Synthesis quota (authenticated) ─────────────────────────────────
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get( 'synthesis/quota',  [SynthesisUsageController::class, 'quota']);
+    Route::post('synthesis/record', [SynthesisUsageController::class, 'record']);
+});
 
 // ── Authenticated routes: resend + subscriptions + data export ────────
 Route::middleware('auth:sanctum')->group(function () {

@@ -52,6 +52,7 @@ export interface Script {
   speakerMap?: Record<string, string>  // speaker label → profile_id
   waveformPeaks?: number[]
   audioUrl?: string       // server-side audio backup URL (storage path)
+  advancedParams?: { temperature?: number; top_k?: number; top_p?: number }
 }
 
 export interface TimelineClip {

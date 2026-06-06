@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useReducer, useCallback } from 'react'
 import { api, ApiError } from './api'
 import { toast } from './toast'
-import { icons, LANGUAGES, TONE_PRESETS, type TonePreset } from './constants'
+import { icons, LANGUAGES, TONE_PRESETS, BUILT_IN_VOICES, type TonePreset } from './constants'
 import { loadAudioBlob, saveAudioBlob, deleteAudioBlob, historyReducer, fmt, trimSilence, enhanceAudio, audioBufferToWav } from './audio'
 import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
 import { useEscapeKey } from './hooks/useEscapeKey'
@@ -152,9 +152,11 @@ export function WorkspacePage({
   useEffect(() => () => { if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current) }, [])
   const [showScriptList, setShowScriptList] = useState(true)
   const [transcribing, setTranscribing]     = useState(false)
-  const [showEngineMenu, setShowEngineMenu] = useState(false)
-  const [showLangMenu,   setShowLangMenu]   = useState(false)
-  const [showVoiceMenu,  setShowVoiceMenu]  = useState(false)
+  const [showEngineMenu,   setShowEngineMenu]   = useState(false)
+  const [showLangMenu,     setShowLangMenu]     = useState(false)
+  const [showVoiceMenu,    setShowVoiceMenu]    = useState(false)
+  const [showAdvanced,     setShowAdvanced]     = useState(false)
+  const [synthQuota, setSynthQuota]             = useState<{ remaining: number; limit: number; period: string } | null>(null)
   const [showTemplateModal, setShowTemplateModal] = useState(false)
   const [pendingTranscription, setPendingTranscription] = useState<string | null>(null)
   const [importParagraphs, setImportParagraphs] = useState<string[] | null>(null)
@@ -297,13 +299,21 @@ export function WorkspacePage({
         return false
       }
 
-      const profile = voiceProfiles.find(vp => vp.profile_id === (script.profileId || voiceProfiles[0]?.profile_id)) ?? voiceProfiles[0]
-      const pid = profile?.profile_id
-      const engineKey = profile?.engine_key ?? pid ?? ''
+      // Determine if the selected profile is a built-in XTTS library voice
+      const selectedId = script.profileId || voiceProfiles[0]?.profile_id || ''
+      const isBuiltin  = selectedId.startsWith('builtin:')
+      const profile    = isBuiltin ? null : (voiceProfiles.find(vp => vp.profile_id === selectedId) ?? voiceProfiles[0])
+      const pid        = isBuiltin ? selectedId : profile?.profile_id
+      const engineKey  = isBuiltin ? selectedId : (profile?.engine_key ?? profile?.profile_id ?? '')
       if (!pid || !text.trim()) return false
 
       const tone = (script.tone ?? 'natural') as TonePreset
       const toneParams = TONE_PRESETS[tone] ?? TONE_PRESETS.natural
+      // advancedParams override preset values if the user has manually set them
+      const adv = script.advancedParams ?? {}
+      const temperature = adv.temperature ?? toneParams.temperature
+      const top_k       = adv.top_k       ?? toneParams.top_k
+      const top_p       = adv.top_p       ?? toneParams.top_p
 
       const fd = new FormData()
       fd.append('text',        text.trim())
@@ -311,10 +321,10 @@ export function WorkspacePage({
       fd.append('language',    script.language || 'en')
       fd.append('speed',       String(Math.max(0.5, Math.min(2.0, script.speed ?? 1.0))))
       fd.append('tts_engine',  ttsEngine)
-      // XTTS-specific knobs derived from tone preset (ignored by F5-TTS)
-      fd.append('temperature', String(toneParams.temperature))
-      fd.append('top_k',       String(toneParams.top_k))
-      fd.append('top_p',       String(toneParams.top_p))
+      // XTTS-specific knobs (ignored by F5-TTS)
+      fd.append('temperature', String(temperature))
+      fd.append('top_k',       String(top_k))
+      fd.append('top_p',       String(top_p))
       fd.append('gap_ms',      '60')
       // Reduces word/phrase repetition loops in XTTS output
       if (ttsEngine === 'xtts') fd.append('repetition_penalty', '5.0')
@@ -551,8 +561,10 @@ export function WorkspacePage({
       setSynthErr('Write some script content first.')
       return
     }
-    if (!voiceProfiles.length) {
-      setSynthErr('No voice profile found. Record one in Voice Profiles.')
+    const selectedVoiceId = activeScript.profileId || voiceProfiles[0]?.profile_id || ''
+    const isBuiltinVoice  = selectedVoiceId.startsWith('builtin:')
+    if (!voiceProfiles.length && !isBuiltinVoice) {
+      setSynthErr('No voice selected. Pick a voice from the Voxora Library or record your own.')
       return
     }
     if (!ENGINE_URL) {
@@ -569,6 +581,18 @@ export function WorkspacePage({
       return
     }
 
+    // Check synthesis quota for authenticated users
+    try {
+      const q = await api.get('/synthesis/quota') as { remaining: number; limit: number; period: string }
+      setSynthQuota(q)
+      if (q.limit > 0 && q.remaining <= 0) {
+        setSynthErr(`Synthesis quota reached (${q.limit} per ${q.period}). Upgrade your plan for more.`)
+        return
+      }
+    } catch {
+      // Non-critical — proceed without quota check if endpoint unavailable
+    }
+
     synthAbortRef.current?.abort()
     const controller = new AbortController()
     synthAbortRef.current = controller
@@ -581,6 +605,10 @@ export function WorkspacePage({
       if (ok) {
         const url = await loadAudioBlob(`audio_${activeScript.id}`)
         setAudioUrl(url)
+        // Record usage (fire-and-forget; non-critical)
+        api.post('/synthesis/record', {}).catch(() => {})
+        // Refresh quota display
+        api.get('/synthesis/quota').then(q => setSynthQuota(q as typeof synthQuota)).catch(() => {})
       }
       // ok === false means user cancelled — no error to show
     } catch (e) {
@@ -1271,22 +1299,57 @@ export function WorkspacePage({
 
               <div style={{ flex: 1 }} />
 
-              {/* Tone preset (XTTS only) */}
+              {/* Tone preset + Advanced (XTTS only) */}
               {engine !== 'f5' && (
-                <div style={{ display: 'flex', gap: 2 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                   {(Object.entries(TONE_PRESETS) as [TonePreset, typeof TONE_PRESETS[TonePreset]][]).map(([key, preset]) => {
                     const active = (activeScript.tone ?? 'natural') === key
                     return (
                       <button key={key} title={preset.label}
-                        onClick={() => onUpdateScript(activeScript.id, { tone: key })}
+                        onClick={() => onUpdateScript(activeScript.id, { tone: key, advancedParams: undefined })}
                         style={{ padding: '3px 7px', borderRadius: 5, border: `1px solid ${active ? 'var(--accent)' : 'var(--border-2)'}`, background: active ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', fontSize: 13, lineHeight: 1, color: active ? 'var(--accent)' : 'var(--text-3)' }}
                         aria-pressed={active}>
                         {preset.emoji}
                       </button>
                     )
                   })}
+                  <button
+                    title="Advanced style controls"
+                    onClick={() => setShowAdvanced(v => !v)}
+                    style={{ padding: '3px 7px', borderRadius: 5, border: `1px solid ${showAdvanced ? 'var(--accent)' : 'var(--border-2)'}`, background: showAdvanced ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', fontSize: 10, fontWeight: 700, color: showAdvanced ? 'var(--accent)' : 'var(--text-3)', letterSpacing: '0.3px' }}>
+                    ADV
+                  </button>
                 </div>
               )}
+              {/* Advanced sliders */}
+              {engine !== 'f5' && showAdvanced && (() => {
+                const adv = activeScript.advancedParams ?? {}
+                const base = TONE_PRESETS[(activeScript.tone ?? 'natural') as TonePreset] ?? TONE_PRESETS.natural
+                const temp = adv.temperature ?? base.temperature
+                const topK = adv.top_k ?? base.top_k
+                const topP = adv.top_p ?? base.top_p
+                const set = (key: string, val: number) =>
+                  onUpdateScript(activeScript.id, { advancedParams: { ...adv, [key]: val } })
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 8px', background: 'var(--accent-lt)', borderRadius: 6, border: '1px solid var(--accent-mid)', flexWrap: 'wrap' }}>
+                    {[
+                      { label: 'Temp', key: 'temperature', min: 0.1, max: 1.0, step: 0.05, val: temp },
+                      { label: 'Top-K', key: 'top_k',     min: 1,   max: 100,  step: 1,    val: topK },
+                      { label: 'Top-P', key: 'top_p',     min: 0.1, max: 1.0,  step: 0.05, val: topP },
+                    ].map(({ label, key, min, max, step, val }) => (
+                      <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{ fontSize: 10, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{label}</span>
+                        <input type="range" min={min} max={max} step={step} value={val}
+                          onChange={e => set(key, parseFloat(e.target.value))}
+                          style={{ width: 55, accentColor: 'var(--accent)' }} />
+                        <span style={{ fontSize: 10, color: 'var(--accent)', fontFamily: 'var(--mono)', width: 28 }}>
+                          {typeof val === 'number' ? (key === 'top_k' ? val : val.toFixed(2)) : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
 
               {/* Speed */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1344,37 +1407,59 @@ export function WorkspacePage({
               })()}
 
               {/* ── Voice profile picker ── */}
-              {voiceProfiles.length > 0 && (() => {
-                const currentId = activeScript.profileId ?? voiceProfiles[0]?.profile_id ?? ''
-                const currentVp = voiceProfiles.find(vp => vp.profile_id === currentId)
+              {(() => {
+                const currentId  = activeScript.profileId ?? voiceProfiles[0]?.profile_id ?? ''
+                const isBuiltinSel = currentId.startsWith('builtin:')
+                const currentVp  = voiceProfiles.find(vp => vp.profile_id === currentId)
+                const builtinVp  = BUILT_IN_VOICES.find(v => v.id === currentId)
+                const displayName = isBuiltinSel
+                  ? (builtinVp?.name ?? currentId.replace('builtin:', ''))
+                  : (currentVp?.name ?? (voiceProfiles[0]?.name ?? 'Voice'))
+                // Only show picker if there are real profiles OR engine supports built-ins
+                if (!voiceProfiles.length && engine === 'f5') return null
                 return (
                   <div style={{ position: 'relative' }}>
                     <button
                       className="btn btn--sm btn--ghost"
-                      style={{ gap: 5, paddingRight: 8, maxWidth: 120 }}
-                      title="Voice profile"
+                      style={{ gap: 5, paddingRight: 8, maxWidth: 140 }}
+                      title="Voice"
                       onClick={() => setShowVoiceMenu(v => !v)}
                     >
-                      <span style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>{currentVp?.name ?? currentId}</span>
+                      <span style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 }}>{displayName}</span>
                       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ width: 10, height: 10, opacity: 0.5, flexShrink: 0 }}><path d="M5 8l5 5 5-5" /></svg>
                     </button>
                     {showVoiceMenu && (
                       <>
                         <div style={{ position: 'fixed', inset: 0, zIndex: 199 }} onClick={() => setShowVoiceMenu(false)} />
-                        <div style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: 6, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)', zIndex: 200, minWidth: 180, maxHeight: 280, overflow: 'hidden auto' }}>
-                          <div style={{ padding: '8px 12px 6px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)' }}>Voice Profile</div>
-                          {voiceProfiles.map(vp => (
-                            <button key={vp.profile_id} onClick={() => { onUpdateScript(activeScript.id, { profileId: vp.profile_id }); setShowVoiceMenu(false) }}
-                              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 12px', border: 'none', background: currentId === vp.profile_id ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s', borderLeft: currentId === vp.profile_id ? '3px solid var(--accent)' : '3px solid transparent' }}>
-                              <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--accent-lt)', border: '1px solid var(--accent-mid)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <svg viewBox="0 0 20 20" fill="none" stroke="var(--accent)" strokeWidth="1.6" style={{ width: 11, height: 11 }}><path d="M12 2a3 3 0 0 1 3 3v4a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" /><path d="M19 10v1a7 7 0 0 1-14 0v-1" /></svg>
-                              </div>
-                              <div>
-                                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-1)' }}>{vp.name ?? vp.profile_id}</div>
-                                {vp.duration && <div style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>{vp.duration.toFixed(1)}s sample</div>}
-                              </div>
-                            </button>
-                          ))}
+                        <div style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: 6, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)', zIndex: 200, minWidth: 190, maxHeight: 320, overflow: 'hidden auto' }}>
+                          {voiceProfiles.length > 0 && <>
+                            <div style={{ padding: '8px 12px 6px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)' }}>Your Voices</div>
+                            {voiceProfiles.map(vp => (
+                              <button key={vp.profile_id} onClick={() => { onUpdateScript(activeScript.id, { profileId: vp.profile_id }); setShowVoiceMenu(false) }}
+                                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', background: currentId === vp.profile_id ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s', borderLeft: currentId === vp.profile_id ? '3px solid var(--accent)' : '3px solid transparent' }}>
+                                <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--accent-lt)', border: '1px solid var(--accent-mid)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                  <svg viewBox="0 0 20 20" fill="none" stroke="var(--accent)" strokeWidth="1.6" style={{ width: 11, height: 11 }}><path d="M12 2a3 3 0 0 1 3 3v4a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" /><path d="M19 10v1a7 7 0 0 1-14 0v-1" /></svg>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-1)' }}>{vp.name ?? vp.profile_id}</div>
+                                  {vp.duration && <div style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>{vp.duration.toFixed(1)}s sample</div>}
+                                </div>
+                              </button>
+                            ))}
+                          </>}
+                          {/* Built-in library — XTTS only */}
+                          {engine !== 'f5' && <>
+                            <div style={{ padding: '8px 12px 6px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)', borderTop: voiceProfiles.length ? '1px solid var(--border-2)' : undefined, marginTop: voiceProfiles.length ? 4 : 0 }}>Voxora Library</div>
+                            {BUILT_IN_VOICES.map(bv => (
+                              <button key={bv.id} onClick={() => { onUpdateScript(activeScript.id, { profileId: bv.id }); setShowVoiceMenu(false) }}
+                                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 12px', border: 'none', background: currentId === bv.id ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s', borderLeft: currentId === bv.id ? '3px solid var(--accent)' : '3px solid transparent' }}>
+                                <div style={{ width: 22, height: 22, borderRadius: '50%', background: bv.gender === 'F' ? 'rgba(201,66,120,0.10)' : 'rgba(66,120,201,0.10)', border: `1px solid ${bv.gender === 'F' ? 'rgba(201,66,120,0.25)' : 'rgba(66,120,201,0.25)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 11 }}>
+                                  {bv.gender === 'F' ? '♀' : '♂'}
+                                </div>
+                                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-1)' }}>{bv.name}</div>
+                              </button>
+                            ))}
+                          </>}
                         </div>
                       </>
                     )}
@@ -1384,6 +1469,14 @@ export function WorkspacePage({
 
               {/* Engine switcher */}
               <EngineSelector />
+
+              {/* Quota badge (auth users) */}
+              {!isGuest && synthQuota && synthQuota.limit > 0 && (
+                <span title={`${synthQuota.remaining} of ${synthQuota.limit} syntheses remaining (${synthQuota.period})`}
+                  style={{ fontSize: 10, color: synthQuota.remaining === 0 ? 'var(--err)' : 'var(--text-3)', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>
+                  {synthQuota.remaining}/{synthQuota.limit}
+                </span>
+              )}
 
               {/* Generate button */}
               <button

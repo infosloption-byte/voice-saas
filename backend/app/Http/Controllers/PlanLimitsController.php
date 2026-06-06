@@ -45,8 +45,10 @@ class PlanLimitsController extends Controller
             'word_limit'    => 'sometimes|integer|min:0',
             'multi_voice'   => 'sometimes|boolean',
             'data_export'   => 'sometimes|boolean',
-            // Guest-specific fields (only meaningful for the 'guest' tier)
+            // Synthesis quota (all tiers)
             'synth_limit'   => 'sometimes|integer|min:0',
+            'synth_period'  => 'sometimes|in:day,month',
+            // Guest session knobs
             'preview_limit' => 'sometimes|integer|min:0',
             'script_limit'  => 'sometimes|integer|min:0',
             'session_days'  => 'sometimes|integer|min:0',
