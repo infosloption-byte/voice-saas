@@ -1,7 +1,20 @@
 import { useState, useCallback } from 'react'
-import { api, mapProject } from '../api'
+import { api, mapProject, ApiError } from '../api'
+import { toast } from '../toast'
 import { deleteAudioBlob, uid } from '../audio'
 import type { Project, Script } from '../types'
+
+/** Surface plan-limit (422 with a plan_* code) errors to the user via toast. */
+function notifyPlanLimit(e: unknown): boolean {
+  if (e instanceof ApiError && e.status === 422) {
+    const code = (e.data as { code?: string })?.code ?? ''
+    if (code.startsWith('plan_')) {
+      toast.err(e.message)
+      return true
+    }
+  }
+  return false
+}
 
 interface UseProjectsReturn {
   projects: Project[]
@@ -160,6 +173,7 @@ export function useProjects(): UseProjectsReturn {
           ? { ...p, scripts: p.scripts.filter(s => s.id !== script.id) }
           : p
       ))
+      notifyPlanLimit(e)
       console.error('[useProjects] addScript:', e)
       return null
     }
@@ -195,6 +209,7 @@ export function useProjects(): UseProjectsReturn {
     try {
       await api.post('/scripts/update', payload)
     } catch (e) {
+      notifyPlanLimit(e)
       console.error('[useProjects] updateScript:', e)
     }
   }, [])

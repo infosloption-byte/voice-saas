@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Project;
+use App\Services\PlanLimits;
 use Illuminate\Http\Request;
 
 class ProjectController extends Controller
@@ -21,7 +22,19 @@ class ProjectController extends Controller
             'description' => 'nullable|string|max:2000',
         ]);
 
-        $project = $request->user()->projects()->create($validated);
+        $user  = $request->user();
+        $limit = PlanLimits::limit($user, 'projects');
+
+        if ($user->projects()->count() >= $limit) {
+            return response()->json([
+                'message' => "You've reached your plan's limit of {$limit} project"
+                    . ($limit === 1 ? '' : 's') . '. ' . PlanLimits::nextPlanHint($user->plan_name) . ' for more.',
+                'code'    => 'plan_limit_projects',
+                'limit'   => $limit,
+            ], 422);
+        }
+
+        $project = $user->projects()->create($validated);
         $project->load('scripts');
 
         return response()->json($project);

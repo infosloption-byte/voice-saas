@@ -141,6 +141,13 @@ class AuthController extends Controller
 
     public function exportData(Request $request): \Illuminate\Http\JsonResponse
     {
+        if (! \App\Services\PlanLimits::allows($request->user(), 'data_export')) {
+            return response()->json([
+                'message' => 'Data export (GDPR) is a Pro feature. Upgrade to Pro to export your data.',
+                'code'    => 'plan_feature_data_export',
+            ], 422);
+        }
+
         $user = $request->user()->load('projects.scripts', 'voiceProfiles');
 
         return response()->json([
