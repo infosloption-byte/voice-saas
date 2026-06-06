@@ -61,6 +61,7 @@ class ScriptController extends Controller
             'tone'           => 'nullable|string|max:50',
             'speaker_map'    => 'nullable|array',
             'waveform_peaks' => 'nullable|array',
+            'advanced_params'=> 'nullable|array',
             'order_index'    => 'integer|min:0',
         ]);
 
@@ -88,6 +89,7 @@ class ScriptController extends Controller
             'tone'           => 'nullable|string|max:50',
             'speaker_map'    => 'nullable|array',
             'waveform_peaks' => 'nullable|array',
+            'advanced_params'=> 'nullable|array',
             'order_index'    => 'integer|min:0',
         ]);
 
@@ -117,9 +119,10 @@ class ScriptController extends Controller
             'duration'    => 'nullable|numeric|min:0|max:86400',
             'speed'       => 'numeric|min:0.25|max:4',
             'tone'        => 'nullable|string|max:50',
-            'speaker_map' => 'nullable|array',
-            'waveform_peaks' => 'nullable|array',
-            'order_index' => 'integer',
+            'speaker_map'     => 'nullable|array',
+            'waveform_peaks'  => 'nullable|array',
+            'advanced_params' => 'nullable|array',
+            'order_index'     => 'integer',
         ]);
 
         if ($blocked = $this->enforcePlan($request, $validated)) {

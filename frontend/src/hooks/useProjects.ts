@@ -203,8 +203,9 @@ export function useProjects(): UseProjectsReturn {
     if ('speed'         in update) payload.speed          = update.speed
     if ('tone'          in update) payload.tone           = update.tone
     if ('speakerMap'    in update) payload.speaker_map    = update.speakerMap
-    if ('waveformPeaks' in update) payload.waveform_peaks = update.waveformPeaks
-    if ('audioUrl'      in update) payload.audio_url      = update.audioUrl
+    if ('waveformPeaks'   in update) payload.waveform_peaks    = update.waveformPeaks
+    if ('audioUrl'        in update) payload.audio_url         = update.audioUrl
+    if ('advancedParams'  in update) payload.advanced_params   = update.advancedParams
 
     try {
       await api.post('/scripts/update', payload)

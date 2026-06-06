@@ -23,12 +23,51 @@ export const LANGUAGES = [
 export const EMOJIS = ['🎬', '🎙', '📹', '🎤', '🎵', '📺', '🌟', '🚀', '💡', '🎯', '📚', '🎧']
 
 export const TONE_PRESETS = {
-  natural:    { label: 'Natural',    emoji: '🎙', temperature: 0.65, top_k: 50, top_p: 0.85 },
-  expressive: { label: 'Expressive', emoji: '🎭', temperature: 0.85, top_k: 80, top_p: 0.95 },
-  calm:       { label: 'Calm',       emoji: '😌', temperature: 0.40, top_k: 30, top_p: 0.70 },
-  energetic:  { label: 'Energetic',  emoji: '⚡', temperature: 0.90, top_k: 90, top_p: 0.98 },
+  natural:     { label: 'Natural',     emoji: '🎙', temperature: 0.65, top_k: 50, top_p: 0.85 },
+  expressive:  { label: 'Expressive',  emoji: '🎭', temperature: 0.85, top_k: 80, top_p: 0.95 },
+  calm:        { label: 'Calm',        emoji: '😌', temperature: 0.40, top_k: 30, top_p: 0.70 },
+  energetic:   { label: 'Energetic',   emoji: '⚡', temperature: 0.90, top_k: 90, top_p: 0.98 },
+  cheerful:    { label: 'Cheerful',    emoji: '😊', temperature: 0.80, top_k: 70, top_p: 0.92 },
+  serious:     { label: 'Serious',     emoji: '🎯', temperature: 0.45, top_k: 35, top_p: 0.75 },
+  dramatic:    { label: 'Dramatic',    emoji: '🎬', temperature: 0.95, top_k: 95, top_p: 0.99 },
+  whisper:     { label: 'Whisper',     emoji: '🤫', temperature: 0.30, top_k: 20, top_p: 0.60 },
+  storytelling:{ label: 'Storytelling',emoji: '📖', temperature: 0.72, top_k: 60, top_p: 0.88 },
 } as const
 export type TonePreset = keyof typeof TONE_PRESETS
+
+/** XTTS v2 built-in studio speakers. profile_id is sent as "builtin:<name>". */
+export const BUILT_IN_VOICES: { id: string; name: string; gender: 'F' | 'M' }[] = [
+  { id: 'builtin:Claribel Dervla',    name: 'Claribel',    gender: 'F' },
+  { id: 'builtin:Daisy Studious',     name: 'Daisy',       gender: 'F' },
+  { id: 'builtin:Gracie Wise',        name: 'Gracie',      gender: 'F' },
+  { id: 'builtin:Tammie Ema',         name: 'Tammie',      gender: 'F' },
+  { id: 'builtin:Ana Florence',       name: 'Ana',         gender: 'F' },
+  { id: 'builtin:Sofia Hellen',       name: 'Sofia',       gender: 'F' },
+  { id: 'builtin:Tammy Grit',         name: 'Tammy',       gender: 'F' },
+  { id: 'builtin:Brenda Stern',       name: 'Brenda',      gender: 'F' },
+  { id: 'builtin:Gitta Nikolina',     name: 'Gitta',       gender: 'F' },
+  { id: 'builtin:Nova Hogarth',       name: 'Nova',        gender: 'F' },
+  { id: 'builtin:Maja Ruoho',         name: 'Maja',        gender: 'F' },
+  { id: 'builtin:Lilya Stainthorpe',  name: 'Lilya',       gender: 'F' },
+  { id: 'builtin:Narelle Moon',       name: 'Narelle',     gender: 'F' },
+  { id: 'builtin:Alma María',         name: 'Alma',        gender: 'F' },
+  { id: 'builtin:Rosemarie Okafor',   name: 'Rosemarie',   gender: 'F' },
+  { id: 'builtin:Andrew Chipper',     name: 'Andrew',      gender: 'M' },
+  { id: 'builtin:Badr Odhiambo',      name: 'Badr',        gender: 'M' },
+  { id: 'builtin:Dionisio Schuyler',  name: 'Dionisio',    gender: 'M' },
+  { id: 'builtin:Royston Min',        name: 'Royston',     gender: 'M' },
+  { id: 'builtin:Viktor Eka',         name: 'Viktor',      gender: 'M' },
+  { id: 'builtin:Craig Gutsy',        name: 'Craig',       gender: 'M' },
+  { id: 'builtin:Damien Black',       name: 'Damien',      gender: 'M' },
+  { id: 'builtin:Baldur Sanjin',      name: 'Baldur',      gender: 'M' },
+  { id: 'builtin:Zacharie Aimilios',  name: 'Zacharie',    gender: 'M' },
+  { id: 'builtin:Aaron Dreschner',    name: 'Aaron',       gender: 'M' },
+  { id: 'builtin:Kumar Dahl',         name: 'Kumar',       gender: 'M' },
+  { id: 'builtin:Luis Moray',         name: 'Luis',        gender: 'M' },
+  { id: 'builtin:Marcos Rudaski',     name: 'Marcos',      gender: 'M' },
+  { id: 'builtin:Torcull Diarmuid',   name: 'Torcull',     gender: 'M' },
+  { id: 'builtin:Wulf Carlevaro',     name: 'Wulf',        gender: 'M' },
+]
 
 export const icons = {
   dashboard: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="2" y="2" width="7" height="7" rx="1.5" /><rect x="11" y="2" width="7" height="7" rx="1.5" /><rect x="2" y="11" width="7" height="7" rx="1.5" /><rect x="11" y="11" width="7" height="7" rx="1.5" /></svg>,

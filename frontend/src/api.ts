@@ -194,6 +194,7 @@ export function mapScript(raw: Record<string, unknown>) {
     speakerMap: (raw.speaker_map as Record<string, string> | undefined) ?? undefined,
     waveformPeaks: (raw.waveform_peaks as number[] | undefined) ?? undefined,
     audioUrl: (raw.audio_url as string | undefined) ?? undefined,
+    advancedParams: (raw.advanced_params as { temperature?: number; top_k?: number; top_p?: number } | undefined) ?? undefined,
     orderIndex: (raw.order_index as number) ?? 0,
   }
 }
