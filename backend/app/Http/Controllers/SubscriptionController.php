@@ -91,15 +91,24 @@ class SubscriptionController extends Controller
             return response()->json(['message' => 'Subscription is not active yet.'], 422);
         }
 
-        $plan              = strtolower($details['plan_id'] ?? '');
-        $nextBillingTime   = $details['billing_info']['next_billing_time'] ?? null;
+        $nextBillingTime = $details['billing_info']['next_billing_time'] ?? null;
 
-        // Resolve plan name from PayPal plan ID
+        // Resolve plan name from PayPal plan ID — fail loudly if env is misconfigured
         $resolvedPlan = match (true) {
             $details['plan_id'] === config('services.paypal.plan_starter') => 'starter',
             $details['plan_id'] === config('services.paypal.plan_pro')     => 'pro',
-            default                                                         => 'starter',
+            default => null,
         };
+
+        if ($resolvedPlan === null) {
+            \Illuminate\Support\Facades\Log::error('Unknown PayPal plan ID during capture', [
+                'plan_id' => $details['plan_id'],
+                'subscription_id' => $validated['subscription_id'],
+            ]);
+            return response()->json([
+                'message' => 'Unrecognised plan ID. Please contact support.',
+            ], 422);
+        }
 
         $sub = $request->user()->subscription()->updateOrCreate(
             ['user_id' => $request->user()->id],
@@ -214,12 +223,22 @@ class SubscriptionController extends Controller
 
             'BILLING.SUBSCRIPTION.SUSPENDED' => $sub->update(['status' => 'suspended']),
 
-            'PAYMENT.SALE.COMPLETED' => (function () use ($sub, $resource) {
-                // Refresh period end if billing info is available
-                if (isset($resource['billing_info']['next_billing_time'])) {
+            'PAYMENT.SALE.COMPLETED' => (function () use ($sub) {
+                // A sale resource is a payment object — it has no billing_info.
+                // Re-fetch the subscription from PayPal to get the updated next_billing_time.
+                try {
+                    $details = $this->paypal->getSubscription($sub->paypal_subscription_id);
+                    $nextBillingTime = $details['billing_info']['next_billing_time'] ?? null;
                     $sub->update([
                         'status'             => 'active',
-                        'current_period_end' => \Carbon\Carbon::parse($resource['billing_info']['next_billing_time']),
+                        'current_period_end' => $nextBillingTime
+                            ? \Carbon\Carbon::parse($nextBillingTime)
+                            : $sub->current_period_end,
+                    ]);
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('PAYMENT.SALE.COMPLETED: could not refresh billing period', [
+                        'subscription_id' => $sub->paypal_subscription_id,
+                        'error'           => $e->getMessage(),
                     ]);
                 }
             })(),

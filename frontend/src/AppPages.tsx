@@ -5,6 +5,7 @@ import { icons, EMOJIS } from './constants'
 import { fmt, uid, useAudioRecorder } from './audio'
 import { useTTSEngine } from './hooks/useTTSEngine'
 import { getAudioPrefs } from './hooks/useAudioSettings'
+import { useEscapeKey } from './hooks/useEscapeKey'
 import { type GateType } from './hooks/useGuestSession'
 import { DEFAULT_GUEST_LIMITS } from './hooks/useGuestLimits'
 import type { Project, Script, VoiceProfile, VoiceProfileSaveResult, EngineCaps, GuestLimits } from './types'
@@ -39,6 +40,7 @@ export function MicBtn({ recording, onClick, disabled, label }: {
 
 // ── Shortcuts modal ────────────────────────────────────────────────
 export function ShortcutsModal({ onClose }: { onClose: () => void }) {
+  useEscapeKey(onClose)
   const shortcuts = [
     { keys: 'Space',              desc: 'Play / Pause' },
     { keys: 'Home',               desc: 'Rewind to start' },
@@ -49,7 +51,7 @@ export function ShortcutsModal({ onClose }: { onClose: () => void }) {
     { keys: 'Ctrl+S',             desc: 'Save script' },
   ]
   return (
-    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 380 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div className="modal__title">Keyboard Shortcuts</div>
@@ -77,8 +79,9 @@ export function NewProjectModal({ onClose, onCreate }: {
   const [desc, setDesc] = useState('')
   const [emoji, setEmoji] = useState('🎬')
   function submit() { if (!name.trim()) return; onCreate(name.trim(), emoji, desc.trim()); onClose() }
+  useEscapeKey(onClose)
   return (
-    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="New Project" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="modal__title">New Project</div>
         <div className="modal__body">
@@ -279,6 +282,7 @@ export function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
 }) {
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const confirmProject = projects.find(p => p.id === confirmId)
+  useEscapeKey(() => setConfirmId(null), confirmId !== null)
 
   return (
     <div>
@@ -381,7 +385,7 @@ export function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
       </div>
 
       {confirmId && confirmProject && (
-        <div className="modal-backdrop" onClick={() => setConfirmId(null)}>
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete project" onClick={() => setConfirmId(null)}>
           <div className="modal" style={{ maxWidth: 380 }} onClick={e => e.stopPropagation()}>
             <div className="modal__title">Delete project?</div>
             <div className="modal__body">
@@ -437,6 +441,7 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
   const [previewText, setPreviewText] = useState('Hello, this is a preview of my voice profile.')
   const [previewing, setPreviewing] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  useEscapeKey(() => setDeleteConfirmId(null), deleteConfirmId !== null)
 
   async function handleStart() {
     setMsg(''); setMsgWarn('')
@@ -710,7 +715,7 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
       </div>
 
       {deleteConfirmId && (
-        <div className="modal-backdrop" onClick={() => setDeleteConfirmId(null)}>
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete voice profile" onClick={() => setDeleteConfirmId(null)}>
           <div className="modal" style={{ maxWidth: 380 }} onClick={e => e.stopPropagation()}>
             <div className="modal__title">Delete voice profile?</div>
             <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 14 }}>
