@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useReducer, useCallback } from 'react'
 import { toast } from './toast'
 import { api } from './api'
 import { icons, CLIP_COLORS, CLIP_LIGHTS } from './constants'
+import { useEscapeKey } from './hooks/useEscapeKey'
 import { loadAudioBlob, loadAudioRawBlob, saveAudioBlob, deleteAudioBlob, timelineReducer, uid, fmt } from './audio'
 import type { Project, Script, TimelineClip, TimelineHistory } from './types'
 import type { GateType } from './hooks/useGuestSession'
@@ -57,6 +58,10 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
   const [draggingPlayhead, setDraggingPlayhead] = useState(false)
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
   const [showGapDialog, setShowGapDialog] = useState(false)
+  useEscapeKey(() => {
+    if (lanePickTarget) { setLanePickTarget(null); return }
+    if (showGapDialog)  { setShowGapDialog(false);  return }
+  })
   const [gapDuration, setGapDuration] = useState(1)
   const [manualLaneCount, setManualLaneCount] = useState(1)
   const [dropLane, setDropLane] = useState<number | null>(null)
@@ -1171,7 +1176,7 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
 
       {/* Gap/Silence dialog */}
       {showGapDialog && (
-        <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && setShowGapDialog(false)}>
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Add Gap" onClick={e => e.target === e.currentTarget && setShowGapDialog(false)}>
           <div className="modal" style={{ maxWidth: 340 }}>
             <div className="modal__title">Add Silence / Gap</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

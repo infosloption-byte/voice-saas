@@ -1,3 +1,4 @@
+import { useEscapeKey } from './hooks/useEscapeKey'
 import { type GateType } from './hooks/useGuestSession'
 import { DEFAULT_GUEST_LIMITS } from './hooks/useGuestLimits'
 import type { GuestLimits } from './types'
@@ -52,9 +53,10 @@ interface GuestUpgradeModalProps {
 
 export function GuestUpgradeModal({ type, guestLimits = DEFAULT_GUEST_LIMITS, onSignIn, onSignUp, onClose }: GuestUpgradeModalProps) {
   const c = buildContent(guestLimits)[type]
+  useEscapeKey(onClose)
 
   return (
-    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={c.title} onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 420, textAlign: 'center' }}>
         <div style={{ fontSize: 40, marginBottom: 12 }}>{c.icon}</div>
 
