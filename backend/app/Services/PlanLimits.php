@@ -43,6 +43,8 @@ class PlanLimits
             'word_limit'    => 500,
             'multi_voice'   => false,
             'data_export'   => false,
+            'synth_limit'   => 3,
+            'synth_period'  => 'day',
         ],
         'starter' => [
             'project_limit' => 10,
@@ -50,6 +52,8 @@ class PlanLimits
             'word_limit'    => 5000,
             'multi_voice'   => true,
             'data_export'   => false,
+            'synth_limit'   => 100,
+            'synth_period'  => 'month',
         ],
         'pro' => [
             'project_limit' => 0,   // 0 = unlimited
@@ -57,6 +61,8 @@ class PlanLimits
             'word_limit'    => 0,
             'multi_voice'   => true,
             'data_export'   => true,
+            'synth_limit'   => 0,
+            'synth_period'  => 'month',
         ],
     ];
 
@@ -81,11 +87,13 @@ class PlanLimits
                     'word_limit'    => isset($row->word_limit)    ? (int) $row->word_limit    : null,
                     'multi_voice'   => (bool) $row->multi_voice,
                     'data_export'   => (bool) $row->data_export,
-                    // Guest-specific columns (NULL for paid plans)
-                    'synth_limit'   => isset($row->synth_limit)   ? (int) $row->synth_limit   : null,
+                    // Guest-specific session knobs
                     'preview_limit' => isset($row->preview_limit) ? (int) $row->preview_limit : null,
                     'script_limit'  => isset($row->script_limit)  ? (int) $row->script_limit  : null,
                     'session_days'  => isset($row->session_days)  ? (int) $row->session_days  : null,
+                    // Synthesis quota (all tiers)
+                    'synth_limit'   => isset($row->synth_limit)   ? (int) $row->synth_limit   : null,
+                    'synth_period'  => $row->synth_period ?? null,
                 ]
                 : (self::$defaults[$key] ?? self::$defaults['free']);
         }
