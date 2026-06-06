@@ -74,9 +74,11 @@ class PlanLimits
 
             self::$cache[$key] = $row
                 ? [
-                    'project_limit' => (int)  $row->project_limit,
-                    'profile_limit' => (int)  $row->profile_limit,
-                    'word_limit'    => (int)  $row->word_limit,
+                    // NULL is preserved (not cast to 0) so a NULL shared column
+                    // means "inherit from another tier" rather than "unlimited".
+                    'project_limit' => isset($row->project_limit) ? (int) $row->project_limit : null,
+                    'profile_limit' => isset($row->profile_limit) ? (int) $row->profile_limit : null,
+                    'word_limit'    => isset($row->word_limit)    ? (int) $row->word_limit    : null,
                     'multi_voice'   => (bool) $row->multi_voice,
                     'data_export'   => (bool) $row->data_export,
                     // Guest-specific columns (NULL for paid plans)
@@ -164,16 +166,21 @@ class PlanLimits
      */
     public static function guestLimits(): array
     {
-        $cfg = self::forPlan('guest');
-        $g   = self::$defaults['guest'];
+        $guest = self::forPlan('guest');
+        $free  = self::forPlan('free');
+        $gd    = self::$defaults['guest'];
+        $fd    = self::$defaults['free'];
 
         return [
-            'synth_limit'   => $cfg['synth_limit']   ?? $g['synth_limit'],
-            'word_limit'    => $cfg['word_limit']    ?? $g['word_limit'],
-            'preview_limit' => $cfg['preview_limit'] ?? $g['preview_limit'],
-            'script_limit'  => $cfg['script_limit']  ?? $g['script_limit'],
-            'profile_limit' => $cfg['profile_limit'] ?? $g['profile_limit'],
-            'session_days'  => $cfg['session_days']  ?? $g['session_days'],
+            // Session-specific knobs come from the guest row
+            'synth_limit'   => $guest['synth_limit']   ?? $gd['synth_limit'],
+            'preview_limit' => $guest['preview_limit'] ?? $gd['preview_limit'],
+            'script_limit'  => $guest['script_limit']  ?? $gd['script_limit'],
+            'session_days'  => $guest['session_days']  ?? $gd['session_days'],
+            // Shared feature limits inherit from the free tier when the guest
+            // column is NULL — so non-paying limits live in one place (free).
+            'word_limit'    => $guest['word_limit']    ?? $free['word_limit']    ?? $fd['word_limit'],
+            'profile_limit' => $guest['profile_limit'] ?? $free['profile_limit'] ?? $fd['profile_limit'],
         ];
     }
 }
