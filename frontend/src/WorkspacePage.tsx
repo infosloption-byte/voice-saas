@@ -199,6 +199,18 @@ export function WorkspacePage({
     }
   }, [engine, engineCaps.f5, engineCaps.xtts, setEngine])
 
+  // F5-TTS can't use the built-in Voxora library voices (it clones from a
+  // custom reference only). If the active script still points at a built-in
+  // voice when F5 is selected, switch it to the first custom profile so the
+  // toolbar and the request stay coherent.
+  useEffect(() => {
+    if (engine !== 'f5' || !activeScript) return
+    const pid = activeScript.profileId ?? ''
+    if (pid.startsWith('builtin:') && voiceProfiles.length > 0) {
+      onUpdateScript(activeScript.id, { profileId: voiceProfiles[0].profile_id })
+    }
+  }, [engine, activeScript, voiceProfiles, onUpdateScript])
+
   // ── Reset editor when active script changes ───────────────────────
   useEffect(() => {
     const content = activeScript?.content ?? ''
@@ -461,6 +473,7 @@ export function WorkspacePage({
         hasAudio:      true,
         profileId:     pid,
         language:      script.language || 'en',
+        engine:        ttsEngine,
         duration,
         waveformPeaks: peaks,
       })
@@ -516,6 +529,7 @@ export function WorkspacePage({
       const fd = new FormData()
       fd.append('text', text)
       fd.append('file', voiceBlob, 'voice.wav')
+      fd.append('tts_engine', engine)
 
       let blob = await api.enginePost('/clone-voice', fd) as Blob
       blob = await trimSilence(blob)
@@ -544,7 +558,7 @@ export function WorkspacePage({
         peaks = rawPeaks.map(p => p / Math.max(...rawPeaks, 0.001))
         await audioCtx.close()
         await saveAudioBlob(`audio_${script.id}`, blob)
-        onUpdateScript(script.id, { hasAudio: true, duration, waveformPeaks: peaks })
+        onUpdateScript(script.id, { hasAudio: true, engine, duration, waveformPeaks: peaks })
       } catch {
         // Non-critical — playback still works
       }
