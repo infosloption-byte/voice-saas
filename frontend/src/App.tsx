@@ -105,7 +105,7 @@ function ToastContainer() {
         <div key={t.id} className={`msg msg--${t.kind}`} style={{
           pointerEvents: 'all', animation: 'modal-in 0.2s ease',
           display: 'flex', alignItems: 'center', gap: 8,
-          padding: '10px 14px', boxShadow: 'var(--shadow-lg)',
+          padding: '10px 14px', boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
         }}>
           <span style={{ flex: 1, fontSize: 13 }}>{t.msg}</span>
           <button style={{ background: 'none', border: 'none', cursor: 'pointer',
