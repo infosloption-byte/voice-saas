@@ -154,6 +154,7 @@ export function WorkspacePage({
   const [transcribing, setTranscribing]     = useState(false)
   const [showEngineMenu,   setShowEngineMenu]   = useState(false)
   const [showLangMenu,     setShowLangMenu]     = useState(false)
+  const [showToneMenu,     setShowToneMenu]     = useState(false)
   const [showVoiceMenu,    setShowVoiceMenu]    = useState(false)
   const [showAdvanced,     setShowAdvanced]     = useState(false)
   const [synthQuota, setSynthQuota]             = useState<{ remaining: number; limit: number; period: string } | null>(null)
@@ -1321,28 +1322,56 @@ export function WorkspacePage({
 
               <div style={{ flex: 1 }} />
 
-              {/* Tone preset + Advanced (XTTS only) */}
-              {engine !== 'f5' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  {(Object.entries(TONE_PRESETS) as [TonePreset, typeof TONE_PRESETS[TonePreset]][]).map(([key, preset]) => {
-                    const active = (activeScript.tone ?? 'natural') === key
-                    return (
-                      <button key={key} title={preset.label}
-                        onClick={() => onUpdateScript(activeScript.id, { tone: key, advancedParams: undefined })}
-                        style={{ padding: '3px 7px', borderRadius: 5, border: `1px solid ${active ? 'var(--accent)' : 'var(--border-2)'}`, background: active ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', fontSize: 13, lineHeight: 1, color: active ? 'var(--accent)' : 'var(--text-3)' }}
-                        aria-pressed={active}>
-                        {preset.emoji}
-                      </button>
-                    )
-                  })}
-                  <button
-                    title="Advanced style controls"
-                    onClick={() => setShowAdvanced(v => !v)}
-                    style={{ padding: '3px 7px', borderRadius: 5, border: `1px solid ${showAdvanced ? 'var(--accent)' : 'var(--border-2)'}`, background: showAdvanced ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', fontSize: 10, fontWeight: 700, color: showAdvanced ? 'var(--accent)' : 'var(--text-3)', letterSpacing: '0.3px' }}>
-                    ADV
-                  </button>
-                </div>
-              )}
+              {/* Tone preset popup (XTTS only) */}
+              {engine !== 'f5' && (() => {
+                const activeTone = (activeScript.tone ?? 'natural') as TonePreset
+                const activePreset = TONE_PRESETS[activeTone]
+                return (
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <button
+                      className="btn btn--sm btn--ghost"
+                      title="Voice emotion / style"
+                      style={{ gap: 5, paddingRight: 8 }}
+                      onClick={() => setShowToneMenu(v => !v)}
+                    >
+                      <span style={{ fontSize: 13 }}>{activePreset.emoji}</span>
+                      <span style={{ fontSize: 12 }}>{activePreset.label}</span>
+                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ width: 10, height: 10, opacity: 0.5 }}><path d="M5 8l5 5 5-5" /></svg>
+                    </button>
+                    {showToneMenu && (
+                      <>
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 199 }} onClick={() => setShowToneMenu(false)} />
+                        <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)', zIndex: 200, minWidth: 220, overflow: 'hidden' }}>
+                          <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)' }}>Voice Emotion</div>
+                          {(Object.entries(TONE_PRESETS) as [TonePreset, typeof TONE_PRESETS[TonePreset]][]).map(([key, preset]) => {
+                            const active = activeTone === key
+                            return (
+                              <button key={key}
+                                onClick={() => { onUpdateScript(activeScript.id, { tone: key, advancedParams: undefined }); setShowToneMenu(false) }}
+                                style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '8px 12px', border: 'none', background: active ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s', borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent' }}
+                                onMouseEnter={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-2)' }}
+                                onMouseLeave={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+                              >
+                                <span style={{ fontSize: 16, flexShrink: 0 }}>{preset.emoji}</span>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                  <span style={{ fontSize: 13, fontWeight: active ? 600 : 400, color: active ? 'var(--accent)' : 'var(--text-1)' }}>{preset.label}</span>
+                                  <span style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.3 }}>{preset.desc}</span>
+                                </div>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </>
+                    )}
+                    <button
+                      title="Advanced style controls"
+                      onClick={() => setShowAdvanced(v => !v)}
+                      style={{ padding: '3px 7px', borderRadius: 5, border: `1px solid ${showAdvanced ? 'var(--accent)' : 'var(--border-2)'}`, background: showAdvanced ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', fontSize: 10, fontWeight: 700, color: showAdvanced ? 'var(--accent)' : 'var(--text-3)', letterSpacing: '0.3px' }}>
+                      ADV
+                    </button>
+                  </div>
+                )
+              })()}
               {/* Advanced sliders */}
               {engine !== 'f5' && showAdvanced && (() => {
                 const adv = activeScript.advancedParams ?? {}
@@ -1416,36 +1445,39 @@ export function WorkspacePage({
                     {showLangMenu && !disabled && !translating && (
                       <>
                         <div style={{ position: 'fixed', inset: 0, zIndex: 199 }} onClick={() => setShowLangMenu(false)} />
-                        <div style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: 6, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)', zIndex: 200, minWidth: 200, maxHeight: 420, overflow: 'hidden auto' }}>
+                        <div style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: 6, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)', zIndex: 200, display: 'flex', overflow: 'hidden' }}>
 
-                          {/* Section: switch language label only */}
-                          <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)' }}>Set language</div>
-                          {LANGUAGES.map(l => (
-                            <button key={l.code} onClick={() => { onUpdateScript(activeScript.id, { language: l.code }); setShowLangMenu(false) }}
-                              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 12px', border: 'none', background: (activeScript.language || 'en') === l.code ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--text-1)', transition: 'background 0.1s', borderLeft: (activeScript.language || 'en') === l.code ? '3px solid var(--accent)' : '3px solid transparent' }}>
-                              {l.label}
-                            </button>
-                          ))}
+                          {/* Column 1: Set accent / synthesis language */}
+                          <div style={{ minWidth: 150, maxHeight: 380, overflow: 'hidden auto', borderRight: '1px solid var(--border)' }}>
+                            <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>Accent language</div>
+                            {LANGUAGES.map(l => (
+                              <button key={l.code} onClick={() => { onUpdateScript(activeScript.id, { language: l.code }); setShowLangMenu(false) }}
+                                style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '6px 12px', border: 'none', background: (activeScript.language || 'en') === l.code ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--text-1)', transition: 'background 0.1s', borderLeft: (activeScript.language || 'en') === l.code ? '3px solid var(--accent)' : '3px solid transparent', whiteSpace: 'nowrap' }}>
+                                {l.label}
+                              </button>
+                            ))}
+                          </div>
 
-                          {/* Section: AI translate content */}
-                          {activeScript.content?.trim() && (
-                            <>
-                              <div style={{ margin: '4px 0', borderTop: '1px solid var(--border)' }} />
-                              <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 11, height: 11 }}><path d="M3 5h12M9 3v2M11.5 19l-2.5-5M13.5 19l2.5-5M9 14h6"/></svg>
-                                Translate content to…
-                              </div>
-                              {LANGUAGES.filter(l => l.code !== (activeScript.language || 'en')).map(l => (
-                                <button key={l.code} onClick={() => translateScript(l.code)}
-                                  style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 12px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--text-1)', transition: 'background 0.1s', borderLeft: '3px solid transparent' }}
-                                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--accent-lt)' }}
-                                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
-                                >
-                                  {l.label}
-                                </button>
-                              ))}
-                            </>
-                          )}
+                          {/* Column 2: AI translate content */}
+                          <div style={{ minWidth: 155, maxHeight: 380, overflow: 'hidden auto' }}>
+                            <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 10, height: 10 }}><path d="M3 5h12M9 3v2M11.5 19l-2.5-5M13.5 19l2.5-5M9 14h6"/></svg>
+                              Translate to…
+                            </div>
+                            {activeScript.content?.trim()
+                              ? LANGUAGES.filter(l => l.code !== (activeScript.language || 'en')).map(l => (
+                                  <button key={l.code} onClick={() => translateScript(l.code)}
+                                    style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '6px 12px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--text-1)', transition: 'background 0.1s', borderLeft: '3px solid transparent', whiteSpace: 'nowrap' }}
+                                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--accent-lt)' }}
+                                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+                                  >
+                                    {l.label}
+                                  </button>
+                                ))
+                              : <div style={{ padding: '6px 12px 10px', fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic' }}>Add content first</div>
+                            }
+                          </div>
+
                         </div>
                       </>
                     )}
