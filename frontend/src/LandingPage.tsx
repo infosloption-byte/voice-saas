@@ -32,7 +32,7 @@ function ProductsDropdown({ onNavigate }: { onNavigate?: (p: string) => void }) 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button className="vox-nav-link" onClick={() => setOpen(v => !v)}>
-        Products
+        Features
         <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8"
           style={{ width: 10, height: 10, transition: 'transform 0.15s', transform: open ? 'rotate(180deg)' : 'none' }}>
           <path d="M2 4l4 4 4-4" />
@@ -77,6 +77,30 @@ export function VoxNav({ onSignIn, onSignUp, onNavigate }: {
   )
 }
 
+// ── Social links ──────────────────────────────────────────────────
+const SOCIALS = [
+  {
+    label: 'X', href: 'https://x.com/voxora',
+    icon: <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 2H22l-7.3 8.3L23.3 22h-6.8l-5.3-6.9L5.1 22H2l7.8-8.9L1 2h6.9l4.8 6.4L18.9 2zm-2.4 18h1.9L7.6 4H5.6l10.9 16z"/></svg>,
+  },
+  {
+    label: 'Instagram', href: 'https://instagram.com/voxora',
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>,
+  },
+  {
+    label: 'YouTube', href: 'https://youtube.com/@voxora',
+    icon: <svg viewBox="0 0 24 24" fill="currentColor"><path d="M23 7.5a3 3 0 0 0-2.1-2.1C19 5 12 5 12 5s-7 0-8.9.4A3 3 0 0 0 1 7.5 31 31 0 0 0 .6 12 31 31 0 0 0 1 16.5a3 3 0 0 0 2.1 2.1C5 19 12 19 12 19s7 0 8.9-.4a3 3 0 0 0 2.1-2.1A31 31 0 0 0 23.4 12 31 31 0 0 0 23 7.5zM9.8 15.3V8.7l5.7 3.3-5.7 3.3z"/></svg>,
+  },
+  {
+    label: 'LinkedIn', href: 'https://linkedin.com/company/voxora',
+    icon: <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4.98 3.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM3 9h4v12H3V9zm6 0h3.8v1.6h.1c.5-1 1.8-2 3.7-2 4 0 4.7 2.6 4.7 6V21h-4v-5.3c0-1.3 0-2.9-1.8-2.9s-2 1.4-2 2.8V21H9V9z"/></svg>,
+  },
+  {
+    label: 'GitHub', href: 'https://github.com/voxora',
+    icon: <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.4-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.6 2.4 1.1 3 .9.1-.7.3-1.1.6-1.4-2.2-.300-4.6-1.1-4.6-5a4 4 0 0 1 1-2.7c-.1-.3-.4-1.3.1-2.6 0 0 .8-.3 2.7 1a9.4 9.4 0 0 1 5 0c1.9-1.3 2.7-1 2.7-1 .5 1.3.2 2.3.1 2.6.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .3.3.6.9.6 1.8v2.7c0 .3.2.6.7.5A10 10 0 0 0 12 2z"/></svg>,
+  },
+]
+
 // ── Shared Footer (exported for feature pages) ────────────────────
 export function VoxFooter({ onSignIn, onSignUp, onNavigate }: {
   onSignIn?: () => void; onSignUp?: () => void; onNavigate?: (p: string) => void
@@ -84,29 +108,38 @@ export function VoxFooter({ onSignIn, onSignUp, onNavigate }: {
   return (
     <footer className="vox-footer">
       <div className="vox-footer-inner">
-        <div>
+        <div style={{ maxWidth: 280 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 6 }}>
             <LogoMark size={26} />
             <span className="vox-footer-brand">Voxora</span>
           </div>
-          <div className="vox-footer-tagline">AI voice synthesis in the cloud</div>
+          <div className="vox-footer-tagline">
+            Clone your voice, translate scripts, and assemble studio-quality audio — all in your browser.
+          </div>
+          <div className="vox-socials">
+            {SOCIALS.map(s => (
+              <a key={s.label} className="vox-social" href={s.href} target="_blank" rel="noopener noreferrer" title={s.label} aria-label={s.label}>
+                {s.icon}
+              </a>
+            ))}
+          </div>
         </div>
         <div className="vox-footer-col">
-          <div className="vox-footer-col-label">Products</div>
+          <div className="vox-footer-col-label">Features</div>
           {PRODUCT_LINKS.map(p => (
             <button key={p.key} className="vox-footer-link" onClick={() => onNavigate?.(p.key)}>{p.label}</button>
           ))}
         </div>
         <div className="vox-footer-col">
-          <div className="vox-footer-col-label">Company</div>
+          <div className="vox-footer-col-label">Product</div>
           <button className="vox-footer-link" onClick={() => onNavigate?.('pricing')}>Pricing</button>
-          <button className="vox-footer-link" onClick={() => onNavigate?.('privacy')}>Privacy</button>
-          <button className="vox-footer-link" onClick={() => onNavigate?.('terms')}>Terms</button>
+          <button className="vox-footer-link" onClick={onSignUp}>Get started free</button>
+          <button className="vox-footer-link" onClick={onSignIn}>Sign in</button>
         </div>
         <div className="vox-footer-col">
-          <div className="vox-footer-col-label">Account</div>
-          <button className="vox-footer-link" onClick={onSignIn}>Sign in</button>
-          <button className="vox-footer-link" onClick={onSignUp}>Create account</button>
+          <div className="vox-footer-col-label">Legal</div>
+          <button className="vox-footer-link" onClick={() => onNavigate?.('privacy')}>Privacy Policy</button>
+          <button className="vox-footer-link" onClick={() => onNavigate?.('terms')}>Terms of Service</button>
         </div>
       </div>
       <div className="vox-footer-bottom">
@@ -255,27 +288,6 @@ const USE_CASES = [
   },
 ]
 
-const TESTIMONIALS = [
-  {
-    quote: 'I replaced my entire voiceover workflow. Three hours of re-recording became ten minutes. The voice clone sounds exactly like me.',
-    name: 'Maria K.',
-    role: 'Podcast Producer',
-    rating: 5,
-  },
-  {
-    quote: "The timeline editor feels like a proper DAW inside the browser. I'm actually shipping YouTube videos twice as fast now.",
-    name: 'James T.',
-    role: 'YouTube Creator',
-    rating: 5,
-  },
-  {
-    quote: 'Multilingual versions of every lesson, translated and voiced from one script. My students in 6 countries finally get native-speed audio.',
-    name: 'Priya S.',
-    role: 'E-learning Author',
-    rating: 5,
-  },
-]
-
 const PRICING = [
   {
     name: 'Free',
@@ -352,7 +364,7 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow, onNavigate }: Landin
           </button>
         </div>
         <p style={{ marginTop: 14, fontSize: 13, color: 'var(--vx-text-3)' }}>
-          No credit card · No install · Free forever plan
+          Free plan to start · Nothing to install · Cancel anytime
         </p>
 
         {/* Mock UI preview */}
@@ -451,36 +463,6 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow, onNavigate }: Landin
                 <div>
                   <div className="vox-card-title" style={{ marginBottom: 8 }}>{s.title}</div>
                   <div className="vox-card-desc">{s.desc}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <hr className="vox-rule" />
-
-      {/* ── Testimonials ── */}
-      <section className="vox-section">
-        <div className="vox-wrap">
-          <div className="vox-section-head">
-            <h2 className="vox-h2">Loved by <span className="vox-grad-text">creators</span></h2>
-          </div>
-          <div className="vox-grid vox-grid-3">
-            {TESTIMONIALS.map(t => (
-              <div key={t.name} className="vox-testi">
-                <div className="vox-testi-stars">
-                  {Array.from({ length: t.rating }, (_, i) => (
-                    <span key={i} className="vox-testi-star" style={{ color: '#fbbf24' }}>★</span>
-                  ))}
-                </div>
-                <p className="vox-testi-quote">"{t.quote}"</p>
-                <div className="vox-testi-author">
-                  <div className="vox-testi-avatar">{t.name[0]}</div>
-                  <div>
-                    <div className="vox-testi-name">{t.name}</div>
-                    <div className="vox-testi-role">{t.role}</div>
-                  </div>
                 </div>
               </div>
             ))}

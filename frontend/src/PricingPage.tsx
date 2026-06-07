@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from './api'
 import { toast } from './toast'
-import { icons } from './constants'
-import { LogoMark } from './LandingPage'
+import { LogoMark, VoxNav, VoxFooter } from './LandingPage'
+import './landing.css'
 import type { Plan, User } from './types'
 
-const PAYPAL_CLIENT_ID   = import.meta.env.VITE_PAYPAL_CLIENT_ID   as string | undefined
+const PAYPAL_CLIENT_ID    = import.meta.env.VITE_PAYPAL_CLIENT_ID    as string | undefined
 const PAYPAL_PLAN_STARTER = import.meta.env.VITE_PAYPAL_PLAN_STARTER as string | undefined
 const PAYPAL_PLAN_PRO     = import.meta.env.VITE_PAYPAL_PLAN_PRO     as string | undefined
 
@@ -16,9 +16,7 @@ interface PlanDef {
   price: string
   period: string
   tagline: string
-  color: string
   features: string[]
-  limits: string[]
 }
 
 const PLANS: PlanDef[] = [
@@ -28,7 +26,6 @@ const PLANS: PlanDef[] = [
     price: '$0',
     period: '',
     tagline: 'Try it — no credit card needed',
-    color: 'var(--text-3)',
     features: [
       '3 voice syntheses per day',
       '10 script translations per month',
@@ -38,7 +35,6 @@ const PLANS: PlanDef[] = [
       'WAV export',
       '16 languages',
     ],
-    limits: [],
   },
   {
     id: 'starter',
@@ -46,7 +42,6 @@ const PLANS: PlanDef[] = [
     price: '$9.99',
     period: '/month',
     tagline: 'For creators and podcasters',
-    color: 'var(--accent)',
     features: [
       '100 voice syntheses per month',
       '50 script translations per month',
@@ -58,7 +53,6 @@ const PLANS: PlanDef[] = [
       'Timeline assembly',
       '16 languages',
     ],
-    limits: [],
   },
   {
     id: 'pro',
@@ -66,7 +60,6 @@ const PLANS: PlanDef[] = [
     price: '$24.99',
     period: '/month',
     tagline: 'Unlimited for power users',
-    color: '#4278c9',
     features: [
       'Unlimited voice syntheses',
       'Unlimited script translations',
@@ -80,18 +73,21 @@ const PLANS: PlanDef[] = [
       'Priority synthesis queue',
       'Data export (GDPR)',
     ],
-    limits: [],
   },
 ]
+
+const CHECK = (
+  <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M1.5 5.5l2.5 2.5 4.5-5" />
+  </svg>
+)
 
 // ── PayPal loader ─────────────────────────────────────────────────
 function usePayPalSdk() {
   const [ready, setReady] = useState(false)
-
   useEffect(() => {
     if (!PAYPAL_CLIENT_ID) return
     if ((window as any).paypal) { setReady(true); return }
-
     const script = document.createElement('script')
     script.src = `https://www.paypal.com/sdk/js?client-id=${PAYPAL_CLIENT_ID}&vault=true&intent=subscription`
     script.async = true
@@ -102,7 +98,6 @@ function usePayPalSdk() {
       try { document.head.removeChild(script) } catch { /* already removed */ }
     }
   }, [])
-
   return ready
 }
 
@@ -118,10 +113,7 @@ function PayPalButton({ plan, onSuccess }: { plan: 'starter' | 'pro'; onSuccess:
     rendered.current = true
 
     pp.Buttons({
-      style: {
-        shape: 'rect', color: 'blue', layout: 'vertical',
-        label: 'subscribe', height: 40,
-      },
+      style: { shape: 'rect', color: 'silver', layout: 'vertical', label: 'subscribe', height: 44 },
       createSubscription: (_data: unknown, actions: any) => {
         const planId = plan === 'starter' ? PAYPAL_PLAN_STARTER : PAYPAL_PLAN_PRO
         return actions.subscription.create({ plan_id: planId })
@@ -131,13 +123,11 @@ function PayPalButton({ plan, onSuccess }: { plan: 'starter' | 'pro'; onSuccess:
           await api.post('/subscription/capture', { subscription_id: data.subscriptionID })
           toast.ok(`Subscribed to ${plan === 'starter' ? 'Starter' : 'Pro'} plan!`)
           onSuccess()
-        } catch (e) {
+        } catch {
           toast.err('Subscription activation failed. Please contact support.')
         }
       },
-      onError: () => {
-        toast.err('PayPal encountered an error. Please try again.')
-      },
+      onError: () => { toast.err('PayPal encountered an error. Please try again.') },
     }).render(`#${containerId}`)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -145,28 +135,16 @@ function PayPalButton({ plan, onSuccess }: { plan: 'starter' | 'pro'; onSuccess:
   return <div id={containerId} style={{ minHeight: 44 }} />
 }
 
-// ── Feature list ──────────────────────────────────────────────────
-function FeatureList({ features }: { features: string[] }) {
-  return (
-    <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {features.map(f => (
-        <li key={f} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: 'var(--text-2)' }}>
-          <span style={{ color: 'var(--ok)', width: 14, height: 14, flexShrink: 0 }}>{icons.check}</span>
-          {f}
-        </li>
-      ))}
-    </ul>
-  )
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // PRICING PAGE
 // ═══════════════════════════════════════════════════════════════════
-export function PricingPage({ user, onBack, onSignUp, onSubscribed }: {
+export function PricingPage({ user, onBack, onSignUp, onSubscribed, onSignIn, onNavigate }: {
   user?: User | null
   onBack?: () => void
   onSignUp?: () => void
   onSubscribed?: () => void
+  onSignIn?: () => void
+  onNavigate?: (page: string) => void
 }) {
   const ppReady = usePayPalSdk()
   const currentPlan: Plan = user?.plan_name ?? 'free'
@@ -175,163 +153,144 @@ export function PricingPage({ user, onBack, onSignUp, onSubscribed }: {
     if (!user) onSignUp?.()
   }
 
+  // Signed-out visitors get the full marketing nav/footer; signed-in users
+  // get a lightweight bar with a Back button to return to the app.
+  const showMarketingChrome = !user
+
   return (
-    <div style={{ minHeight: '100svh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
-      {/* Topbar */}
-      <div style={{
-        borderBottom: '1px solid var(--border)', padding: '0 24px', height: 56,
-        display: 'flex', alignItems: 'center', gap: 12, background: 'var(--surface)',
-        position: 'sticky', top: 0, zIndex: 100,
-      }}>
-        {onBack && (
-          <button className="btn btn--ghost btn--sm" onClick={onBack} style={{ gap: 5 }}>
-            {icons.back} Back
+    <div className="vox">
+      <div className="vox-ambient"><div className="vox-ambient-3" /></div>
+
+      {showMarketingChrome ? (
+        <VoxNav onSignIn={onSignIn} onSignUp={onSignUp} onNavigate={onNavigate} />
+      ) : (
+        <nav className="vox-nav">
+          {onBack && (
+            <button className="vox-btn vox-btn--ghost" style={{ padding: '8px 16px', fontSize: 13.5 }} onClick={onBack}>
+              ← Back
+            </button>
+          )}
+          <button className="vox-brand" style={{ marginLeft: 8 }} onClick={onBack}>
+            <LogoMark size={28} />
+            <span className="vox-brand-name">Voxora</span>
+            <span style={{ fontSize: 13, color: 'var(--vx-text-3)', marginLeft: 4 }}>/ Pricing</span>
           </button>
-        )}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <LogoMark size={22} />
-          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)' }}>Voxora</span>
-          <span style={{ fontSize: 13, color: 'var(--text-3)' }}>/ Pricing</span>
-        </div>
-      </div>
+          <div style={{ flex: 1 }} />
+        </nav>
+      )}
 
-      <div style={{ maxWidth: 1080, margin: '0 auto', padding: '56px 24px 80px', width: '100%' }}>
-        {/* Heading */}
-        <div style={{ textAlign: 'center', marginBottom: 56 }}>
-          <h1 style={{
-            fontFamily: 'var(--serif)', fontSize: 42, fontWeight: 400,
-            color: 'var(--text-1)', letterSpacing: '-1px', marginBottom: 12,
-          }}>
-            Simple, transparent pricing
-          </h1>
-          <p style={{ fontSize: 16, color: 'var(--text-2)', maxWidth: 480, margin: '0 auto' }}>
-            Start free. Upgrade when you need more. Cancel any time.
-          </p>
-        </div>
+      {/* Heading */}
+      <section className="vox-hero" style={{ paddingTop: 80, paddingBottom: 24 }}>
+        <span className="vox-eyebrow"><span className="vox-eyebrow-dot" /> Pricing</span>
+        <h1 className="vox-h1" style={{ fontSize: 'clamp(36px, 5.5vw, 62px)' }}>
+          Simple, transparent<br /><span className="vox-grad-text">pricing</span>
+        </h1>
+        <p className="vox-lead" style={{ marginTop: 20 }}>
+          Start free. Upgrade when you need more. Cancel any time.
+        </p>
+      </section>
 
-        {/* Plan cards */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: 20,
-          alignItems: 'start',
-        }}>
-          {PLANS.map(plan => {
-            const isCurrent = currentPlan === plan.id
-            const isPro     = plan.id === 'pro'
+      {/* Plan cards */}
+      <section className="vox-section" style={{ paddingTop: 32 }}>
+        <div className="vox-wrap">
+          <div className="vox-grid vox-grid-3">
+            {PLANS.map(plan => {
+              const isCurrent = user ? currentPlan === plan.id : false
+              const isPro     = plan.id === 'pro'
 
-            return (
-              <div key={plan.id} style={{
-                border: `2px solid ${isPro ? '#4278c9' : isCurrent ? 'var(--accent)' : 'var(--border-2)'}`,
-                borderRadius: 'var(--radius-lg)',
-                padding: '28px 24px 24px',
-                background: isPro ? 'rgba(66,120,201,0.04)' : isCurrent ? 'var(--accent-lt)' : 'var(--surface)',
-                position: 'relative',
-                display: 'flex', flexDirection: 'column', gap: 20,
-              }}>
-                {/* Popular badge */}
-                {isPro && (
-                  <div style={{
-                    position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)',
-                    background: '#4278c9', color: '#fff', fontSize: 11, fontWeight: 700,
-                    padding: '3px 12px', borderRadius: 99, letterSpacing: '0.5px',
-                  }}>
-                    MOST POPULAR
-                  </div>
-                )}
-
-                {/* Current plan badge */}
-                {isCurrent && (
-                  <div style={{
-                    position: 'absolute', top: 14, right: 14,
-                    background: 'var(--accent)', color: '#fff', fontSize: 10, fontWeight: 700,
-                    padding: '2px 8px', borderRadius: 99, letterSpacing: '0.4px',
-                  }}>
-                    CURRENT
-                  </div>
-                )}
-
-                {/* Plan header */}
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: plan.color, textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 6 }}>
-                    {plan.name}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginBottom: 6 }}>
-                    <span style={{ fontSize: 36, fontWeight: 700, color: 'var(--text-1)', letterSpacing: '-1px' }}>
-                      {plan.price}
-                    </span>
-                    {plan.period && (
-                      <span style={{ fontSize: 14, color: 'var(--text-3)' }}>{plan.period}</span>
-                    )}
-                  </div>
-                  <p style={{ fontSize: 13, color: 'var(--text-3)', lineHeight: 1.5 }}>{plan.tagline}</p>
-                </div>
-
-                {/* Feature list */}
-                <FeatureList features={plan.features} />
-
-                {/* CTA */}
-                <div style={{ marginTop: 4 }}>
-                  {plan.id === 'free' ? (
-                    isCurrent ? (
-                      <button className="btn" style={{ width: '100%', justifyContent: 'center', opacity: 0.6 }} disabled>
-                        {icons.check} Current Plan
-                      </button>
-                    ) : (
-                      <button className="btn" style={{ width: '100%', justifyContent: 'center' }} onClick={handleFreeCta}>
-                        Get Started Free
-                      </button>
-                    )
-                  ) : isCurrent ? (
-                    <button className="btn" style={{ width: '100%', justifyContent: 'center', opacity: 0.6 }} disabled>
-                      {icons.check} Current Plan
-                    </button>
-                  ) : !user ? (
-                    <button
-                      className={`btn ${isPro ? '' : 'btn--primary'}`}
-                      style={{
-                        width: '100%', justifyContent: 'center',
-                        ...(isPro ? { background: '#4278c9', color: '#fff' } : {}),
-                      }}
-                      onClick={onSignUp}
-                    >
-                      Sign up & Subscribe
-                    </button>
-                  ) : ppReady ? (
-                    <PayPalButton
-                      plan={plan.id as 'starter' | 'pro'}
-                      onSuccess={() => onSubscribed?.()}
-                    />
-                  ) : (
+              return (
+                <div key={plan.id} className={`vox-price-card${isPro ? ' vox-price-card--featured' : ''}`}>
+                  {isCurrent && (
                     <div style={{
-                      height: 44, background: 'var(--bg-2)', borderRadius: 6,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 12, color: 'var(--text-3)', gap: 6,
+                      position: 'absolute', top: 14, right: 14,
+                      background: 'var(--vx-surface-3)', border: '1px solid var(--vx-border-2)',
+                      color: 'var(--vx-text-2)', fontSize: 10, fontWeight: 700,
+                      padding: '3px 9px', borderRadius: 99, letterSpacing: '0.4px',
                     }}>
-                      <span className="spinner" style={{ width: 14, height: 14 }} />
-                      Loading payment…
+                      CURRENT
                     </div>
                   )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
 
-        {/* FAQ / notes */}
-        <div style={{ marginTop: 56, textAlign: 'center' }}>
-          <p style={{ fontSize: 13, color: 'var(--text-3)', lineHeight: 1.8 }}>
-            All plans include a 7-day free trial period in guest mode.
-            Subscriptions auto-renew monthly. Cancel any time from Settings.
-            Payments processed securely by PayPal — credit and debit cards accepted.
-          </p>
-          {!PAYPAL_CLIENT_ID && (
-            <div className="msg msg--warn" style={{ marginTop: 16, maxWidth: 480, margin: '16px auto 0' }}>
-              PayPal not configured. Set VITE_PAYPAL_CLIENT_ID in your .env file.
-            </div>
-          )}
+                  <div>
+                    <div className="vox-price-name">{plan.name}</div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginTop: 8 }}>
+                      <span className="vox-price-amount vox-grad-text">{plan.price}</span>
+                      {plan.period && <span className="vox-price-period">{plan.period}</span>}
+                    </div>
+                    <div className="vox-price-desc" style={{ marginTop: 8 }}>{plan.tagline}</div>
+                  </div>
+
+                  <ul className="vox-price-feats">
+                    {plan.features.map(f => (
+                      <li key={f} className="vox-price-feat">
+                        <span className="vox-price-check">{CHECK}</span>
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+
+                  <div style={{ marginTop: 'auto' }}>
+                    {plan.id === 'free' ? (
+                      isCurrent ? (
+                        <button className="vox-btn vox-btn--ghost" style={{ width: '100%', opacity: 0.6 }} disabled>
+                          ✓ Current Plan
+                        </button>
+                      ) : (
+                        <button className="vox-btn vox-btn--ghost" style={{ width: '100%' }} onClick={handleFreeCta}>
+                          Get Started Free
+                        </button>
+                      )
+                    ) : isCurrent ? (
+                      <button className="vox-btn vox-btn--ghost" style={{ width: '100%', opacity: 0.6 }} disabled>
+                        ✓ Current Plan
+                      </button>
+                    ) : !user ? (
+                      <button
+                        className={`vox-btn ${isPro ? 'vox-btn--primary' : 'vox-btn--ghost'}`}
+                        style={{ width: '100%' }}
+                        onClick={onSignUp}
+                      >
+                        Sign up &amp; Subscribe
+                      </button>
+                    ) : ppReady ? (
+                      <PayPalButton plan={plan.id as 'starter' | 'pro'} onSuccess={() => onSubscribed?.()} />
+                    ) : (
+                      <div style={{
+                        height: 44, background: 'var(--vx-surface-2)', borderRadius: 10,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 12, color: 'var(--vx-text-3)', gap: 6,
+                      }}>
+                        <span className="spinner" style={{ width: 14, height: 14 }} />
+                        Loading payment…
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Notes */}
+          <div style={{ marginTop: 48, textAlign: 'center' }}>
+            <p style={{ fontSize: 13, color: 'var(--vx-text-3)', lineHeight: 1.8, maxWidth: 560, margin: '0 auto' }}>
+              All plans include a 7-day free trial period in guest mode.
+              Subscriptions auto-renew monthly. Cancel any time from Settings.
+              Payments processed securely by PayPal — credit and debit cards accepted.
+            </p>
+            {!PAYPAL_CLIENT_ID && (
+              <div style={{
+                maxWidth: 480, margin: '16px auto 0',
+                background: 'rgba(255,107,74,0.1)', border: '1px solid rgba(255,107,74,0.3)',
+                color: 'var(--vx-coral)', borderRadius: 12, padding: '10px 16px', fontSize: 13,
+              }}>
+                PayPal not configured. Set VITE_PAYPAL_CLIENT_ID in your .env file.
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      </section>
+
+      {showMarketingChrome && <VoxFooter onSignIn={onSignIn} onSignUp={onSignUp} onNavigate={onNavigate} />}
     </div>
   )
 }
