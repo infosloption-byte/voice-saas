@@ -487,6 +487,8 @@ export default function App() {
       user={user}
       onBack={() => setPage(user ? 'settings' : 'landing')}
       onSignUp={() => setPage('signup')}
+      onSignIn={() => setPage('signin')}
+      onNavigate={p => setPage(p as Page)}
       onSubscribed={async () => { await checkUser(); setPage('settings') }}
     />
   )

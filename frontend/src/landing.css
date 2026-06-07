@@ -176,9 +176,9 @@
 
 /* ── Hero ── */
 .vox-hero { text-align: center; padding: 100px 40px 72px; }
-.vox-h1 { font-size: clamp(44px, 7vw, 86px); font-weight: 800; max-width: 920px; margin: 24px auto 0; }
-.vox-h2 { font-size: clamp(30px, 4.5vw, 50px); font-weight: 800; }
-.vox-lead { font-size: clamp(15.5px, 1.4vw, 18.5px); color: var(--vx-text-2); max-width: 580px; margin: 0 auto; line-height: 1.65; }
+.vox-h1 { font-size: clamp(44px, 7vw, 86px); font-weight: 800; max-width: 920px; margin: 24px auto 0; text-align: center; }
+.vox-h2 { font-size: clamp(30px, 4.5vw, 50px); font-weight: 800; text-align: center; }
+.vox-lead { font-size: clamp(15.5px, 1.4vw, 18.5px); color: var(--vx-text-2); max-width: 580px; margin: 0 auto; line-height: 1.65; text-align: center; }
 
 /* ── Gradient rule/divider ── */
 .vox-rule {
@@ -532,6 +532,20 @@
   flex-wrap: wrap; gap: 10px;
   font-size: 12.5px; color: var(--vx-text-3);
 }
+.vox-socials { display: flex; gap: 10px; margin-top: 16px; }
+.vox-social {
+  width: 36px; height: 36px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--vx-surface-2); border: 1px solid var(--vx-border-2);
+  color: var(--vx-text-2); cursor: pointer;
+  transition: transform 0.18s, border-color 0.18s, color 0.18s, background 0.18s;
+}
+.vox-social:hover {
+  transform: translateY(-2px); color: #fff;
+  border-color: rgba(139,92,246,0.5);
+  background: rgba(139,92,246,0.12);
+}
+.vox-social svg { width: 17px; height: 17px; }
 
 /* ── Responsive ── */
 @media (max-width: 860px) {
