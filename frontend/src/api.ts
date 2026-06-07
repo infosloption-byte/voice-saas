@@ -163,6 +163,27 @@ class ApiClient {
     })
   }
 
+  engineJsonPost(path: string, data: unknown, signal?: AbortSignal): Promise<unknown> {
+    const fullPath = path.startsWith('/') ? path : '/' + path
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json' }
+    if (ENGINE_API_KEY) headers['X-Engine-Key'] = ENGINE_API_KEY
+    return fetch(`${ENGINE_BASE}${fullPath}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+      credentials: 'omit',
+      signal,
+      headers,
+    }).then(async r => {
+      if (!r.ok) {
+        const text = await r.text().catch(() => '')
+        let msg = `Engine error: HTTP ${r.status}`
+        try { msg = (JSON.parse(text) as { detail?: string }).detail ?? msg } catch { /* ignore */ }
+        throw new ApiError(msg, r.status, { body: text })
+      }
+      return r.json()
+    })
+  }
+
   engineGet(path: string): Promise<unknown> {
     const fullPath = path.startsWith('/') ? path : '/' + path
     const engineHeaders: Record<string, string> = {}
