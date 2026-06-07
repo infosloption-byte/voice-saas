@@ -190,7 +190,7 @@ export function PricingPage({ user, onBack, onSignUp, onSubscribed }: {
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <LogoMark size={22} />
-          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)' }}>VoiceStudio</span>
+          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)' }}>Voxora</span>
           <span style={{ fontSize: 13, color: 'var(--text-3)' }}>/ Pricing</span>
         </div>
       </div>

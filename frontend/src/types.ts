@@ -1,4 +1,4 @@
-// ── Shared types for VoiceStudio ──────────────────────────────────
+// ── Shared types for Voxora ──────────────────────────────────
 
 export type Plan = 'free' | 'starter' | 'pro'
 
