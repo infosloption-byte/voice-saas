@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { icons } from './constants'
 
 export function LogoMark({ size = 28 }: { size?: number }) {
@@ -17,13 +17,79 @@ export function LogoMark({ size = 28 }: { size?: number }) {
 // ═══════════════════════════════════════════════════════════════════
 // LANDING PAGE
 // ═══════════════════════════════════════════════════════════════════
+const PRODUCT_LINKS = [
+  { key: 'feature-studio',      label: 'Studio',      desc: 'Script editor & voice synthesis' },
+  { key: 'feature-voices',      label: 'Voice Library', desc: '30+ voices + voice cloning' },
+  { key: 'feature-translation', label: 'Translation', desc: 'AI scripts in 16 languages' },
+  { key: 'feature-timeline',    label: 'Timeline',    desc: 'Multi-lane audio assembly' },
+  { key: 'feature-audiobooks',  label: 'Audiobooks',  desc: 'Long-form audio production' },
+]
+
+function ProductsDropdown({ onNavigate }: { onNavigate?: (page: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        style={{
+          background: 'none', border: 'none', cursor: 'pointer',
+          fontSize: 13, color: 'var(--text-2)', fontWeight: 500,
+          display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px',
+        }}
+      >
+        Products
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 10, height: 10, transition: 'transform 0.15s', transform: open ? 'rotate(180deg)' : 'none' }}>
+          <path d="M2 4l4 4 4-4" />
+        </svg>
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)',
+          background: 'var(--surface)', border: '1px solid var(--border-2)',
+          borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)',
+          padding: 8, minWidth: 240, zIndex: 200,
+          animation: 'modal-in 0.12s ease',
+        }}>
+          {PRODUCT_LINKS.map(item => (
+            <button
+              key={item.key}
+              onClick={() => { setOpen(false); onNavigate?.(item.key) }}
+              style={{
+                display: 'flex', flexDirection: 'column', gap: 2,
+                width: '100%', background: 'none', border: 'none', cursor: 'pointer',
+                padding: '10px 14px', borderRadius: 8, textAlign: 'left',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-2)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+            >
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>{item.label}</span>
+              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{item.desc}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface LandingPageProps {
   onSignIn?: () => void
   onSignUp?: () => void
   onTryNow?: () => void
+  onNavigate?: (page: string) => void
 }
 
-export function LandingPage({ onSignIn, onSignUp, onTryNow }: LandingPageProps) {
+export function LandingPage({ onSignIn, onSignUp, onTryNow, onNavigate }: LandingPageProps) {
   const features = [
     {
       icon: icons.mic,
@@ -104,6 +170,7 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow }: LandingPageProps) 
 
         <div style={{ flex: 1 }} />
 
+        <ProductsDropdown onNavigate={onNavigate} />
         <a href="#features" className="landing__nav-link" style={{ fontSize: 13, color: 'var(--text-2)', textDecoration: 'none', fontWeight: 500 }}
           onClick={e => { e.preventDefault(); document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }) }}>
           Features
@@ -112,6 +179,12 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow }: LandingPageProps) 
           onClick={e => { e.preventDefault(); document.getElementById('how')?.scrollIntoView({ behavior: 'smooth' }) }}>
           How it works
         </a>
+        <button
+          onClick={() => onNavigate?.('pricing')}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text-2)', fontWeight: 500, padding: '4px 6px' }}
+        >
+          Pricing
+        </button>
         <button className="btn btn--ghost" style={{ fontSize: 13 }} onClick={onSignIn}>Sign in</button>
         <button className="btn btn--primary" style={{ fontSize: 13 }} onClick={onSignUp}>Get started</button>
       </nav>
@@ -348,7 +421,11 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow }: LandingPageProps) 
           <span>Voxora</span>
         </div>
         <span>© {new Date().getFullYear()} Voxora — AI voice synthesis in the cloud</span>
-        <div style={{ display: 'flex', gap: 16 }}>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {PRODUCT_LINKS.map(p => (
+            <button key={p.key} style={{ background: 'none', border: 'none', fontSize: 12, color: 'var(--text-3)', cursor: 'pointer' }} onClick={() => onNavigate?.(p.key)}>{p.label}</button>
+          ))}
+          <button style={{ background: 'none', border: 'none', fontSize: 12, color: 'var(--text-3)', cursor: 'pointer' }} onClick={() => onNavigate?.('pricing')}>Pricing</button>
           <button style={{ background: 'none', border: 'none', fontSize: 12, color: 'var(--text-3)', cursor: 'pointer' }} onClick={onSignIn}>Sign in</button>
           <button style={{ background: 'none', border: 'none', fontSize: 12, color: 'var(--text-3)', cursor: 'pointer' }} onClick={onSignUp}>Sign up</button>
         </div>

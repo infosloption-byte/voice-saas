@@ -5,6 +5,7 @@ import { SignInPage, SignUpPage, ForgotPasswordPage, ResetPasswordPage } from '.
 import { SettingsPage } from './SettingsPage'
 import { PrivacyPage, TermsPage } from './LegalPages'
 import { PricingPage } from './PricingPage'
+import { StudioPage, VoicesPage, TranslationPage, TimelinePage, AudiobooksPage } from './MarketingPages'
 import { EmailVerifiedPage } from './EmailVerifiedPage'
 import { api } from './api'
 import { toast, subscribeToast, type ToastItem } from './toast'
@@ -420,6 +421,7 @@ export default function App() {
         onSignIn={() => setPage('signin')}
         onSignUp={() => setPage('signup')}
         onTryNow={enterGuestMode}
+        onNavigate={p => setPage(p as Page)}
       />
       {cookieConsent === null && (
         <CookieConsent
@@ -488,6 +490,19 @@ export default function App() {
       onSubscribed={async () => { await checkUser(); setPage('settings') }}
     />
   )
+
+  const featurePageProps = {
+    onBack: () => setPage('landing'),
+    onSignUp: () => setPage('signup'),
+    onSignIn: () => setPage('signin'),
+    onNavigate: (p: string) => setPage(p as Page),
+  }
+
+  if (page === 'feature-studio')      return <StudioPage      {...featurePageProps} />
+  if (page === 'feature-voices')      return <VoicesPage      {...featurePageProps} />
+  if (page === 'feature-translation') return <TranslationPage {...featurePageProps} />
+  if (page === 'feature-timeline')    return <TimelinePage    {...featurePageProps} />
+  if (page === 'feature-audiobooks')  return <AudiobooksPage  {...featurePageProps} />
 
   // ── Nav items ─────────────────────────────────────────────────────
   const navItems: { key: Page; label: string; icon: React.ReactNode }[] = [
