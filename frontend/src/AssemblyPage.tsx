@@ -1100,8 +1100,9 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
               <div
                 onMouseDown={e => {
                   handlePointer(e)
+                  const minimapEl = e.currentTarget as HTMLDivElement
                   const onMove = (ev: MouseEvent) => {
-                    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+                    const rect = minimapEl.getBoundingClientRect()
                     const ratio = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
                     scrollToSec(ratio * totalDur)
                   }
