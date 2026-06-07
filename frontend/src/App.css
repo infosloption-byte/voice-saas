@@ -2427,19 +2427,19 @@
 }
 
 .msg--ok {
-  background: var(--ok-lt);
-  border-color: rgba(59,125,99,0.25);
-  color: var(--ok);
+  background: #1e3d30;
+  border-color: #2d6b50;
+  color: #6fcfa0;
 }
 .msg--err {
-  background: var(--err-lt);
-  border-color: rgba(192,57,43,0.25);
-  color: var(--err);
+  background: #3d1a18;
+  border-color: #7a2b24;
+  color: #f08070;
 }
 .msg--warn {
-  background: var(--warn-lt);
-  border-color: rgba(160,117,48,0.25);
-  color: var(--warn);
+  background: #3a2d10;
+  border-color: #7a5e20;
+  color: #e0b060;
 }
 
 /* ── Modal ───────────────────────────────────────────────────────── */
