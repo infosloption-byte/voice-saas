@@ -23,15 +23,15 @@ export const LANGUAGES = [
 export const EMOJIS = ['🎬', '🎙', '📹', '🎤', '🎵', '📺', '🌟', '🚀', '💡', '🎯', '📚', '🎧']
 
 export const TONE_PRESETS = {
-  natural:     { label: 'Natural',     emoji: '🎙', temperature: 0.65, top_k: 50, top_p: 0.85 },
-  expressive:  { label: 'Expressive',  emoji: '🎭', temperature: 0.85, top_k: 80, top_p: 0.95 },
-  calm:        { label: 'Calm',        emoji: '😌', temperature: 0.40, top_k: 30, top_p: 0.70 },
-  energetic:   { label: 'Energetic',   emoji: '⚡', temperature: 0.90, top_k: 90, top_p: 0.98 },
-  cheerful:    { label: 'Cheerful',    emoji: '😊', temperature: 0.80, top_k: 70, top_p: 0.92 },
-  serious:     { label: 'Serious',     emoji: '🎯', temperature: 0.45, top_k: 35, top_p: 0.75 },
-  dramatic:    { label: 'Dramatic',    emoji: '🎬', temperature: 0.95, top_k: 95, top_p: 0.99 },
-  whisper:     { label: 'Whisper',     emoji: '🤫', temperature: 0.30, top_k: 20, top_p: 0.60 },
-  storytelling:{ label: 'Storytelling',emoji: '📖', temperature: 0.72, top_k: 60, top_p: 0.88 },
+  natural:     { label: 'Natural',      emoji: '🎙', desc: 'Balanced, conversational delivery',        temperature: 0.65, top_k: 50, top_p: 0.85 },
+  expressive:  { label: 'Expressive',   emoji: '🎭', desc: 'Vivid emotion with wider pitch range',      temperature: 0.85, top_k: 80, top_p: 0.95 },
+  calm:        { label: 'Calm',         emoji: '😌', desc: 'Soft, steady — great for meditation',       temperature: 0.40, top_k: 30, top_p: 0.70 },
+  energetic:   { label: 'Energetic',    emoji: '⚡', desc: 'Fast-paced, punchy and enthusiastic',       temperature: 0.90, top_k: 90, top_p: 0.98 },
+  cheerful:    { label: 'Cheerful',     emoji: '😊', desc: 'Warm, upbeat and friendly',                 temperature: 0.80, top_k: 70, top_p: 0.92 },
+  serious:     { label: 'Serious',      emoji: '🎯', desc: 'Controlled, authoritative and precise',     temperature: 0.45, top_k: 35, top_p: 0.75 },
+  dramatic:    { label: 'Dramatic',     emoji: '🎬', desc: 'High contrast — bold pauses and emphasis',  temperature: 0.95, top_k: 95, top_p: 0.99 },
+  whisper:     { label: 'Whisper',      emoji: '🤫', desc: 'Hushed, intimate and breathy',              temperature: 0.30, top_k: 20, top_p: 0.60 },
+  storytelling:{ label: 'Storytelling', emoji: '📖', desc: 'Flowing narrative with gentle variation',   temperature: 0.72, top_k: 60, top_p: 0.88 },
 } as const
 export type TonePreset = keyof typeof TONE_PRESETS
 
