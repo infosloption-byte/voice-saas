@@ -396,6 +396,10 @@ async def built_in_voices(_key: None = Depends(verify_api_key)):
 
 
 # ── TRANSLATION ───────────────────────────────────────────────────
+import json as _json
+import urllib.request as _urllib_req
+import urllib.error as _urllib_err
+
 _ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 _GEMINI_KEY    = os.getenv("GEMINI_API_KEY", "")
 
@@ -419,25 +423,39 @@ class TranslateRequest(BaseModel):
     target_lang: str = "es"
 
 def _translate_anthropic(user_msg: str) -> str:
-    import anthropic as _anthropic
-    client = _anthropic.Anthropic(api_key=_ANTHROPIC_KEY)
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=8192,
-        system=_TRANSLATE_SYSTEM,
-        messages=[{"role": "user", "content": user_msg}],
+    payload = _json.dumps({
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 8192,
+        "system": _TRANSLATE_SYSTEM,
+        "messages": [{"role": "user", "content": user_msg}],
+    }).encode()
+    req = _urllib_req.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": _ANTHROPIC_KEY,
+            "anthropic-version": "2023-06-01",
+        },
+        method="POST",
     )
-    return response.content[0].text.strip()
+    with _urllib_req.urlopen(req, timeout=60) as resp:
+        data = _json.loads(resp.read())
+    return data["content"][0]["text"].strip()
 
 def _translate_gemini(user_msg: str) -> str:
-    import google.generativeai as genai
-    genai.configure(api_key=_GEMINI_KEY)
-    model = genai.GenerativeModel(
-        model_name="gemini-2.0-flash",
-        system_instruction=_TRANSLATE_SYSTEM,
+    payload = _json.dumps({
+        "system_instruction": {"parts": [{"text": _TRANSLATE_SYSTEM}]},
+        "contents": [{"parts": [{"text": user_msg}]}],
+    }).encode()
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-2.0-flash:generateContent?key={_GEMINI_KEY}"
     )
-    response = model.generate_content(user_msg)
-    return response.text.strip()
+    req = _urllib_req.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+    with _urllib_req.urlopen(req, timeout=60) as resp:
+        data = _json.loads(resp.read())
+    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
 @app.post("/translate")
 async def translate_text(
