@@ -1,79 +1,52 @@
 import { useState, useRef, useEffect } from 'react'
 import { icons } from './constants'
+import './landing.css'
 
-export function LogoMark({ size = 28 }: { size?: number }) {
+// ── Logo ──────────────────────────────────────────────────────────
+export function LogoMark({ size = 32 }: { size?: number }) {
   return (
-    <div style={{
-      width: size, height: size,
-      borderRadius: size * 0.25,
-      background: 'var(--accent)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: size * 0.46, color: '#fff', fontWeight: 700, flexShrink: 0,
-      boxShadow: '0 2px 6px rgba(201,100,66,0.35)',
-    }}>🎙</div>
+    <div className="vox-logo" style={{ width: size, height: size, fontSize: size * 0.48, borderRadius: size * 0.28 }}>
+      🎙
+    </div>
   )
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// LANDING PAGE
-// ═══════════════════════════════════════════════════════════════════
-const PRODUCT_LINKS = [
-  { key: 'feature-studio',      label: 'Studio',      desc: 'Script editor & voice synthesis' },
-  { key: 'feature-voices',      label: 'Voice Library', desc: '30+ voices + voice cloning' },
-  { key: 'feature-translation', label: 'Translation', desc: 'AI scripts in 16 languages' },
-  { key: 'feature-timeline',    label: 'Timeline',    desc: 'Multi-lane audio assembly' },
-  { key: 'feature-audiobooks',  label: 'Audiobooks',  desc: 'Long-form audio production' },
+// ── Product links used by dropdown + footer ───────────────────────
+export const PRODUCT_LINKS = [
+  { key: 'feature-studio',      label: 'Studio',        desc: 'Script editor & voice synthesis', icon: icons.scripts },
+  { key: 'feature-voices',      label: 'Voice Library', desc: '30+ voices + voice cloning',      icon: icons.mic     },
+  { key: 'feature-translation', label: 'Translation',   desc: 'AI scripts in 16 languages',       icon: icons.globe   },
+  { key: 'feature-timeline',    label: 'Timeline',      desc: 'Multi-lane audio assembly',        icon: icons.assembly },
+  { key: 'feature-audiobooks',  label: 'Audiobooks',    desc: 'Long-form audio production',        icon: icons.music   },
 ]
 
-function ProductsDropdown({ onNavigate }: { onNavigate?: (page: string) => void }) {
+// ── Products dropdown ─────────────────────────────────────────────
+function ProductsDropdown({ onNavigate }: { onNavigate?: (p: string) => void }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
-
   useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
+    function close(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
   }, [])
-
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button
-        onClick={() => setOpen(v => !v)}
-        style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          fontSize: 13, color: 'var(--text-2)', fontWeight: 500,
-          display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px',
-        }}
-      >
+      <button className="vox-nav-link" onClick={() => setOpen(v => !v)}>
         Products
-        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 10, height: 10, transition: 'transform 0.15s', transform: open ? 'rotate(180deg)' : 'none' }}>
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8"
+          style={{ width: 10, height: 10, transition: 'transform 0.15s', transform: open ? 'rotate(180deg)' : 'none' }}>
           <path d="M2 4l4 4 4-4" />
         </svg>
       </button>
       {open && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)',
-          background: 'var(--surface)', border: '1px solid var(--border-2)',
-          borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)',
-          padding: 8, minWidth: 240, zIndex: 200,
-          animation: 'modal-in 0.12s ease',
-        }}>
-          {PRODUCT_LINKS.map(item => (
-            <button
-              key={item.key}
-              onClick={() => { setOpen(false); onNavigate?.(item.key) }}
-              style={{
-                display: 'flex', flexDirection: 'column', gap: 2,
-                width: '100%', background: 'none', border: 'none', cursor: 'pointer',
-                padding: '10px 14px', borderRadius: 8, textAlign: 'left',
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-2)')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-            >
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>{item.label}</span>
-              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{item.desc}</span>
+        <div className="vox-dropdown">
+          {PRODUCT_LINKS.map(it => (
+            <button key={it.key} className="vox-dropdown-item" onClick={() => { setOpen(false); onNavigate?.(it.key) }}>
+              <span className="vox-dropdown-ic">{it.icon}</span>
+              <span>
+                <div className="vox-dropdown-title">{it.label}</div>
+                <div className="vox-dropdown-desc">{it.desc}</div>
+              </span>
             </button>
           ))}
         </div>
@@ -82,6 +55,159 @@ function ProductsDropdown({ onNavigate }: { onNavigate?: (page: string) => void 
   )
 }
 
+// ── Shared Nav (exported for feature pages) ───────────────────────
+export function VoxNav({ onSignIn, onSignUp, onNavigate }: {
+  onSignIn?: () => void; onSignUp?: () => void; onNavigate?: (p: string) => void
+}) {
+  return (
+    <nav className="vox-nav">
+      <button className="vox-brand" onClick={() => onNavigate?.('landing')}>
+        <LogoMark size={30} />
+        <span className="vox-brand-name">Voxora</span>
+        <span className="vox-pill-beta">BETA</span>
+      </button>
+      <div style={{ flex: 1 }} />
+      <div className="vox-nav-hide" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <ProductsDropdown onNavigate={onNavigate} />
+        <button className="vox-nav-link" onClick={() => onNavigate?.('pricing')}>Pricing</button>
+      </div>
+      <button className="vox-btn vox-btn--ghost" style={{ padding: '8px 18px', fontSize: 13.5 }} onClick={onSignIn}>Sign in</button>
+      <button className="vox-btn vox-btn--primary" style={{ padding: '8px 18px', fontSize: 13.5 }} onClick={onSignUp}>Get started free</button>
+    </nav>
+  )
+}
+
+// ── Shared Footer (exported for feature pages) ────────────────────
+export function VoxFooter({ onSignIn, onSignUp, onNavigate }: {
+  onSignIn?: () => void; onSignUp?: () => void; onNavigate?: (p: string) => void
+}) {
+  return (
+    <footer className="vox-footer">
+      <div className="vox-footer-inner">
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 6 }}>
+            <LogoMark size={26} />
+            <span className="vox-footer-brand">Voxora</span>
+          </div>
+          <div className="vox-footer-tagline">AI voice synthesis in the cloud</div>
+        </div>
+        <div className="vox-footer-col">
+          <div className="vox-footer-col-label">Products</div>
+          {PRODUCT_LINKS.map(p => (
+            <button key={p.key} className="vox-footer-link" onClick={() => onNavigate?.(p.key)}>{p.label}</button>
+          ))}
+        </div>
+        <div className="vox-footer-col">
+          <div className="vox-footer-col-label">Company</div>
+          <button className="vox-footer-link" onClick={() => onNavigate?.('pricing')}>Pricing</button>
+          <button className="vox-footer-link" onClick={() => onNavigate?.('privacy')}>Privacy</button>
+          <button className="vox-footer-link" onClick={() => onNavigate?.('terms')}>Terms</button>
+        </div>
+        <div className="vox-footer-col">
+          <div className="vox-footer-col-label">Account</div>
+          <button className="vox-footer-link" onClick={onSignIn}>Sign in</button>
+          <button className="vox-footer-link" onClick={onSignUp}>Create account</button>
+        </div>
+      </div>
+      <div className="vox-footer-bottom">
+        <span>© {new Date().getFullYear()} Voxora. All rights reserved.</span>
+        <span>usevoxora.online</span>
+      </div>
+    </footer>
+  )
+}
+
+// ── Mock UI preview ───────────────────────────────────────────────
+function MockUI() {
+  const bars = Array.from({ length: 36 }, (_, i) => ({
+    h: 6 + Math.abs(Math.sin(i * 0.55 + 1) * Math.cos(i * 0.22)) * 22,
+    op: 0.35 + Math.abs(Math.sin(i * 0.7)) * 0.65,
+  }))
+  return (
+    <div className="vox-ui-frame">
+      {/* Title bar */}
+      <div className="vox-ui-titlebar">
+        <div className="vox-ui-dot" style={{ background: '#ff5f57' }} />
+        <div className="vox-ui-dot" style={{ background: '#ffbd2e' }} />
+        <div className="vox-ui-dot" style={{ background: '#27c93f' }} />
+        <div style={{ flex: 1, textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,0.2)', letterSpacing: 0.2 }}>
+          Voxora — My Podcast Project
+        </div>
+      </div>
+      <div className="vox-ui-body">
+        {/* Sidebar */}
+        <div className="vox-ui-sidebar">
+          {['Dashboard', 'Projects', 'Profiles'].map((l, i) => (
+            <div key={l} className={`vox-ui-sitem${i === 1 ? ' vox-ui-sitem--active' : ''}`}>
+              <span className="vox-ui-sitem-dot" />
+              {l}
+            </div>
+          ))}
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', margin: '8px 0' }} />
+          {['Ep. 1 — Intro', 'Ep. 2 — Deep Dive'].map(l => (
+            <div key={l} className="vox-ui-sitem" style={{ fontSize: 10.5 }}>
+              <span className="vox-ui-sitem-dot" />
+              {l}
+            </div>
+          ))}
+        </div>
+        {/* Main */}
+        <div className="vox-ui-main">
+          <div className="vox-ui-topbar">
+            <span className="vox-ui-tab">📝 Scripts</span>
+            <span className="vox-ui-tab-ghost">🎚 Assembly</span>
+            <div style={{ flex: 1 }} />
+            <div style={{ display: 'flex', gap: 6 }}>
+              <span className="vox-ui-pill vox-ui-pill--accent">Aria · EN</span>
+              <span className="vox-ui-pill">Natural</span>
+            </div>
+          </div>
+          <div className="vox-ui-content">
+            {/* Script cards */}
+            <div className="vox-ui-script vox-ui-script--active">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="vox-ui-script-title">Intro Script</span>
+                <span className="vox-ui-script-badge">
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#34d399' }} />
+                  Ready
+                </span>
+              </div>
+              <div className="vox-ui-script-text">
+                Welcome to the show. Today we're exploring how AI is changing the way creators produce audio content at scale…
+              </div>
+              <div className="vox-ui-wave">
+                {bars.map((b, i) => (
+                  <span key={i} style={{ height: b.h, opacity: b.op, animation: `barFloat${i % 5} ${1.6 + (i % 5) * 0.18}s ease-in-out infinite`, animationDelay: `${i * 0.04}s` }} />
+                ))}
+              </div>
+            </div>
+            <div className="vox-ui-script">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="vox-ui-script-title">Main Segment</span>
+                <span className="vox-ui-script-badge" style={{ background: 'rgba(139,92,246,0.15)', color: '#c4b5fd', borderColor: 'rgba(139,92,246,0.3)' }}>
+                  Draft
+                </span>
+              </div>
+              <div className="vox-ui-script-text">
+                The research is clear — voice content is growing 40% year over year. Let's break down why…
+              </div>
+            </div>
+          </div>
+          <div className="vox-ui-controls">
+            <span className="vox-ui-pill">1.0×</span>
+            <span className="vox-ui-pill vox-ui-pill--accent">ES / Spanish</span>
+            <span className="vox-ui-pill">WAV</span>
+            <div className="vox-ui-gen-btn">⚡ Generate</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// LANDING PAGE
+// ═══════════════════════════════════════════════════════════════════
 interface LandingPageProps {
   onSignIn?: () => void
   onSignUp?: () => void
@@ -89,347 +215,350 @@ interface LandingPageProps {
   onNavigate?: (page: string) => void
 }
 
+const MARQUEE_ITEMS = [
+  { icon: '🎙', label: 'Voice Cloning'      },
+  { icon: '🌍', label: '16 Languages'        },
+  { icon: '🎵', label: 'Timeline Assembly'   },
+  { icon: '📖', label: 'Audiobook Production' },
+  { icon: '🤖', label: 'AI Translation'       },
+  { icon: '🎭', label: '9 Emotion Styles'     },
+  { icon: '🎚', label: 'Multi-lane Mixer'     },
+  { icon: '💾', label: 'Lossless WAV Export'  },
+  { icon: '🔊', label: '30+ Studio Voices'    },
+  { icon: '⚡', label: 'Instant Synthesis'     },
+]
+
+const USE_CASES = [
+  {
+    emoji: '🎙',
+    title: 'Podcasters',
+    desc: 'Script your show, generate narration in your own voice, and mix intros, segments and music on the timeline — all without recording hardware.',
+    chips: ['Voice cloning', 'Multi-voice', 'Timeline', 'WAV export'],
+  },
+  {
+    emoji: '📹',
+    title: 'Video Creators',
+    desc: 'Drop voiceovers into any video workflow. Generate in seconds, export a clean WAV and drop it straight into your editor.',
+    chips: ['Quick synthesis', 'Studio voices', '9 emotions', 'Export'],
+  },
+  {
+    emoji: '📚',
+    title: 'E-learning Authors',
+    desc: 'Produce consistent narration across hundreds of lessons. Translate courses into 16 languages with one click per script.',
+    chips: ['16 languages', 'Translation', 'Projects', 'Consistent voice'],
+  },
+  {
+    emoji: '✍️',
+    title: 'Audiobook Producers',
+    desc: 'Turn any manuscript into a finished audiobook. One script per chapter, one voice, assembled on the timeline and exported as a single WAV.',
+    chips: ['Long-form', 'Chapter projects', 'Assembly', 'Multilingual'],
+  },
+]
+
+const TESTIMONIALS = [
+  {
+    quote: 'I replaced my entire voiceover workflow. Three hours of re-recording became ten minutes. The voice clone sounds exactly like me.',
+    name: 'Maria K.',
+    role: 'Podcast Producer',
+    rating: 5,
+  },
+  {
+    quote: "The timeline editor feels like a proper DAW inside the browser. I'm actually shipping YouTube videos twice as fast now.",
+    name: 'James T.',
+    role: 'YouTube Creator',
+    rating: 5,
+  },
+  {
+    quote: 'Multilingual versions of every lesson, translated and voiced from one script. My students in 6 countries finally get native-speed audio.',
+    name: 'Priya S.',
+    role: 'E-learning Author',
+    rating: 5,
+  },
+]
+
+const PRICING = [
+  {
+    name: 'Free',
+    amount: '$0',
+    period: '',
+    desc: 'Try it — no credit card needed',
+    feats: ['3 syntheses / day', '10 translations / month', '1 voice profile', '1 project', 'WAV export'],
+    btn: 'Get started free',
+    featured: false,
+  },
+  {
+    name: 'Starter',
+    amount: '$9.99',
+    period: '/mo',
+    desc: 'For creators and podcasters',
+    feats: ['100 syntheses / month', '50 translations / month', '5 voice profiles', '10 projects', 'Multi-voice scripts', 'Timeline assembly'],
+    btn: 'Start Starter',
+    featured: false,
+  },
+  {
+    name: 'Pro',
+    amount: '$24.99',
+    period: '/mo',
+    desc: 'Unlimited for power users',
+    feats: ['Unlimited syntheses', 'Unlimited translations', 'Unlimited voice profiles', 'Unlimited projects', 'Priority queue', 'Data export (GDPR)'],
+    btn: 'Go Pro',
+    featured: true,
+  },
+]
+
+const CHECK = (
+  <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M1.5 5.5l2.5 2.5 4.5-5" />
+  </svg>
+)
+
+const FEATURES = [
+  { icon: icons.mic,      title: 'Voice Cloning',           desc: 'Record a 10-second sample — or upload a WAV. Voxora captures timbre, pacing, and intonation and speaks any script in a voice that sounds unmistakably like you.' },
+  { icon: icons.speaker,  title: 'Studio Voice Library',    desc: 'No sample? Pick from 30+ professional studio voices across genders, styles, and languages. Ready to use in seconds — no account upgrade needed on Free.' },
+  { icon: icons.globe,    title: '16 Languages + AI Translate', desc: 'Write in one language and translate your entire script with one click. Powered by Gemini AI. Generate natural speech in Spanish, Japanese, Arabic, Hindi, French and 11 more.' },
+  { icon: icons.music,    title: '9 Emotion Presets',       desc: 'Natural, Calm, Energetic, Cheerful, Serious, Dramatic, Whisper, Storytelling — shape the exact delivery your content needs, with fine-grained controls for power users.' },
+  { icon: icons.upload,   title: 'Audio → Script',          desc: 'Upload any audio file and Voxora transcribes it to an editable script automatically. Re-voice in a different language, change the emotion, or rebuild from scratch.' },
+  { icon: icons.profiles, title: 'Multi-Voice Scripts',     desc: 'Assign a different voice to each speaker — run full podcast dialogues, character narration, or interview formats from a single script in a single project.' },
+  { icon: icons.assembly, title: 'Timeline Assembly',       desc: 'Drag synthesized clips across multi-lane tracks. Trim, split, add silence, layer music. Navigate with the minimap, zoom to the frame, then mix and export.' },
+  { icon: icons.download, title: 'Lossless WAV Export',     desc: 'Export individual clips or your complete assembled timeline as high-quality WAV. Your audio, uncompressed and ready for any platform, editor or distribution.' },
+  { icon: icons.projects, title: 'Project Workspaces',      desc: 'Organise episodes, campaigns, or book chapters into projects. Every script, clip, voice profile and setting saved in the cloud and synced across all your devices.' },
+]
+
 export function LandingPage({ onSignIn, onSignUp, onTryNow, onNavigate }: LandingPageProps) {
-  const features = [
-    {
-      icon: icons.mic,
-      title: 'Voice Cloning',
-      desc: 'Record or upload a short sample and Voxora captures your voice. Every script you write is spoken in a voice that sounds unmistakably like you.',
-    },
-    {
-      icon: icons.speaker,
-      title: 'Studio Voice Library',
-      desc: 'No sample to record? Choose from 30+ ready-made studio voices across genders and styles — generate professional audio in seconds.',
-    },
-    {
-      icon: icons.globe,
-      title: '16 Languages + Translation',
-      desc: 'Write in one language and translate your whole script to another with one click. Generate natural speech in English, Spanish, French, Japanese, Arabic, Hindi, and more.',
-    },
-    {
-      icon: icons.music,
-      title: '9 Emotion Styles',
-      desc: 'Shape the delivery — Natural, Cheerful, Dramatic, Whisper, Storytelling and more. Fine-tune expressiveness with advanced controls when you need precision.',
-    },
-    {
-      icon: icons.upload,
-      title: 'Audio → Script',
-      desc: 'Upload existing audio and Voxora transcribes it into an editable script automatically, ready to re-voice, translate, or restyle.',
-    },
-    {
-      icon: icons.profiles,
-      title: 'Multi-Voice Scripts',
-      desc: 'Assign different voices to different speakers in a single script. Perfect for dialogue, interviews, and character-driven narration.',
-    },
-    {
-      icon: icons.assembly,
-      title: 'Timeline Assembly',
-      desc: 'Arrange, trim, and split clips across multiple lanes on a precision timeline. Layer silence, navigate with the minimap, and zoom right to the frame.',
-    },
-    {
-      icon: icons.download,
-      title: 'Lossless Export',
-      desc: 'Export individual clips or your full assembled track as high-quality WAV. Your audio, ready for any platform.',
-    },
-    {
-      icon: icons.projects,
-      title: 'Project Workspaces',
-      desc: 'Organise episodes, campaigns, or audiobooks into projects. Every script, clip, voice, and setting — saved in the cloud and synced everywhere.',
-    },
-  ]
-
-  const steps = [
-    { n: '1', title: 'Pick a voice', desc: 'Clone your own in seconds or choose from the studio library.' },
-    { n: '2', title: 'Write or import', desc: 'Type a script, paste text, or upload audio to transcribe.' },
-    { n: '3', title: 'Generate & assemble', desc: 'Synthesize, arrange on the timeline, and export your WAV.' },
-  ]
-
-  const testimonials = [
-    { name: 'Maria K.', role: 'Podcast Producer', quote: 'I replaced my entire voiceover workflow. Three hours of re-recording became ten minutes.' },
-    { name: 'James T.', role: 'YouTube Creator', quote: 'The timeline editor feels like a proper DAW. I\'m actually shipping videos faster now.' },
-    { name: 'Priya S.', role: 'E-learning Author', quote: 'Multilingual versions of every lesson, translated and voiced from one script. Incredible.' },
-  ]
-
   return (
-    <div className="landing" style={{ minHeight: '100svh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
+    <div className="vox">
+      {/* Ambient background */}
+      <div className="vox-ambient"><div className="vox-ambient-3" /></div>
 
-      {/* ── Nav ── */}
-      <nav className="landing__nav" style={{
-        display: 'flex', alignItems: 'center', gap: 12,
-        padding: '14px 48px', borderBottom: '1px solid var(--border)',
-        position: 'sticky', top: 0, background: 'var(--bg)', zIndex: 50,
-        backdropFilter: 'blur(8px)',
-      }}>
-        <LogoMark size={30} />
-        <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: '-0.2px', color: 'var(--text-1)' }}>Voxora</span>
-        <span style={{
-          fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 99,
-          background: 'var(--accent-lt)', color: 'var(--accent)',
-          border: '1px solid var(--accent-mid)', marginLeft: 2
-        }}>BETA</span>
-
-        <div style={{ flex: 1 }} />
-
-        <ProductsDropdown onNavigate={onNavigate} />
-        <a href="#features" className="landing__nav-link" style={{ fontSize: 13, color: 'var(--text-2)', textDecoration: 'none', fontWeight: 500 }}
-          onClick={e => { e.preventDefault(); document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }) }}>
-          Features
-        </a>
-        <a href="#how" className="landing__nav-link" style={{ fontSize: 13, color: 'var(--text-2)', textDecoration: 'none', fontWeight: 500 }}
-          onClick={e => { e.preventDefault(); document.getElementById('how')?.scrollIntoView({ behavior: 'smooth' }) }}>
-          How it works
-        </a>
-        <button
-          onClick={() => onNavigate?.('pricing')}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text-2)', fontWeight: 500, padding: '4px 6px' }}
-        >
-          Pricing
-        </button>
-        <button className="btn btn--ghost" style={{ fontSize: 13 }} onClick={onSignIn}>Sign in</button>
-        <button className="btn btn--primary" style={{ fontSize: 13 }} onClick={onSignUp}>Get started</button>
-      </nav>
+      <VoxNav onSignIn={onSignIn} onSignUp={onSignUp} onNavigate={onNavigate} />
 
       {/* ── Hero ── */}
-      <section className="landing__hero" style={{
-        padding: '80px 48px 64px', textAlign: 'center',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24,
-        background: 'linear-gradient(160deg, var(--bg) 60%, var(--bg-2) 100%)',
-      }}>
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 7,
-          fontSize: 11.5, fontWeight: 600, color: 'var(--accent)',
-          background: 'var(--accent-lt)', border: '1px solid var(--accent-mid)',
-          borderRadius: 99, padding: '4px 12px', letterSpacing: 0.3,
-          textTransform: 'uppercase',
-        }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)', flexShrink: 0, animation: 'blink 2.5s infinite' }} />
-          AI voice studio · In your browser
-        </div>
-
-        <h1 style={{
-          fontFamily: 'var(--serif)', fontSize: 'clamp(38px, 6vw, 68px)',
-          fontWeight: 400, color: 'var(--text-1)', lineHeight: 1.12,
-          letterSpacing: '-1.5px', maxWidth: 820,
-        }}>
-          Your voice. Every script.<br />
-          <span style={{ color: 'var(--accent)', fontStyle: 'italic' }}>Any language.</span>
+      <section className="vox-hero">
+        <span className="vox-eyebrow"><span className="vox-eyebrow-dot" /> AI voice studio · In your browser</span>
+        <h1 className="vox-h1">
+          Your voice.<br />Every script.<br />
+          <span className="vox-grad-text">Any language.</span>
         </h1>
-
-        <p style={{
-          fontSize: 17, color: 'var(--text-2)', maxWidth: 580, lineHeight: 1.65,
-          fontWeight: 400,
-        }}>
-          Voxora is a complete cloud voice studio. Clone your voice or pick a studio one,
-          write or translate a script, shape the emotion, and assemble the final audio —
-          all in your browser, nothing to install.
+        <p className="vox-lead" style={{ marginTop: 24 }}>
+          Clone your voice or pick a studio one, write or translate a script, shape the emotion,
+          and assemble professional audio — all in your browser, nothing to install.
+        </p>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center', marginTop: 36 }}>
+          <button className="vox-btn vox-btn--primary vox-btn--lg" onClick={onSignUp}>
+            <span className="vox-btn-icon">{icons.bolt}</span> Start for free
+          </button>
+          <button className="vox-btn vox-btn--ghost vox-btn--lg" onClick={onTryNow}>
+            Try without an account →
+          </button>
+        </div>
+        <p style={{ marginTop: 14, fontSize: 13, color: 'var(--vx-text-3)' }}>
+          No credit card · No install · Free forever plan
         </p>
 
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
-          <button className="btn btn--primary" style={{ padding: '11px 24px', fontSize: 14, gap: 7 }} onClick={onSignUp}>
-            {icons.bolt} Start for free
-          </button>
-          <button className="btn btn--ghost" style={{ padding: '11px 24px', fontSize: 14 }} onClick={onSignIn}>
-            Sign in
-          </button>
-        </div>
-        <button
-          onClick={onTryNow}
-          style={{
-            marginTop: 4, background: 'none', border: 'none', cursor: 'pointer',
-            fontSize: 13, color: 'var(--text-3)',
-            textDecoration: 'underline', textUnderlineOffset: 3,
-          }}
-        >
-          Try it first — no account needed →
-        </button>
+        {/* Mock UI preview */}
+        <MockUI />
 
-        {/* Waveform illustration */}
-        <div className="landing__hero-wave" style={{
-          width: '100%', maxWidth: 680, height: 64, marginTop: 16,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3,
-          opacity: 0.5,
-        }}>
-          {Array.from({ length: 80 }, (_, i) => {
-            const h = 8 + Math.abs(Math.sin(i * 0.38 + 1) * Math.cos(i * 0.13)) * 48
-            return (
-              <div key={i} style={{
-                width: 3, height: h, borderRadius: 2,
-                background: 'var(--accent)',
-                opacity: 0.4 + Math.abs(Math.sin(i * 0.5)) * 0.6,
-                animation: `barFloat${i % 5} ${1.8 + (i % 7) * 0.2}s ease-in-out infinite`,
-                animationDelay: `${(i % 8) * 0.12}s`,
-              }} />
-            )
-          })}
-        </div>
-
-        {/* Stats row */}
-        <div className="landing__hero-stats" style={{ display: 'flex', gap: 40, marginTop: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+        {/* Stats */}
+        <div className="vox-stats" style={{ marginTop: 56 }}>
           {[
-            { val: '16', label: 'Languages' },
+            { val: '16',  label: 'Languages' },
             { val: '30+', label: 'Studio voices' },
-            { val: '9', label: 'Emotion styles' },
-            { val: '0', label: 'To install' },
+            { val: '9',   label: 'Emotion styles' },
+            { val: '0',   label: 'To install' },
           ].map(s => (
             <div key={s.label} style={{ textAlign: 'center' }}>
-              <div style={{ fontFamily: 'var(--serif)', fontSize: 30, fontWeight: 400, color: 'var(--text-1)', lineHeight: 1 }}>{s.val}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 3 }}>{s.label}</div>
+              <div className="vox-stat-val vox-grad-text">{s.val}</div>
+              <div className="vox-stat-label">{s.label}</div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* ── Features ── */}
-      <section id="features" className="landing__features" style={{ padding: '64px 48px', background: 'var(--bg-2)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <h2 style={{
-            fontFamily: 'var(--serif)', fontSize: 'clamp(26px, 4vw, 40px)',
-            fontWeight: 400, letterSpacing: '-0.8px', color: 'var(--text-1)',
-          }}>Everything you need to produce studio-quality audio</h2>
-          <p style={{ fontSize: 15, color: 'var(--text-2)', marginTop: 10 }}>
-            One platform. Script to final audio — without leaving your browser.
-          </p>
-        </div>
-
-        <div className="landing__features-grid" style={{
-          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, maxWidth: 960, margin: '0 auto',
-        }}>
-          {features.map(f => (
-            <div key={f.title} style={{
-              background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-lg)', padding: '22px 20px',
-              display: 'flex', flexDirection: 'column', gap: 10,
-              transition: 'box-shadow 0.15s, border-color 0.15s',
-            }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow)'
-                ;(e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLElement).style.boxShadow = 'none'
-                ;(e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'
-              }}
-            >
-              <div style={{
-                width: 36, height: 36, borderRadius: 9,
-                background: 'var(--accent-lt)', border: '1px solid var(--accent-mid)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: 'var(--accent)',
-              }}>
-                <div style={{ width: 18, height: 18 }}>{f.icon}</div>
-              </div>
-              <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-1)' }}>{f.title}</div>
-              <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>{f.desc}</div>
-            </div>
+      {/* ── Marquee ── */}
+      <div className="vox-marquee">
+        <div className="vox-marquee-inner">
+          {[...MARQUEE_ITEMS, ...MARQUEE_ITEMS].map((it, i) => (
+            <span key={i} className="vox-marquee-item">
+              <span className="vox-marquee-icon">{it.icon}</span>
+              {it.label}
+              {i % MARQUEE_ITEMS.length !== MARQUEE_ITEMS.length - 1 && (
+                <span style={{ marginLeft: 48, color: 'var(--vx-text-3)', opacity: 0.4 }}>·</span>
+              )}
+            </span>
           ))}
         </div>
-      </section>
+      </div>
 
-      {/* ── How it works ── */}
-      <section id="how" className="landing__how" style={{ padding: '64px 48px', background: 'var(--bg)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <h2 style={{
-            fontFamily: 'var(--serif)', fontSize: 'clamp(24px, 3.5vw, 36px)',
-            fontWeight: 400, letterSpacing: '-0.6px', color: 'var(--text-1)',
-          }}>From idea to audio in three steps</h2>
-        </div>
-        <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16,
-          maxWidth: 880, margin: '0 auto',
-        }} className="landing__how-grid">
-          {steps.map(s => (
-            <div key={s.n} style={{
-              background: 'var(--bg-2)', border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-lg)', padding: '24px 22px',
-              display: 'flex', flexDirection: 'column', gap: 10,
-            }}>
-              <div style={{
-                width: 34, height: 34, borderRadius: '50%',
-                background: 'var(--accent)', color: '#fff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontWeight: 700, fontSize: 15, fontFamily: 'var(--serif)',
-              }}>{s.n}</div>
-              <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-1)' }}>{s.title}</div>
-              <div style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.6 }}>{s.desc}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── Testimonials ── */}
-      <section className="landing__testimonials" style={{ padding: '64px 48px', background: 'var(--bg-2)' }}>
-        <h2 style={{
-          fontFamily: 'var(--serif)', fontSize: 'clamp(22px, 3vw, 34px)',
-          textAlign: 'center', fontWeight: 400, letterSpacing: '-0.5px',
-          color: 'var(--text-1)', marginBottom: 36,
-        }}>Loved by creators</h2>
-        <div className="landing__testimonials-grid" style={{
-          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16,
-          maxWidth: 900, margin: '0 auto',
-        }}>
-          {testimonials.map(t => (
-            <div key={t.name} style={{
-              background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-lg)', padding: '20px',
-            }}>
-              <p style={{
-                fontFamily: 'var(--serif)', fontStyle: 'italic',
-                fontSize: 14.5, color: 'var(--text-1)', lineHeight: 1.65,
-                marginBottom: 14,
-              }}>"{t.quote}"</p>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <div style={{
-                  width: 28, height: 28, borderRadius: '50%',
-                  background: 'var(--accent)', display: 'flex', alignItems: 'center',
-                  justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 12,
-                }}>{t.name[0]}</div>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-1)' }}>{t.name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{t.role}</div>
+      {/* ── Use cases ── */}
+      <section className="vox-section">
+        <div className="vox-wrap">
+          <div className="vox-section-head">
+            <h2 className="vox-h2">Built for every creator <span className="vox-grad-text">workflow</span></h2>
+            <p className="vox-lead">From solo podcasters to multilingual e-learning teams — Voxora fits your production style.</p>
+          </div>
+          <div className="vox-grid vox-grid-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+            {USE_CASES.map(uc => (
+              <div key={uc.title} className="vox-usecase">
+                <div className="vox-usecase-emoji">{uc.emoji}</div>
+                <div className="vox-usecase-title">{uc.title}</div>
+                <div className="vox-usecase-desc">{uc.desc}</div>
+                <div className="vox-usecase-chips">
+                  {uc.chips.map(c => <span key={c} className="vox-usecase-chip">{c}</span>)}
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <hr className="vox-rule" />
+
+      {/* ── Feature grid ── */}
+      <section id="features" className="vox-section">
+        <div className="vox-wrap">
+          <div className="vox-section-head">
+            <h2 className="vox-h2">Everything to produce <span className="vox-grad-text">studio-quality audio</span></h2>
+            <p className="vox-lead">One platform. Script to final audio — without leaving your browser.</p>
+          </div>
+          <div className="vox-grid vox-grid-3">
+            {FEATURES.map(f => (
+              <div key={f.title} className="vox-card">
+                <div className="vox-card-icon">{f.icon}</div>
+                <div className="vox-card-title">{f.title}</div>
+                <div className="vox-card-desc">{f.desc}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <hr className="vox-rule" />
+
+      {/* ── How it works ── */}
+      <section id="how" className="vox-section">
+        <div className="vox-wrap">
+          <div className="vox-section-head">
+            <h2 className="vox-h2">From idea to audio in <span className="vox-grad-text">three steps</span></h2>
+          </div>
+          <div className="vox-grid vox-grid-3">
+            {[
+              { n: '1', title: 'Pick a voice',        desc: 'Clone your own in under a minute, or choose from 30+ studio voices. Set emotion and speed.' },
+              { n: '2', title: 'Write or import',     desc: 'Type a script, paste text, or upload audio to auto-transcribe. Translate to any language with one click.' },
+              { n: '3', title: 'Generate & assemble', desc: 'Synthesize with one click. Arrange clips on the timeline, layer music, and export your WAV.' },
+            ].map(s => (
+              <div key={s.n} className="vox-card" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 16 }}>
+                <div className="vox-step-num">{s.n}</div>
+                <div>
+                  <div className="vox-card-title" style={{ marginBottom: 8 }}>{s.title}</div>
+                  <div className="vox-card-desc">{s.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <hr className="vox-rule" />
+
+      {/* ── Testimonials ── */}
+      <section className="vox-section">
+        <div className="vox-wrap">
+          <div className="vox-section-head">
+            <h2 className="vox-h2">Loved by <span className="vox-grad-text">creators</span></h2>
+          </div>
+          <div className="vox-grid vox-grid-3">
+            {TESTIMONIALS.map(t => (
+              <div key={t.name} className="vox-testi">
+                <div className="vox-testi-stars">
+                  {Array.from({ length: t.rating }, (_, i) => (
+                    <span key={i} className="vox-testi-star" style={{ color: '#fbbf24' }}>★</span>
+                  ))}
+                </div>
+                <p className="vox-testi-quote">"{t.quote}"</p>
+                <div className="vox-testi-author">
+                  <div className="vox-testi-avatar">{t.name[0]}</div>
+                  <div>
+                    <div className="vox-testi-name">{t.name}</div>
+                    <div className="vox-testi-role">{t.role}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <hr className="vox-rule" />
+
+      {/* ── Pricing teaser ── */}
+      <section className="vox-section" id="pricing">
+        <div className="vox-wrap">
+          <div className="vox-section-head">
+            <h2 className="vox-h2">Simple, transparent <span className="vox-grad-text">pricing</span></h2>
+            <p className="vox-lead">Start free. Upgrade when you need more. Cancel any time.</p>
+          </div>
+          <div className="vox-grid vox-grid-3">
+            {PRICING.map(p => (
+              <div key={p.name} className={`vox-price-card${p.featured ? ' vox-price-card--featured' : ''}`}>
+                <div>
+                  <div className="vox-price-name">{p.name}</div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginTop: 8 }}>
+                    <span className="vox-price-amount vox-grad-text">{p.amount}</span>
+                    {p.period && <span className="vox-price-period">{p.period}</span>}
+                  </div>
+                  <div className="vox-price-desc" style={{ marginTop: 8 }}>{p.desc}</div>
+                </div>
+                <ul className="vox-price-feats">
+                  {p.feats.map(f => (
+                    <li key={f} className="vox-price-feat">
+                      <span className="vox-price-check">{CHECK}</span>
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  className={`vox-btn${p.featured ? ' vox-btn--primary' : ' vox-btn--ghost'}`}
+                  style={{ width: '100%', marginTop: 'auto' }}
+                  onClick={onSignUp}
+                >
+                  {p.btn}
+                </button>
+              </div>
+            ))}
+          </div>
+          <p style={{ textAlign: 'center', marginTop: 24, fontSize: 13, color: 'var(--vx-text-3)' }}>
+            All plans include a 7-day trial. Payments via PayPal — credit &amp; debit cards accepted.{' '}
+            <button
+              onClick={() => onNavigate?.('pricing')}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c4b5fd', fontSize: 13, textDecoration: 'underline' }}
+            >
+              See full plan details →
+            </button>
+          </p>
         </div>
       </section>
 
       {/* ── CTA ── */}
-      <section className="landing__cta" style={{
-        padding: '64px 48px', textAlign: 'center',
-        background: 'var(--bg)', borderTop: '1px solid var(--border)',
-      }}>
-        <h2 style={{
-          fontFamily: 'var(--serif)', fontSize: 'clamp(26px, 4vw, 42px)',
-          fontWeight: 400, letterSpacing: '-0.8px', color: 'var(--text-1)', marginBottom: 14,
-        }}>Ready to hear yourself?</h2>
-        <p style={{ fontSize: 15, color: 'var(--text-2)', marginBottom: 28 }}>
-          Start free in under two minutes — no credit card, no install.
-        </p>
-        <button className="btn btn--primary" style={{ padding: '12px 28px', fontSize: 15 }} onClick={onSignUp}>
-          Create your workspace →
-        </button>
+      <section className="vox-cta">
+        <div className="vox-cta-box">
+          <span className="vox-eyebrow" style={{ marginBottom: 20, display: 'inline-flex' }}>Start today</span>
+          <h2 className="vox-h2" style={{ marginBottom: 18 }}>Ready to hear yourself?</h2>
+          <p className="vox-lead" style={{ marginBottom: 36 }}>
+            Join creators already using Voxora to ship better audio, faster.
+            Free plan, no credit card, no install.
+          </p>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button className="vox-btn vox-btn--primary vox-btn--lg" onClick={onSignUp}>
+              Create your workspace →
+            </button>
+            <button className="vox-btn vox-btn--ghost vox-btn--lg" onClick={onSignIn}>
+              Sign in
+            </button>
+          </div>
+        </div>
       </section>
 
-      {/* ── Footer ── */}
-      <footer className="landing__footer" style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '16px 48px', borderTop: '1px solid var(--border)',
-        fontSize: 12, color: 'var(--text-3)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <LogoMark size={18} />
-          <span>Voxora</span>
-        </div>
-        <span>© {new Date().getFullYear()} Voxora — AI voice synthesis in the cloud</span>
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          {PRODUCT_LINKS.map(p => (
-            <button key={p.key} style={{ background: 'none', border: 'none', fontSize: 12, color: 'var(--text-3)', cursor: 'pointer' }} onClick={() => onNavigate?.(p.key)}>{p.label}</button>
-          ))}
-          <button style={{ background: 'none', border: 'none', fontSize: 12, color: 'var(--text-3)', cursor: 'pointer' }} onClick={() => onNavigate?.('pricing')}>Pricing</button>
-          <button style={{ background: 'none', border: 'none', fontSize: 12, color: 'var(--text-3)', cursor: 'pointer' }} onClick={onSignIn}>Sign in</button>
-          <button style={{ background: 'none', border: 'none', fontSize: 12, color: 'var(--text-3)', cursor: 'pointer' }} onClick={onSignUp}>Sign up</button>
-        </div>
-      </footer>
+      <VoxFooter onSignIn={onSignIn} onSignUp={onSignUp} onNavigate={onNavigate} />
     </div>
   )
 }
