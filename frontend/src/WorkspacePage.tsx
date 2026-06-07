@@ -156,6 +156,8 @@ export function WorkspacePage({
   const [showLangMenu,     setShowLangMenu]     = useState(false)
   const [showToneMenu,     setShowToneMenu]     = useState(false)
   const [showVoiceMenu,    setShowVoiceMenu]    = useState(false)
+  const [showTranslateMenu, setShowTranslateMenu] = useState(false)
+  const [translateTarget, setTranslateTarget]   = useState('es')
   const [showAdvanced,     setShowAdvanced]     = useState(false)
   const [synthQuota, setSynthQuota]             = useState<{ remaining: number; limit: number; period: string } | null>(null)
   const [showTemplateModal, setShowTemplateModal] = useState(false)
@@ -170,6 +172,7 @@ export function WorkspacePage({
     if (importParagraphs)            { setImportParagraphs(null);     return }
     if (pendingTranscription !== null){ setPendingTranscription(null);return }
     if (showTemplateModal)           { setShowTemplateModal(false);   return }
+    if (showTranslateMenu)           { setShowTranslateMenu(false);   return }
   })
 
   // TTS engine preference (persisted in localStorage)
@@ -558,15 +561,19 @@ export function WorkspacePage({
   // ── Script translation ────────────────────────────────────────────
   async function translateScript(targetLang: string) {
     if (!activeScript) return
-    setShowLangMenu(false)
+    const source = histState.present
+    if (!source.trim()) { toast.err('Nothing to translate — add content first.'); return }
+    setShowTranslateMenu(false)
     setTranslating(true)
     try {
       const result = await api.engineJsonPost('/translate', {
-        text: activeScript.content || '',
+        text: source,
         source_lang: activeScript.language || 'en',
         target_lang: targetLang,
       }) as { translated_text: string }
-      onUpdateScript(activeScript.id, { content: result.translated_text, language: targetLang })
+      // Update the editor in real time, then sync language to parent.
+      dispatch({ type: 'SET', value: result.translated_text })
+      onUpdateScript(activeScript.id, { language: targetLang })
       toast.ok('Translation complete')
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Translation failed'
@@ -1204,6 +1211,55 @@ export function WorkspacePage({
                 {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : ''}
               </span>
 
+              {/* Translate (XTTS only) */}
+              {engine !== 'f5' && (
+                <div style={{ position: 'relative' }}>
+                  <button
+                    className="btn btn--sm btn--ghost"
+                    disabled={translating}
+                    title="Translate this script to another language"
+                    style={{ gap: 5, opacity: translating ? 0.6 : 1 }}
+                    onClick={() => setShowTranslateMenu(v => !v)}
+                  >
+                    {translating
+                      ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 13, height: 13, animation: 'spin 1s linear infinite' }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                      : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 14, height: 14 }}><path d="M3 5h12M9 3v2M11.5 19l-2.5-5M13.5 19l2.5-5M9 14h6M5 17h6a2 2 0 0 0 2-2V9"/></svg>
+                    }
+                    <span style={{ fontSize: 12 }}>{translating ? 'Translating…' : 'Translate'}</span>
+                  </button>
+                  {showTranslateMenu && !translating && (
+                    <>
+                      <div style={{ position: 'fixed', inset: 0, zIndex: 199 }} onClick={() => setShowTranslateMenu(false)} />
+                      <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)', zIndex: 200, minWidth: 200, overflow: 'hidden' }}>
+                        <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)' }}>Translate to…</div>
+                        <div style={{ maxHeight: 260, overflow: 'hidden auto' }}>
+                          {LANGUAGES.filter(l => l.code !== (activeScript.language || 'en')).map(l => {
+                            const sel = translateTarget === l.code
+                            return (
+                              <button key={l.code} onClick={() => setTranslateTarget(l.code)}
+                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '7px 12px', border: 'none', background: sel ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: sel ? 'var(--accent)' : 'var(--text-1)', transition: 'background 0.1s', borderLeft: sel ? '3px solid var(--accent)' : '3px solid transparent' }}>
+                                {l.label}
+                                {sel && <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ width: 13, height: 13 }}><path d="M4 10l4 4 8-9" /></svg>}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        <div style={{ padding: 8, borderTop: '1px solid var(--border)' }}>
+                          <button
+                            className="btn btn--sm btn--primary"
+                            style={{ width: '100%', justifyContent: 'center' }}
+                            disabled={!histState.present.trim()}
+                            onClick={() => translateScript(translateTarget)}
+                          >
+                            Translate to {LANGUAGES.find(l => l.code === translateTarget)?.label ?? translateTarget}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
               <button
                 className="btn btn--sm btn--danger"
                 onClick={() => setDeleteScriptPending(true)}
@@ -1423,7 +1479,7 @@ export function WorkspacePage({
                 </span>
               </div>
 
-              {/* ── Language / Translate picker ── */}
+              {/* ── Accent language picker ── */}
               {(() => {
                 const disabled = engine === 'f5'
                 const currentLang = LANGUAGES.find(l => l.code === (activeScript.language || 'en'))
@@ -1431,53 +1487,25 @@ export function WorkspacePage({
                   <div style={{ position: 'relative' }}>
                     <button
                       className="btn btn--sm btn--ghost"
-                      disabled={disabled || translating}
-                      title={disabled ? 'Language selection is only used by XTTS v2' : 'Language / Translate'}
-                      style={{ gap: 5, paddingRight: 8, opacity: (disabled || translating) ? 0.45 : 1 }}
-                      onClick={() => { if (!disabled && !translating) setShowLangMenu(v => !v) }}
+                      disabled={disabled}
+                      title={disabled ? 'Language selection is only used by XTTS v2' : 'Accent language'}
+                      style={{ gap: 5, paddingRight: 8, opacity: disabled ? 0.45 : 1 }}
+                      onClick={() => { if (!disabled) setShowLangMenu(v => !v) }}
                     >
-                      {translating
-                        ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 11, height: 11, animation: 'spin 1s linear infinite' }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-                        : null}
-                      <span style={{ fontSize: 12 }}>{translating ? 'Translating…' : (currentLang?.label ?? 'English')}</span>
+                      <span style={{ fontSize: 12 }}>{currentLang?.label ?? 'English'}</span>
                       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ width: 10, height: 10, opacity: 0.5 }}><path d="M5 8l5 5 5-5" /></svg>
                     </button>
-                    {showLangMenu && !disabled && !translating && (
+                    {showLangMenu && !disabled && (
                       <>
                         <div style={{ position: 'fixed', inset: 0, zIndex: 199 }} onClick={() => setShowLangMenu(false)} />
-                        <div style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: 6, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)', zIndex: 200, display: 'flex', overflow: 'hidden' }}>
-
-                          {/* Column 1: Set accent / synthesis language */}
-                          <div style={{ minWidth: 150, maxHeight: 380, overflow: 'hidden auto', borderRight: '1px solid var(--border)' }}>
-                            <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>Accent language</div>
-                            {LANGUAGES.map(l => (
-                              <button key={l.code} onClick={() => { onUpdateScript(activeScript.id, { language: l.code }); setShowLangMenu(false) }}
-                                style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '6px 12px', border: 'none', background: (activeScript.language || 'en') === l.code ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--text-1)', transition: 'background 0.1s', borderLeft: (activeScript.language || 'en') === l.code ? '3px solid var(--accent)' : '3px solid transparent', whiteSpace: 'nowrap' }}>
-                                {l.label}
-                              </button>
-                            ))}
-                          </div>
-
-                          {/* Column 2: AI translate content */}
-                          <div style={{ minWidth: 155, maxHeight: 380, overflow: 'hidden auto' }}>
-                            <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 10, height: 10 }}><path d="M3 5h12M9 3v2M11.5 19l-2.5-5M13.5 19l2.5-5M9 14h6"/></svg>
-                              Translate to…
-                            </div>
-                            {activeScript.content?.trim()
-                              ? LANGUAGES.filter(l => l.code !== (activeScript.language || 'en')).map(l => (
-                                  <button key={l.code} onClick={() => translateScript(l.code)}
-                                    style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '6px 12px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--text-1)', transition: 'background 0.1s', borderLeft: '3px solid transparent', whiteSpace: 'nowrap' }}
-                                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--accent-lt)' }}
-                                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
-                                  >
-                                    {l.label}
-                                  </button>
-                                ))
-                              : <div style={{ padding: '6px 12px 10px', fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic' }}>Add content first</div>
-                            }
-                          </div>
-
+                        <div style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: 6, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)', zIndex: 200, minWidth: 160, maxHeight: 360, overflow: 'hidden auto' }}>
+                          <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>Accent language</div>
+                          {LANGUAGES.map(l => (
+                            <button key={l.code} onClick={() => { onUpdateScript(activeScript.id, { language: l.code }); setShowLangMenu(false) }}
+                              style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '6px 12px', border: 'none', background: (activeScript.language || 'en') === l.code ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--text-1)', transition: 'background 0.1s', borderLeft: (activeScript.language || 'en') === l.code ? '3px solid var(--accent)' : '3px solid transparent', whiteSpace: 'nowrap' }}>
+                              {l.label}
+                            </button>
+                          ))}
                         </div>
                       </>
                     )}
