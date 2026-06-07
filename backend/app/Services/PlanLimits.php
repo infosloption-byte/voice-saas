@@ -38,31 +38,37 @@ class PlanLimits
             'session_days'  => 7,
         ],
         'free' => [
-            'project_limit' => 1,
-            'profile_limit' => 1,
-            'word_limit'    => 500,
-            'multi_voice'   => false,
-            'data_export'   => false,
-            'synth_limit'   => 3,
-            'synth_period'  => 'day',
+            'project_limit'    => 1,
+            'profile_limit'    => 1,
+            'word_limit'       => 500,
+            'multi_voice'      => false,
+            'data_export'      => false,
+            'synth_limit'      => 3,
+            'synth_period'     => 'day',
+            'translate_limit'  => 10,
+            'translate_period' => 'month',
         ],
         'starter' => [
-            'project_limit' => 10,
-            'profile_limit' => 5,
-            'word_limit'    => 5000,
-            'multi_voice'   => true,
-            'data_export'   => false,
-            'synth_limit'   => 100,
-            'synth_period'  => 'month',
+            'project_limit'    => 10,
+            'profile_limit'    => 5,
+            'word_limit'       => 5000,
+            'multi_voice'      => true,
+            'data_export'      => false,
+            'synth_limit'      => 100,
+            'synth_period'     => 'month',
+            'translate_limit'  => 50,
+            'translate_period' => 'month',
         ],
         'pro' => [
-            'project_limit' => 0,   // 0 = unlimited
-            'profile_limit' => 0,
-            'word_limit'    => 0,
-            'multi_voice'   => true,
-            'data_export'   => true,
-            'synth_limit'   => 0,
-            'synth_period'  => 'month',
+            'project_limit'    => 0,   // 0 = unlimited
+            'profile_limit'    => 0,
+            'word_limit'       => 0,
+            'multi_voice'      => true,
+            'data_export'      => true,
+            'synth_limit'      => 0,
+            'synth_period'     => 'month',
+            'translate_limit'  => 0,   // unlimited
+            'translate_period' => 'month',
         ],
     ];
 
@@ -92,8 +98,11 @@ class PlanLimits
                     'script_limit'  => isset($row->script_limit)  ? (int) $row->script_limit  : null,
                     'session_days'  => isset($row->session_days)  ? (int) $row->session_days  : null,
                     // Synthesis quota (all tiers)
-                    'synth_limit'   => isset($row->synth_limit)   ? (int) $row->synth_limit   : null,
-                    'synth_period'  => $row->synth_period ?? null,
+                    'synth_limit'      => isset($row->synth_limit)      ? (int) $row->synth_limit      : null,
+                    'synth_period'     => $row->synth_period ?? null,
+                    // Translation quota (all tiers)
+                    'translate_limit'  => isset($row->translate_limit)  ? (int) $row->translate_limit  : null,
+                    'translate_period' => $row->translate_period ?? null,
                 ]
                 : (self::$defaults[$key] ?? self::$defaults['free']);
         }
