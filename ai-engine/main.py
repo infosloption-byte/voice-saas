@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Header
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
@@ -392,6 +393,59 @@ async def built_in_voices(_key: None = Depends(verify_api_key)):
     except Exception:
         speakers = []
     return {"speakers": speakers}
+
+
+# ── TRANSLATION ───────────────────────────────────────────────────
+_ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+
+LANG_NAMES: dict[str, str] = {
+    "en": "English", "es": "Spanish", "fr": "French", "de": "German",
+    "it": "Italian", "pt": "Portuguese", "pl": "Polish", "tr": "Turkish",
+    "ru": "Russian", "nl": "Dutch", "cs": "Czech", "ar": "Arabic",
+    "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "hi": "Hindi",
+}
+
+class TranslateRequest(BaseModel):
+    text: str
+    source_lang: str = "en"
+    target_lang: str = "es"
+
+@app.post("/translate")
+async def translate_text(
+    body: TranslateRequest,
+    _key: None = Depends(verify_api_key),
+):
+    if not _ANTHROPIC_KEY:
+        raise HTTPException(503, "Translation is not configured (ANTHROPIC_API_KEY not set).")
+    if not body.text.strip():
+        return {"translated_text": ""}
+
+    src = LANG_NAMES.get(body.source_lang, body.source_lang)
+    tgt = LANG_NAMES.get(body.target_lang, body.target_lang)
+
+    import anthropic as _anthropic
+    client = _anthropic.Anthropic(api_key=_ANTHROPIC_KEY)
+
+    system = (
+        "You are a professional translator. Translate the provided text accurately "
+        "and naturally. Preserve all formatting, line breaks, speaker labels (e.g. "
+        "[Speaker A]:), and punctuation exactly as they appear. Output only the "
+        "translated text — no explanations, no quotes around the result."
+    )
+    user_msg = f"Translate the following text from {src} to {tgt}:\n\n{body.text}"
+
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=8192,
+            system=system,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        translated = response.content[0].text.strip()
+    except Exception as e:
+        raise HTTPException(500, f"Translation failed: {e}")
+
+    return {"translated_text": translated}
 
 
 # ── FEATURE 1: TRANSCRIPTION ──────────────────────────────────────
