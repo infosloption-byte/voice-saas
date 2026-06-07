@@ -422,39 +422,51 @@ class TranslateRequest(BaseModel):
     source_lang: str = "en"
     target_lang: str = "es"
 
+def _http_post_json(url: str, payload: dict, headers: dict) -> dict:
+    """POST JSON and return parsed response. On HTTP error, raise with the
+    real API error body included so failures are debuggable."""
+    data = _json.dumps(payload).encode()
+    req = _urllib_req.Request(url, data=data, headers={"Content-Type": "application/json", **headers}, method="POST")
+    try:
+        with _urllib_req.urlopen(req, timeout=60) as resp:
+            return _json.loads(resp.read())
+    except _urllib_err.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", "replace")[:500]
+        except Exception:
+            pass
+        raise RuntimeError(f"HTTP {e.code}: {body or e.reason}") from None
+
 def _translate_anthropic(user_msg: str) -> str:
-    payload = _json.dumps({
-        "model": "claude-haiku-4-5-20251001",
-        "max_tokens": 8192,
-        "system": _TRANSLATE_SYSTEM,
-        "messages": [{"role": "user", "content": user_msg}],
-    }).encode()
-    req = _urllib_req.Request(
+    data = _http_post_json(
         "https://api.anthropic.com/v1/messages",
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
+        {
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 4096,
+            "system": _TRANSLATE_SYSTEM,
+            "messages": [{"role": "user", "content": user_msg}],
+        },
+        {
             "x-api-key": _ANTHROPIC_KEY,
             "anthropic-version": "2023-06-01",
         },
-        method="POST",
     )
-    with _urllib_req.urlopen(req, timeout=60) as resp:
-        data = _json.loads(resp.read())
     return data["content"][0]["text"].strip()
 
 def _translate_gemini(user_msg: str) -> str:
-    payload = _json.dumps({
-        "system_instruction": {"parts": [{"text": _TRANSLATE_SYSTEM}]},
-        "contents": [{"parts": [{"text": user_msg}]}],
-    }).encode()
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"gemini-2.0-flash:generateContent?key={_GEMINI_KEY}"
     )
-    req = _urllib_req.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-    with _urllib_req.urlopen(req, timeout=60) as resp:
-        data = _json.loads(resp.read())
+    data = _http_post_json(
+        url,
+        {
+            "system_instruction": {"parts": [{"text": _TRANSLATE_SYSTEM}]},
+            "contents": [{"parts": [{"text": user_msg}]}],
+        },
+        {},
+    )
     return data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
 @app.post("/translate")
