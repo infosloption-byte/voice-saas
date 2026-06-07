@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Header
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
@@ -392,6 +393,81 @@ async def built_in_voices(_key: None = Depends(verify_api_key)):
     except Exception:
         speakers = []
     return {"speakers": speakers}
+
+
+# ── TRANSLATION ───────────────────────────────────────────────────
+_ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+_GEMINI_KEY    = os.getenv("GEMINI_API_KEY", "")
+
+LANG_NAMES: dict[str, str] = {
+    "en": "English", "es": "Spanish", "fr": "French", "de": "German",
+    "it": "Italian", "pt": "Portuguese", "pl": "Polish", "tr": "Turkish",
+    "ru": "Russian", "nl": "Dutch", "cs": "Czech", "ar": "Arabic",
+    "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "hi": "Hindi",
+}
+
+_TRANSLATE_SYSTEM = (
+    "You are a professional translator. Translate the provided text accurately "
+    "and naturally. Preserve all formatting, line breaks, speaker labels (e.g. "
+    "[Speaker A]:), and punctuation exactly as they appear. Output only the "
+    "translated text — no explanations, no quotes around the result."
+)
+
+class TranslateRequest(BaseModel):
+    text: str
+    source_lang: str = "en"
+    target_lang: str = "es"
+
+def _translate_anthropic(user_msg: str) -> str:
+    import anthropic as _anthropic
+    client = _anthropic.Anthropic(api_key=_ANTHROPIC_KEY)
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=8192,
+        system=_TRANSLATE_SYSTEM,
+        messages=[{"role": "user", "content": user_msg}],
+    )
+    return response.content[0].text.strip()
+
+def _translate_gemini(user_msg: str) -> str:
+    import google.generativeai as genai
+    genai.configure(api_key=_GEMINI_KEY)
+    model = genai.GenerativeModel(
+        model_name="gemini-2.0-flash",
+        system_instruction=_TRANSLATE_SYSTEM,
+    )
+    response = model.generate_content(user_msg)
+    return response.text.strip()
+
+@app.post("/translate")
+async def translate_text(
+    body: TranslateRequest,
+    _key: None = Depends(verify_api_key),
+):
+    if not _ANTHROPIC_KEY and not _GEMINI_KEY:
+        raise HTTPException(503, "Translation is not configured (set ANTHROPIC_API_KEY or GEMINI_API_KEY).")
+    if not body.text.strip():
+        return {"translated_text": ""}
+
+    src = LANG_NAMES.get(body.source_lang, body.source_lang)
+    tgt = LANG_NAMES.get(body.target_lang, body.target_lang)
+    user_msg = f"Translate the following text from {src} to {tgt}:\n\n{body.text}"
+
+    errors: list[str] = []
+
+    if _ANTHROPIC_KEY:
+        try:
+            return {"translated_text": _translate_anthropic(user_msg), "provider": "anthropic"}
+        except Exception as e:
+            errors.append(f"Anthropic: {e}")
+
+    if _GEMINI_KEY:
+        try:
+            return {"translated_text": _translate_gemini(user_msg), "provider": "gemini"}
+        except Exception as e:
+            errors.append(f"Gemini: {e}")
+
+    raise HTTPException(500, f"All translation providers failed: {'; '.join(errors)}")
 
 
 # ── FEATURE 1: TRANSCRIPTION ──────────────────────────────────────

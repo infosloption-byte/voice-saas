@@ -161,6 +161,8 @@ export function WorkspacePage({
   const [pendingTranscription, setPendingTranscription] = useState<string | null>(null)
   const [importParagraphs, setImportParagraphs] = useState<string[] | null>(null)
   const [deleteScriptPending, setDeleteScriptPending] = useState(false)
+  const [showTranslateMenu, setShowTranslateMenu] = useState(false)
+  const [translating, setTranslating]           = useState(false)
 
   // Escape closes whichever modal is open — highest-priority one wins
   useEscapeKey(() => {
@@ -168,6 +170,7 @@ export function WorkspacePage({
     if (importParagraphs)            { setImportParagraphs(null);     return }
     if (pendingTranscription !== null){ setPendingTranscription(null);return }
     if (showTemplateModal)           { setShowTemplateModal(false);   return }
+    if (showTranslateMenu)           { setShowTranslateMenu(false);   return }
   })
 
   // TTS engine preference (persisted in localStorage)
@@ -550,6 +553,27 @@ export function WorkspacePage({
         setSynthErr('Synthesis failed. Is the AI engine running?')
     } finally {
       setSynthesizing(false)
+    }
+  }
+
+  // ── Script translation ────────────────────────────────────────────
+  async function translateScript(targetLang: string) {
+    if (!activeScript) return
+    setShowTranslateMenu(false)
+    setTranslating(true)
+    try {
+      const result = await api.engineJsonPost('/translate', {
+        text: activeScript.content || '',
+        source_lang: activeScript.language || 'en',
+        target_lang: targetLang,
+      }) as { translated_text: string }
+      onUpdateScript(activeScript.id, { content: result.translated_text, language: targetLang })
+      toast.ok('Translation complete')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Translation failed'
+      toast.err(msg)
+    } finally {
+      setTranslating(false)
     }
   }
 
@@ -1405,6 +1429,42 @@ export function WorkspacePage({
                   </div>
                 )
               })()}
+
+              {/* ── Translate button ── */}
+              {engine !== 'f5' && (
+                <div style={{ position: 'relative' }}>
+                  <button
+                    className="btn btn--sm btn--ghost"
+                    disabled={translating || !activeScript?.content?.trim()}
+                    title="Translate script content to another language"
+                    style={{ gap: 4, opacity: translating ? 0.6 : 1 }}
+                    onClick={() => setShowTranslateMenu(v => !v)}
+                  >
+                    {translating
+                      ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 13, height: 13, animation: 'spin 1s linear infinite' }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                      : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 13, height: 13 }}><path d="M3 5h12M9 3v2M11.5 19l-2.5-5M13.5 19l2.5-5M9 14h6M5 19l-2-2 2-2M19 5l2 2-2 2"/><path d="M5 17h6a2 2 0 0 0 2-2V9"/></svg>
+                    }
+                    <span style={{ fontSize: 11 }}>{translating ? 'Translating…' : 'Translate'}</span>
+                  </button>
+                  {showTranslateMenu && !translating && (
+                    <>
+                      <div style={{ position: 'fixed', inset: 0, zIndex: 199 }} onClick={() => setShowTranslateMenu(false)} />
+                      <div style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: 6, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)', zIndex: 200, minWidth: 175, maxHeight: 300, overflow: 'hidden auto' }}>
+                        <div style={{ padding: '8px 12px 6px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)' }}>Translate to…</div>
+                        {LANGUAGES.filter(l => l.code !== (activeScript?.language || 'en')).map(l => (
+                          <button key={l.code} onClick={() => translateScript(l.code)}
+                            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--text-1)', transition: 'background 0.1s' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-lt)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                          >
+                            {l.label}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* ── Voice profile picker ── */}
               {(() => {
