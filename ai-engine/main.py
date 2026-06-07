@@ -832,15 +832,25 @@ async def synthesize(
                 os.remove(p)
 
 
-# ── LEGACY: CLONE-VOICE (one-shot, kept for compatibility) ────────
+# ── LEGACY: CLONE-VOICE (one-shot, XTTS or F5) ────────────────────
 @app.post("/clone-voice")
 async def clone(
     text: str = Form(...),
     file: UploadFile = File(...),
+    tts_engine: str = Form(default="xtts"),   # "xtts" | "f5"
+    speed: float    = Form(default=1.0),
     _key: None = Depends(verify_api_key),
 ):
-    if not models["xtts"]:
-        raise HTTPException(503, "Cloning model still loading…")
+    engine = tts_engine.lower().strip()
+    if engine not in ("xtts", "f5"):
+        engine = "xtts"
+
+    if engine == "f5" and not f5_usable():
+        raise HTTPException(503,
+            "F5-TTS requires a GPU server and is disabled on this CPU-only instance. "
+            "Please switch to XTTS v2.")
+    if engine == "xtts" and not models["xtts"]:
+        raise HTTPException(503, "XTTS v2 model is not available.")
 
     await check_file_size(file)
     if len(text) > 50_000:
@@ -863,16 +873,22 @@ async def clone(
         for i, chunk in enumerate(chunks):
             cp = tmp_path(f"clone_chunk_{i}", ".wav")
             chunk_paths.append(cp)
-            models["xtts"].tts_to_file(
-                text=chunk,
-                speaker_wav=ref_path,
-                language="en",
-                file_path=cp,
-                temperature=0.65,
-                top_k=50,
-                top_p=0.85,
-                enable_text_splitting=False,
-            )
+            if engine == "f5":
+                synthesize_chunk_f5(chunk=chunk, ref_wav=ref_path,
+                                    speed=max(0.5, min(2.0, speed)),
+                                    chunk_path=cp)
+            else:
+                models["xtts"].tts_to_file(
+                    text=chunk,
+                    speaker_wav=ref_path,
+                    language="en",
+                    file_path=cp,
+                    temperature=0.65,
+                    top_k=50,
+                    top_p=0.85,
+                    speed=max(0.5, min(2.0, speed)),
+                    enable_text_splitting=False,
+                )
 
         if len(chunk_paths) == 1:
             import shutil
@@ -884,7 +900,7 @@ async def clone(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, f"Cloning failed: {e}")
+        raise HTTPException(500, f"Cloning failed ({engine}): {e}")
     finally:
         for p in [raw_path, ref_path] + chunk_paths:
             if os.path.exists(p):

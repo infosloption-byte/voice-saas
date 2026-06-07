@@ -213,6 +213,7 @@ export function mapScript(raw: Record<string, unknown>) {
     duration: (raw.duration as number | null) ?? null,
     speed: (raw.speed as number) ?? 1.0,
     tone: (raw.tone as string) ?? 'natural',
+    engine: (raw.engine as string | undefined) ?? 'xtts',
     speakerMap: (raw.speaker_map as Record<string, string> | undefined) ?? undefined,
     waveformPeaks: (raw.waveform_peaks as number[] | undefined) ?? undefined,
     audioUrl: (raw.audio_url as string | undefined) ?? undefined,
