@@ -171,14 +171,20 @@
 /* ── Layout ── */
 .vox-section { padding: 88px 40px; }
 .vox-wrap { max-width: 1100px; margin: 0 auto; width: 100%; }
-.vox-section-head { text-align: center; margin-bottom: 56px; }
+.vox-section-head {
+  text-align: center; margin-bottom: 56px;
+  display: flex; flex-direction: column; align-items: center;
+}
 .vox-section-head .vox-lead { margin-top: 18px; }
 
 /* ── Hero ── */
-.vox-hero { text-align: center; padding: 100px 40px 72px; }
-.vox-h1 { font-size: clamp(44px, 7vw, 86px); font-weight: 800; max-width: 920px; margin: 24px auto 0; text-align: center; }
-.vox-h2 { font-size: clamp(30px, 4.5vw, 50px); font-weight: 800; text-align: center; }
-.vox-lead { font-size: clamp(15.5px, 1.4vw, 18.5px); color: var(--vx-text-2); max-width: 580px; margin: 0 auto; line-height: 1.65; text-align: center; }
+.vox-hero {
+  text-align: center; padding: 100px 40px 72px;
+  display: flex; flex-direction: column; align-items: center;
+}
+.vox-h1 { font-size: clamp(44px, 7vw, 86px); font-weight: 800; max-width: 920px; width: 100%; margin: 24px 0 0; text-align: center; }
+.vox-h2 { font-size: clamp(30px, 4.5vw, 50px); font-weight: 800; text-align: center; width: 100%; }
+.vox-lead { font-size: clamp(15.5px, 1.4vw, 18.5px); color: var(--vx-text-2); max-width: 580px; width: 100%; margin: 0; line-height: 1.65; text-align: center; }
 
 /* ── Gradient rule/divider ── */
 .vox-rule {
