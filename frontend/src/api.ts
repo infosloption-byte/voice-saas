@@ -23,7 +23,7 @@ const LARAVEL_PATHS = [
   '/projects', '/voice-profiles', '/scripts',
   '/forgot-password', '/reset-password',
   '/email', '/subscription', '/guest-limits',
-  '/plan-limits', '/admin', '/synthesis',
+  '/plan-limits', '/admin', '/synthesis', '/translation',
 ]
 
 function isLaravelPath(path: string): boolean {
