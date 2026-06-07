@@ -8,6 +8,8 @@ export type Page =
   | 'dashboard' | 'projects' | 'workspace' | 'profiles' | 'settings'
   | 'pricing' | 'privacy' | 'terms'
   | 'email-verified'
+  | 'feature-studio' | 'feature-voices' | 'feature-translation'
+  | 'feature-timeline' | 'feature-audiobooks'
 
 export type WorkspaceTab = 'scripts' | 'assembly'
 export type SaveState = 'saved' | 'saving' | 'unsaved'
