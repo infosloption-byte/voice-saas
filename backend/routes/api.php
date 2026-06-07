@@ -11,6 +11,7 @@ use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\ScriptController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\SynthesisUsageController;
+use App\Http\Controllers\TranslationUsageController;
 use App\Http\Controllers\VoiceProfileController;
 
 // ── Public auth routes ────────────────────────────────────────────────
@@ -72,6 +73,12 @@ Route::get('/email/verify/{id}/{hash}', [EmailVerificationController::class, 've
 Route::middleware('auth:sanctum')->group(function () {
     Route::get( 'synthesis/quota',  [SynthesisUsageController::class, 'quota']);
     Route::post('synthesis/record', [SynthesisUsageController::class, 'record']);
+});
+
+// ── Translation quota (authenticated) ────────────────────────────────
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get( 'translation/quota',  [TranslationUsageController::class, 'quota']);
+    Route::post('translation/record', [TranslationUsageController::class, 'record']);
 });
 
 // ── Authenticated routes: resend + subscriptions + data export ────────

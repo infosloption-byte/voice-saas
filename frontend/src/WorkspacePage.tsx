@@ -566,12 +566,24 @@ export function WorkspacePage({
     setShowTranslateMenu(false)
     setTranslating(true)
     try {
+      // Check & record quota before running (guests skip — no DB tracking)
+      if (!isGuest) {
+        try {
+          await api.post('/translation/record')
+        } catch (quotaErr: unknown) {
+          const msg = quotaErr instanceof Error ? quotaErr.message : 'Translation quota reached'
+          toast.err(msg)
+          setTranslating(false)
+          return
+        }
+      }
+
       const result = await api.engineJsonPost('/translate', {
         text: source,
         source_lang: activeScript.language || 'en',
         target_lang: targetLang,
       }) as { translated_text: string }
-      // Update the editor in real time, then sync language to parent.
+
       dispatch({ type: 'SET', value: result.translated_text })
       onUpdateScript(activeScript.id, { language: targetLang })
       toast.ok('Translation complete')
