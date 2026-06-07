@@ -457,7 +457,7 @@ def _translate_anthropic(user_msg: str) -> str:
 def _translate_gemini(user_msg: str) -> str:
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-2.0-flash:generateContent?key={_GEMINI_KEY}"
+        f"gemini-2.5-flash:generateContent?key={_GEMINI_KEY}"
     )
     data = _http_post_json(
         url,
