@@ -1,7 +1,7 @@
 import { LogoMark } from './LandingPage'
 import { icons } from './constants'
 
-const COMPANY = 'VoiceStudio'
+const COMPANY = 'Voxora'
 const EMAIL   = 'legal@voicestudio.app'
 const UPDATED = 'May 26, 2026'
 
@@ -67,9 +67,9 @@ export function PrivacyPage({ onBack }: { onBack?: () => void }) {
     <LegalShell title="Privacy Policy" onBack={onBack}>
       <Section title="1. Introduction">
         <p>
-          {COMPANY} ("we", "us", or "our") operates the VoiceStudio platform. This Privacy Policy
+          {COMPANY} ("we", "us", or "our") operates the Voxora platform. This Privacy Policy
           explains how we collect, use, disclose, and protect your personal information when you
-          use our service. By using VoiceStudio, you agree to the collection and use of information
+          use our service. By using Voxora, you agree to the collection and use of information
           in accordance with this policy.
         </p>
       </Section>
@@ -92,7 +92,7 @@ export function PrivacyPage({ onBack }: { onBack?: () => void }) {
       <Section title="3. How We Use Your Information">
         <p>We use your information to:</p>
         <ul style={{ paddingLeft: 20, marginTop: 8 }}>
-          <li style={{ marginBottom: 6 }}>Provide, operate, and maintain the VoiceStudio service</li>
+          <li style={{ marginBottom: 6 }}>Provide, operate, and maintain the Voxora service</li>
           <li style={{ marginBottom: 6 }}>Process transactions and manage your subscription</li>
           <li style={{ marginBottom: 6 }}>Send transactional emails (account verification, password resets)</li>
           <li style={{ marginBottom: 6 }}>Respond to support inquiries</li>
@@ -132,7 +132,7 @@ export function PrivacyPage({ onBack }: { onBack?: () => void }) {
 
       <Section title="7. Cookies">
         <p>
-          VoiceStudio uses essential session cookies for authentication. We also use a preference
+          Voxora uses essential session cookies for authentication. We also use a preference
           cookie to remember your dark/light mode setting and notification preferences. We do not
           use third-party tracking or advertising cookies. You may clear cookies at any time through
           your browser settings.
@@ -151,7 +151,7 @@ export function PrivacyPage({ onBack }: { onBack?: () => void }) {
 
       <Section title="9. Children">
         <p>
-          VoiceStudio is not directed at children under 13. We do not knowingly collect personal
+          Voxora is not directed at children under 13. We do not knowingly collect personal
           information from children. If you believe a child has provided us with personal information,
           please contact us and we will delete it promptly.
         </p>
@@ -183,7 +183,7 @@ export function TermsPage({ onBack }: { onBack?: () => void }) {
     <LegalShell title="Terms of Service" onBack={onBack}>
       <Section title="1. Acceptance of Terms">
         <p>
-          By creating an account or using VoiceStudio, you agree to be bound by these Terms of
+          By creating an account or using Voxora, you agree to be bound by these Terms of
           Service. If you do not agree to these terms, please do not use the service. These terms
           apply to all users, including free, trial, and paid subscribers.
         </p>
@@ -191,7 +191,7 @@ export function TermsPage({ onBack }: { onBack?: () => void }) {
 
       <Section title="2. Description of Service">
         <p>
-          VoiceStudio is an AI-powered voice synthesis platform that allows registered users to
+          Voxora is an AI-powered voice synthesis platform that allows registered users to
           clone their voice and generate text-to-speech audio for personal and commercial use,
           subject to the limitations of their subscription plan.
         </p>
@@ -202,13 +202,13 @@ export function TermsPage({ onBack }: { onBack?: () => void }) {
           You must provide accurate and complete information when creating your account. You are
           responsible for maintaining the confidentiality of your password and for all activities
           under your account. You must notify us immediately of any unauthorised use of your account.
-          You must be at least 18 years old to use VoiceStudio.
+          You must be at least 18 years old to use Voxora.
         </p>
       </Section>
 
       <Section title="4. Subscription Plans and Billing">
         <p style={{ marginBottom: 10 }}>
-          VoiceStudio offers the following subscription plans:
+          Voxora offers the following subscription plans:
         </p>
         <ul style={{ paddingLeft: 20, marginTop: 8, marginBottom: 10 }}>
           <li style={{ marginBottom: 6 }}><strong>Free:</strong> Limited usage with basic features. No payment required.</li>
@@ -223,7 +223,7 @@ export function TermsPage({ onBack }: { onBack?: () => void }) {
       </Section>
 
       <Section title="5. Acceptable Use">
-        <p style={{ marginBottom: 10 }}>You agree not to use VoiceStudio to:</p>
+        <p style={{ marginBottom: 10 }}>You agree not to use Voxora to:</p>
         <ul style={{ paddingLeft: 20 }}>
           <li style={{ marginBottom: 6 }}>Clone or impersonate another person's voice without their explicit consent</li>
           <li style={{ marginBottom: 6 }}>Generate audio designed to deceive, defraud, or harm others (deepfakes)</li>
@@ -237,7 +237,7 @@ export function TermsPage({ onBack }: { onBack?: () => void }) {
       <Section title="6. Your Content">
         <p>
           You retain ownership of the scripts, voice profiles, and audio you create. By using
-          VoiceStudio, you grant us a limited licence to store, process, and transmit your content
+          Voxora, you grant us a limited licence to store, process, and transmit your content
           solely as necessary to provide the service. We do not claim ownership of your content and
           will not use it to train models without your explicit consent.
         </p>
@@ -245,15 +245,15 @@ export function TermsPage({ onBack }: { onBack?: () => void }) {
 
       <Section title="7. Intellectual Property">
         <p>
-          VoiceStudio and its underlying software, design, and AI models are proprietary to{' '}
+          Voxora and its underlying software, design, and AI models are proprietary to{' '}
           {COMPANY}. You may not copy, modify, distribute, or reverse-engineer any part of the
-          platform. The VoiceStudio name and logo are trademarks of {COMPANY}.
+          platform. The Voxora name and logo are trademarks of {COMPANY}.
         </p>
       </Section>
 
       <Section title="8. Disclaimer of Warranties">
         <p>
-          VoiceStudio is provided "AS IS" without warranties of any kind. We do not guarantee that
+          Voxora is provided "AS IS" without warranties of any kind. We do not guarantee that
           the service will be uninterrupted, error-free, or meet your specific requirements. AI-generated
           audio quality may vary. We are not responsible for the accuracy of voice synthesis output.
         </p>
