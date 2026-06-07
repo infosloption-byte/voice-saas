@@ -400,8 +400,17 @@ import json as _json
 import urllib.request as _urllib_req
 import urllib.error as _urllib_err
 
-_ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-_GEMINI_KEY    = os.getenv("GEMINI_API_KEY", "")
+_GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
+
+# Gemini models tried in order — if one fails (quota/rate-limit/error),
+# the next is attempted automatically.
+GEMINI_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-3-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+]
 
 LANG_NAMES: dict[str, str] = {
     "en": "English", "es": "Spanish", "fr": "French", "de": "German",
@@ -438,26 +447,10 @@ def _http_post_json(url: str, payload: dict, headers: dict) -> dict:
             pass
         raise RuntimeError(f"HTTP {e.code}: {body or e.reason}") from None
 
-def _translate_anthropic(user_msg: str) -> str:
-    data = _http_post_json(
-        "https://api.anthropic.com/v1/messages",
-        {
-            "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 4096,
-            "system": _TRANSLATE_SYSTEM,
-            "messages": [{"role": "user", "content": user_msg}],
-        },
-        {
-            "x-api-key": _ANTHROPIC_KEY,
-            "anthropic-version": "2023-06-01",
-        },
-    )
-    return data["content"][0]["text"].strip()
-
-def _translate_gemini(user_msg: str) -> str:
+def _translate_gemini(model: str, user_msg: str) -> str:
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-2.5-flash:generateContent?key={_GEMINI_KEY}"
+        f"{model}:generateContent?key={_GEMINI_KEY}"
     )
     data = _http_post_json(
         url,
@@ -474,8 +467,8 @@ async def translate_text(
     body: TranslateRequest,
     _key: None = Depends(verify_api_key),
 ):
-    if not _ANTHROPIC_KEY and not _GEMINI_KEY:
-        raise HTTPException(503, "Translation is not configured (set ANTHROPIC_API_KEY or GEMINI_API_KEY).")
+    if not _GEMINI_KEY:
+        raise HTTPException(503, "Translation is not configured (set GEMINI_API_KEY).")
     if not body.text.strip():
         return {"translated_text": ""}
 
@@ -484,20 +477,13 @@ async def translate_text(
     user_msg = f"Translate the following text from {src} to {tgt}:\n\n{body.text}"
 
     errors: list[str] = []
-
-    if _ANTHROPIC_KEY:
+    for model in GEMINI_MODELS:
         try:
-            return {"translated_text": _translate_anthropic(user_msg), "provider": "anthropic"}
+            return {"translated_text": _translate_gemini(model, user_msg), "provider": model}
         except Exception as e:
-            errors.append(f"Anthropic: {e}")
+            errors.append(f"{model}: {e}")
 
-    if _GEMINI_KEY:
-        try:
-            return {"translated_text": _translate_gemini(user_msg), "provider": "gemini"}
-        except Exception as e:
-            errors.append(f"Gemini: {e}")
-
-    raise HTTPException(500, f"All translation providers failed: {'; '.join(errors)}")
+    raise HTTPException(500, f"All Gemini models failed: {'; '.join(errors)}")
 
 
 # ── FEATURE 1: TRANSCRIPTION ──────────────────────────────────────
