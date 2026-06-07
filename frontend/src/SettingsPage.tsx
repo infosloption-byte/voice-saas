@@ -98,7 +98,7 @@ export function SettingsPage({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <LogoMark size={22} />
             <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)', letterSpacing: '-0.1px' }}>
-              VoiceStudio
+              Voxora
             </span>
             <span style={{ color: 'var(--text-3)', fontSize: 13 }}>·</span>
             <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)' }}>Settings</span>
@@ -270,7 +270,7 @@ function ProfileSettings({ user, onSave, onProfileSaved }: { user: { name: strin
 
   return (
     <div>
-      <SettingsHeading title="Profile" desc="Your public identity within VoiceStudio." />
+      <SettingsHeading title="Profile" desc="Your public identity within Voxora." />
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 28, padding: 16, background: 'var(--bg-2)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)' }}>
         <div className="settings-avatar settings-avatar--lg">{name[0]?.toUpperCase()}</div>
         <div>
@@ -440,7 +440,7 @@ function AppearanceSettings({ darkMode, onToggleDark, onSave, sidebarCollapsed: 
 
   return (
     <div>
-      <SettingsHeading title="Appearance" desc="Customise how VoiceStudio looks and feels." />
+      <SettingsHeading title="Appearance" desc="Customise how Voxora looks and feels." />
       <SettingsRow label="Dark mode" hint="Switch between light and dark interface themes.">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ width: 15, height: 15, color: 'var(--text-3)' }}>{darkMode ? icons.dark : icons.light}</span>
@@ -494,7 +494,7 @@ function NotificationSettings({ onSave }: { onSave: () => void }) {
 
   return (
     <div>
-      <SettingsHeading title="Notifications" desc="Choose when VoiceStudio should alert you." />
+      <SettingsHeading title="Notifications" desc="Choose when Voxora should alert you." />
       <SettingsRow label="Synthesis complete" hint="Notify when a script has finished generating audio."><Toggle checked={synth} onChange={setSynth} /></SettingsRow>
       <SettingsRow label="Export complete" hint="Notify when a timeline export has finished."><Toggle checked={exports} onChange={setExports} /></SettingsRow>
       <SettingsRow label="Engine errors" hint="Alert if the local XTTS engine encounters a problem."><Toggle checked={errors} onChange={setErrors} /></SettingsRow>
