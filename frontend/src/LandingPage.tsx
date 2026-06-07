@@ -28,39 +28,60 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow }: LandingPageProps) 
     {
       icon: icons.mic,
       title: 'Voice Cloning',
-      desc: 'Capture your voice in seconds. XTTS-powered synthesis that sounds unmistakably like you — across any script.',
+      desc: 'Record or upload a short sample and Voxora captures your voice. Every script you write is spoken in a voice that sounds unmistakably like you.',
+    },
+    {
+      icon: icons.speaker,
+      title: 'Studio Voice Library',
+      desc: 'No sample to record? Choose from 30+ ready-made studio voices across genders and styles — generate professional audio in seconds.',
+    },
+    {
+      icon: icons.globe,
+      title: '16 Languages + Translation',
+      desc: 'Write in one language and translate your whole script to another with one click. Generate natural speech in English, Spanish, French, Japanese, Arabic, Hindi, and more.',
+    },
+    {
+      icon: icons.music,
+      title: '9 Emotion Styles',
+      desc: 'Shape the delivery — Natural, Cheerful, Dramatic, Whisper, Storytelling and more. Fine-tune expressiveness with advanced controls when you need precision.',
+    },
+    {
+      icon: icons.upload,
+      title: 'Audio → Script',
+      desc: 'Upload existing audio and Voxora transcribes it into an editable script automatically, ready to re-voice, translate, or restyle.',
+    },
+    {
+      icon: icons.profiles,
+      title: 'Multi-Voice Scripts',
+      desc: 'Assign different voices to different speakers in a single script. Perfect for dialogue, interviews, and character-driven narration.',
     },
     {
       icon: icons.assembly,
       title: 'Timeline Assembly',
-      desc: 'Drag, trim, and arrange audio clips on a precision timeline. Layer silence, adjust volume, and export in one click.',
-    },
-    {
-      icon: icons.globe,
-      title: '16 Languages',
-      desc: 'Speak to a global audience. Generate natural-sounding speech in English, Spanish, French, Japanese, and more.',
-    },
-    {
-      icon: icons.bolt,
-      title: 'Fast Synthesis',
-      desc: 'Local inference means no cloud latency. Your scripts become audio in moments, privately, on your own machine.',
+      desc: 'Arrange, trim, and split clips across multiple lanes on a precision timeline. Layer silence, navigate with the minimap, and zoom right to the frame.',
     },
     {
       icon: icons.download,
       title: 'Lossless Export',
-      desc: 'Export individual clips or full assembled tracks as high-quality WAV. Your audio, your ownership.',
+      desc: 'Export individual clips or your full assembled track as high-quality WAV. Your audio, ready for any platform.',
     },
     {
-      icon: icons.assembly,
+      icon: icons.projects,
       title: 'Project Workspaces',
-      desc: 'Organise episodes, campaigns, or audiobooks into projects. Every script, clip, and profile — right where you left it.',
+      desc: 'Organise episodes, campaigns, or audiobooks into projects. Every script, clip, voice, and setting — saved in the cloud and synced everywhere.',
     },
+  ]
+
+  const steps = [
+    { n: '1', title: 'Pick a voice', desc: 'Clone your own in seconds or choose from the studio library.' },
+    { n: '2', title: 'Write or import', desc: 'Type a script, paste text, or upload audio to transcribe.' },
+    { n: '3', title: 'Generate & assemble', desc: 'Synthesize, arrange on the timeline, and export your WAV.' },
   ]
 
   const testimonials = [
     { name: 'Maria K.', role: 'Podcast Producer', quote: 'I replaced my entire voiceover workflow. Three hours of re-recording became ten minutes.' },
     { name: 'James T.', role: 'YouTube Creator', quote: 'The timeline editor feels like a proper DAW. I\'m actually shipping videos faster now.' },
-    { name: 'Priya S.', role: 'E-learning Author', quote: 'Multilingual versions of every lesson, all from one recording session. Incredible.' },
+    { name: 'Priya S.', role: 'E-learning Author', quote: 'Multilingual versions of every lesson, translated and voiced from one script. Incredible.' },
   ]
 
   return (
@@ -74,7 +95,7 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow }: LandingPageProps) 
         backdropFilter: 'blur(8px)',
       }}>
         <LogoMark size={30} />
-        <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: '-0.2px', color: 'var(--text-1)' }}>VoiceStudio</span>
+        <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: '-0.2px', color: 'var(--text-1)' }}>Voxora</span>
         <span style={{
           fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 99,
           background: 'var(--accent-lt)', color: 'var(--accent)',
@@ -87,8 +108,12 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow }: LandingPageProps) 
           onClick={e => { e.preventDefault(); document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }) }}>
           Features
         </a>
+        <a href="#how" className="landing__nav-link" style={{ fontSize: 13, color: 'var(--text-2)', textDecoration: 'none', fontWeight: 500 }}
+          onClick={e => { e.preventDefault(); document.getElementById('how')?.scrollIntoView({ behavior: 'smooth' }) }}>
+          How it works
+        </a>
         <button className="btn btn--ghost" style={{ fontSize: 13 }} onClick={onSignIn}>Sign in</button>
-        <button className="btn btn--primary" style={{ fontSize: 13 }} onClick={onSignUp}>Subscribe</button>
+        <button className="btn btn--primary" style={{ fontSize: 13 }} onClick={onSignUp}>Get started</button>
       </nav>
 
       {/* ── Hero ── */}
@@ -105,7 +130,7 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow }: LandingPageProps) 
           textTransform: 'uppercase',
         }}>
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)', flexShrink: 0, animation: 'blink 2.5s infinite' }} />
-          Local AI · No cloud · Your voice
+          AI voice studio · In your browser
         </div>
 
         <h1 style={{
@@ -118,16 +143,17 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow }: LandingPageProps) 
         </h1>
 
         <p style={{
-          fontSize: 17, color: 'var(--text-2)', maxWidth: 560, lineHeight: 1.65,
+          fontSize: 17, color: 'var(--text-2)', maxWidth: 580, lineHeight: 1.65,
           fontWeight: 400,
         }}>
-          VoiceStudio lets you clone your voice once and generate professional audio for podcasts,
-          videos, and e-learning — entirely on your own machine.
+          Voxora is a complete cloud voice studio. Clone your voice or pick a studio one,
+          write or translate a script, shape the emotion, and assemble the final audio —
+          all in your browser, nothing to install.
         </p>
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
           <button className="btn btn--primary" style={{ padding: '11px 24px', fontSize: 14, gap: 7 }} onClick={onSignUp}>
-            {icons.bolt} Subscribe & Get Full Access
+            {icons.bolt} Start for free
           </button>
           <button className="btn btn--ghost" style={{ padding: '11px 24px', fontSize: 14 }} onClick={onSignIn}>
             Sign in
@@ -168,8 +194,9 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow }: LandingPageProps) 
         <div className="landing__hero-stats" style={{ display: 'flex', gap: 40, marginTop: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
           {[
             { val: '16', label: 'Languages' },
-            { val: '100%', label: 'Local & private' },
-            { val: '< 5s', label: 'Synthesis time' },
+            { val: '30+', label: 'Studio voices' },
+            { val: '9', label: 'Emotion styles' },
+            { val: '0', label: 'To install' },
           ].map(s => (
             <div key={s.label} style={{ textAlign: 'center' }}>
               <div style={{ fontFamily: 'var(--serif)', fontSize: 30, fontWeight: 400, color: 'var(--text-1)', lineHeight: 1 }}>{s.val}</div>
@@ -187,7 +214,7 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow }: LandingPageProps) 
             fontWeight: 400, letterSpacing: '-0.8px', color: 'var(--text-1)',
           }}>Everything you need to produce studio-quality audio</h2>
           <p style={{ fontSize: 15, color: 'var(--text-2)', marginTop: 10 }}>
-            One tool. Script to final audio — without leaving your browser.
+            One platform. Script to final audio — without leaving your browser.
           </p>
         </div>
 
@@ -225,8 +252,39 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow }: LandingPageProps) 
         </div>
       </section>
 
+      {/* ── How it works ── */}
+      <section id="how" className="landing__how" style={{ padding: '64px 48px', background: 'var(--bg)' }}>
+        <div style={{ textAlign: 'center', marginBottom: 40 }}>
+          <h2 style={{
+            fontFamily: 'var(--serif)', fontSize: 'clamp(24px, 3.5vw, 36px)',
+            fontWeight: 400, letterSpacing: '-0.6px', color: 'var(--text-1)',
+          }}>From idea to audio in three steps</h2>
+        </div>
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16,
+          maxWidth: 880, margin: '0 auto',
+        }} className="landing__how-grid">
+          {steps.map(s => (
+            <div key={s.n} style={{
+              background: 'var(--bg-2)', border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-lg)', padding: '24px 22px',
+              display: 'flex', flexDirection: 'column', gap: 10,
+            }}>
+              <div style={{
+                width: 34, height: 34, borderRadius: '50%',
+                background: 'var(--accent)', color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontWeight: 700, fontSize: 15, fontFamily: 'var(--serif)',
+              }}>{s.n}</div>
+              <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-1)' }}>{s.title}</div>
+              <div style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.6 }}>{s.desc}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* ── Testimonials ── */}
-      <section className="landing__testimonials" style={{ padding: '64px 48px', background: 'var(--bg)' }}>
+      <section className="landing__testimonials" style={{ padding: '64px 48px', background: 'var(--bg-2)' }}>
         <h2 style={{
           fontFamily: 'var(--serif)', fontSize: 'clamp(22px, 3vw, 34px)',
           textAlign: 'center', fontWeight: 400, letterSpacing: '-0.5px',
@@ -238,7 +296,7 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow }: LandingPageProps) 
         }}>
           {testimonials.map(t => (
             <div key={t.name} style={{
-              background: 'var(--bg-2)', border: '1px solid var(--border)',
+              background: 'var(--surface)', border: '1px solid var(--border)',
               borderRadius: 'var(--radius-lg)', padding: '20px',
             }}>
               <p style={{
@@ -265,14 +323,14 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow }: LandingPageProps) 
       {/* ── CTA ── */}
       <section className="landing__cta" style={{
         padding: '64px 48px', textAlign: 'center',
-        background: 'var(--bg-2)', borderTop: '1px solid var(--border)',
+        background: 'var(--bg)', borderTop: '1px solid var(--border)',
       }}>
         <h2 style={{
           fontFamily: 'var(--serif)', fontSize: 'clamp(26px, 4vw, 42px)',
           fontWeight: 400, letterSpacing: '-0.8px', color: 'var(--text-1)', marginBottom: 14,
         }}>Ready to hear yourself?</h2>
         <p style={{ fontSize: 15, color: 'var(--text-2)', marginBottom: 28 }}>
-          Set up takes under two minutes. No account required to try.
+          Start free in under two minutes — no credit card, no install.
         </p>
         <button className="btn btn--primary" style={{ padding: '12px 28px', fontSize: 15 }} onClick={onSignUp}>
           Create your workspace →
@@ -287,9 +345,9 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow }: LandingPageProps) 
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <LogoMark size={18} />
-          <span>VoiceStudio</span>
+          <span>Voxora</span>
         </div>
-        <span>© {new Date().getFullYear()} — Local AI voice synthesis</span>
+        <span>© {new Date().getFullYear()} Voxora — AI voice synthesis in the cloud</span>
         <div style={{ display: 'flex', gap: 16 }}>
           <button style={{ background: 'none', border: 'none', fontSize: 12, color: 'var(--text-3)', cursor: 'pointer' }} onClick={onSignIn}>Sign in</button>
           <button style={{ background: 'none', border: 'none', fontSize: 12, color: 'var(--text-3)', cursor: 'pointer' }} onClick={onSignUp}>Sign up</button>

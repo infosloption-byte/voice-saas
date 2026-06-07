@@ -50,7 +50,7 @@ function AuthVisualContent() {
         Your voice,<br /><span style={{ color: 'var(--accent-2)', fontStyle: 'italic' }}>amplified.</span>
       </h2>
       <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.55)', maxWidth: 280, lineHeight: 1.7 }}>
-        Clone your voice once. Generate endless audio in 16 languages — privately, on your machine.
+        Clone your voice once. Generate endless audio in 16 languages — right from your browser.
       </p>
       {/* Mini waveform */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 2.5, height: 42, opacity: 0.7 }}>
@@ -67,7 +67,7 @@ function AuthVisualContent() {
       </div>
       {/* Feature pills */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', maxWidth: 300 }}>
-        {['16 languages', 'Local & private', 'Timeline editor', 'WAV export'].map(tag => (
+        {['16 languages', 'Voice cloning', 'Timeline editor', 'WAV export'].map(tag => (
           <span key={tag} style={{
             fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 99,
             background: 'rgba(201,100,66,0.15)', color: 'rgba(255,255,255,0.75)',
@@ -113,7 +113,7 @@ export function SignInPage({ onSignIn, onSignUp, onBack, onForgotPassword }: Sig
       <div className="auth-brand" style={{ marginBottom: 40 }}>
         <button style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: onBack ? 'pointer' : 'default', padding: 0 }} onClick={onBack}>
           <LogoMark size={28} />
-          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)' }}>VoiceStudio</span>
+          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)' }}>Voxora</span>
         </button>
       </div>
 
@@ -251,7 +251,7 @@ export function SignUpPage({ onSignUp, onSignIn, onBack, onTerms, onPrivacy }: S
       <div className="auth-brand" style={{ marginBottom: 36 }}>
         <button style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: onBack ? 'pointer' : 'default', padding: 0 }} onClick={onBack}>
           <LogoMark size={28} />
-          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)' }}>VoiceStudio</span>
+          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)' }}>Voxora</span>
         </button>
       </div>
 
@@ -382,7 +382,7 @@ export function ForgotPasswordPage({ onBack }: { onBack?: () => void }) {
       <div className="auth-brand" style={{ marginBottom: 40 }}>
         <button style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: onBack ? 'pointer' : 'default', padding: 0 }} onClick={onBack}>
           <LogoMark size={28} />
-          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)' }}>VoiceStudio</span>
+          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)' }}>Voxora</span>
         </button>
       </div>
 
@@ -490,7 +490,7 @@ export function ResetPasswordPage({ token, email: initialEmail, onSuccess, onBac
       <div className="auth-brand" style={{ marginBottom: 40 }}>
         <button style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: onBack ? 'pointer' : 'default', padding: 0 }} onClick={onBack}>
           <LogoMark size={28} />
-          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)' }}>VoiceStudio</span>
+          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)' }}>Voxora</span>
         </button>
       </div>
 

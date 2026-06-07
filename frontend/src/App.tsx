@@ -40,7 +40,7 @@ function CookieConsent({ onAccept, onDecline }: { onAccept: () => void; onDeclin
       animation: 'modal-in 0.2s ease',
     }}>
       <div style={{ flex: 1, fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.6 }}>
-        VoiceStudio uses essential cookies for authentication and your preferences.
+        Voxora uses essential cookies for authentication and your preferences.
         No advertising or tracking cookies are used.{' '}
       </div>
       <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
@@ -517,8 +517,8 @@ export default function App() {
 
       <aside className={`sidebar ${sidebarOpen ? 'sidebar--open' : ''}`}>
         <div className="sidebar__logo">
-          <div className="logo-mark" onClick={expandSidebar} style={{ cursor: 'pointer' }} title="VoiceStudio">V</div>
-          <span className="logo-name">VoiceStudio</span>
+          <div className="logo-mark" onClick={expandSidebar} style={{ cursor: 'pointer' }} title="Voxora">V</div>
+          <span className="logo-name">Voxora</span>
           <span className="logo-badge">AI</span>
           <button
             className="sidebar__close btn btn--ghost btn--sm"
@@ -663,7 +663,7 @@ export default function App() {
 
           <div className="topbar__brand" onClick={() => setPage('dashboard')}>
             <div className="logo-mark">V</div>
-            <span className="logo-name">VoiceStudio</span>
+            <span className="logo-name">Voxora</span>
           </div>
 
           {page === 'workspace' && (activeProject || (guestMode && guestProject.project)) ? (() => {
