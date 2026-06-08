@@ -51,6 +51,7 @@ export interface Script {
   duration: number | null
   speed: number          // 0.5–2.0
   tone: string           // 'natural' | 'expressive' | 'calm' | 'energetic'
+  engine?: string        // 'xtts' | 'f5' — engine that last produced this script's audio
   speakerMap?: Record<string, string>  // speaker label → profile_id
   waveformPeaks?: number[]
   audioUrl?: string       // server-side audio backup URL (storage path)

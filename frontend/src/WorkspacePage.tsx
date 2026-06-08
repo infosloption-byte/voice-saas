@@ -461,6 +461,7 @@ export function WorkspacePage({
         hasAudio:      true,
         profileId:     pid,
         language:      script.language || 'en',
+        engine:        ttsEngine,
         duration,
         waveformPeaks: peaks,
       })
@@ -516,6 +517,7 @@ export function WorkspacePage({
       const fd = new FormData()
       fd.append('text', text)
       fd.append('file', voiceBlob, 'voice.wav')
+      fd.append('tts_engine', engine)
 
       let blob = await api.enginePost('/clone-voice', fd) as Blob
       blob = await trimSilence(blob)
@@ -544,7 +546,7 @@ export function WorkspacePage({
         peaks = rawPeaks.map(p => p / Math.max(...rawPeaks, 0.001))
         await audioCtx.close()
         await saveAudioBlob(`audio_${script.id}`, blob)
-        onUpdateScript(script.id, { hasAudio: true, duration, waveformPeaks: peaks })
+        onUpdateScript(script.id, { hasAudio: true, engine, duration, waveformPeaks: peaks })
       } catch {
         // Non-critical — playback still works
       }
@@ -835,7 +837,7 @@ export function WorkspacePage({
               {
                 id: 'f5' as TTSEngine,
                 label: 'F5-TTS',
-                desc: 'Flow-matching · natural prosody · English-first',
+                desc: 'Flow-matching · natural prosody · English · all voices',
                 color: '#4278c9',
                 available: engineCaps.f5,
               },
@@ -1534,8 +1536,8 @@ export function WorkspacePage({
                 const displayName = isBuiltinSel
                   ? (builtinVp?.name ?? currentId.replace('builtin:', ''))
                   : (currentVp?.name ?? (voiceProfiles[0]?.name ?? 'Voice'))
-                // Only show picker if there are real profiles OR engine supports built-ins
-                if (!voiceProfiles.length && engine === 'f5') return null
+                // Always show picker — built-in voices now work with both engines
+                if (!voiceProfiles.length && !BUILT_IN_VOICES.length) return null
                 return (
                   <div style={{ position: 'relative' }}>
                     <button
@@ -1566,8 +1568,8 @@ export function WorkspacePage({
                               </button>
                             ))}
                           </>}
-                          {/* Built-in library — XTTS only */}
-                          {engine !== 'f5' && <>
+                          {/* Built-in library — works with both XTTS and F5 */}
+                          {true && <>
                             <div style={{ padding: '8px 12px 6px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)', borderTop: voiceProfiles.length ? '1px solid var(--border-2)' : undefined, marginTop: voiceProfiles.length ? 4 : 0 }}>Voxora Library</div>
                             {BUILT_IN_VOICES.map(bv => (
                               <button key={bv.id} onClick={() => { onUpdateScript(activeScript.id, { profileId: bv.id }); setShowVoiceMenu(false) }}

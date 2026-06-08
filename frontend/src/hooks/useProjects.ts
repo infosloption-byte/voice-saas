@@ -144,6 +144,7 @@ export function useProjects(): UseProjectsReturn {
       duration: null,
       speed: defaultSpeed,
       tone: 'natural',
+      engine: 'xtts',
     }
 
     let orderIndex = 0
@@ -163,6 +164,7 @@ export function useProjects(): UseProjectsReturn {
         language: script.language,
         duration: null,
         speed: script.speed,
+        engine: script.engine,
         order_index: orderIndex,
       })
       return script
@@ -202,6 +204,7 @@ export function useProjects(): UseProjectsReturn {
     if ('duration'      in update) payload.duration       = update.duration
     if ('speed'         in update) payload.speed          = update.speed
     if ('tone'          in update) payload.tone           = update.tone
+    if ('engine'        in update) payload.engine         = update.engine
     if ('speakerMap'    in update) payload.speaker_map    = update.speakerMap
     if ('waveformPeaks'   in update) payload.waveform_peaks    = update.waveformPeaks
     if ('audioUrl'        in update) payload.audio_url         = update.audioUrl
