@@ -199,18 +199,6 @@ export function WorkspacePage({
     }
   }, [engine, engineCaps.f5, engineCaps.xtts, setEngine])
 
-  // F5-TTS can't use the built-in Voxora library voices (it clones from a
-  // custom reference only). If the active script still points at a built-in
-  // voice when F5 is selected, switch it to the first custom profile so the
-  // toolbar and the request stay coherent.
-  useEffect(() => {
-    if (engine !== 'f5' || !activeScript) return
-    const pid = activeScript.profileId ?? ''
-    if (pid.startsWith('builtin:') && voiceProfiles.length > 0) {
-      onUpdateScript(activeScript.id, { profileId: voiceProfiles[0].profile_id })
-    }
-  }, [engine, activeScript, voiceProfiles, onUpdateScript])
-
   // ── Reset editor when active script changes ───────────────────────
   useEffect(() => {
     const content = activeScript?.content ?? ''
@@ -849,7 +837,7 @@ export function WorkspacePage({
               {
                 id: 'f5' as TTSEngine,
                 label: 'F5-TTS',
-                desc: 'Flow-matching · natural prosody · English-first',
+                desc: 'Flow-matching · natural prosody · English · all voices',
                 color: '#4278c9',
                 available: engineCaps.f5,
               },
@@ -1548,8 +1536,8 @@ export function WorkspacePage({
                 const displayName = isBuiltinSel
                   ? (builtinVp?.name ?? currentId.replace('builtin:', ''))
                   : (currentVp?.name ?? (voiceProfiles[0]?.name ?? 'Voice'))
-                // Only show picker if there are real profiles OR engine supports built-ins
-                if (!voiceProfiles.length && engine === 'f5') return null
+                // Always show picker — built-in voices now work with both engines
+                if (!voiceProfiles.length && !BUILT_IN_VOICES.length) return null
                 return (
                   <div style={{ position: 'relative' }}>
                     <button
@@ -1580,8 +1568,8 @@ export function WorkspacePage({
                               </button>
                             ))}
                           </>}
-                          {/* Built-in library — XTTS only */}
-                          {engine !== 'f5' && <>
+                          {/* Built-in library — works with both XTTS and F5 */}
+                          {true && <>
                             <div style={{ padding: '8px 12px 6px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)', borderTop: voiceProfiles.length ? '1px solid var(--border-2)' : undefined, marginTop: voiceProfiles.length ? 4 : 0 }}>Voxora Library</div>
                             {BUILT_IN_VOICES.map(bv => (
                               <button key={bv.id} onClick={() => { onUpdateScript(activeScript.id, { profileId: bv.id }); setShowVoiceMenu(false) }}

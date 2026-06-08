@@ -64,6 +64,9 @@ def f5_usable() -> bool:
 VOICES_DIR = "voice_profiles"
 os.makedirs(VOICES_DIR, exist_ok=True)
 
+BUILTIN_REFS_DIR = "builtin_refs"
+os.makedirs(BUILTIN_REFS_DIR, exist_ok=True)
+
 TMP_DIR = tempfile.gettempdir()
 
 # ── Security ───────────────────────────────────────────────────────
@@ -86,6 +89,59 @@ def parse_builtin_speaker(raw: str) -> tuple[bool, str]:
     if raw.startswith("builtin:"):
         return True, raw[len("builtin:"):]
     return False, ""
+
+# Short, natural sentence used to generate each built-in voice's reference clip.
+# Long enough for F5 to capture speaker character; short enough to be fast.
+_BUILTIN_REF_TEXT = (
+    "Welcome to Voxora. I can bring any script to life with a natural, expressive voice."
+)
+
+_builtin_ref_lock = __import__("threading").Lock()
+
+def get_builtin_ref_wav(speaker_name: str) -> str:
+    """Return the path to a reference WAV for the named XTTS built-in speaker.
+
+    On first call for a given speaker, synthesizes a short clip using XTTS and
+    caches it under builtin_refs/<safe_name>.wav so F5-TTS can use it as a
+    voice reference. Thread-safe; raises RuntimeError if XTTS is not loaded.
+    """
+    safe = re.sub(r'[^\w\-]', '_', speaker_name)[:80]
+    cache_path = os.path.join(BUILTIN_REFS_DIR, f"{safe}.wav")
+
+    if os.path.exists(cache_path) and os.path.getsize(cache_path) > 0:
+        return cache_path
+
+    with _builtin_ref_lock:
+        # Double-check under lock — another thread may have written it first.
+        if os.path.exists(cache_path) and os.path.getsize(cache_path) > 0:
+            return cache_path
+
+        xtts = models.get("xtts")
+        if xtts is None:
+            raise RuntimeError("XTTS v2 is not loaded — cannot generate built-in voice reference.")
+
+        print(f"[builtin_ref] Generating reference clip for '{speaker_name}'…")
+        tmp = cache_path + ".tmp"
+        try:
+            xtts.tts_to_file(
+                text=_BUILTIN_REF_TEXT,
+                speaker=speaker_name,
+                language="en",
+                file_path=tmp,
+                temperature=0.65,
+                top_k=50,
+                top_p=0.85,
+                speed=1.0,
+                enable_text_splitting=False,
+            )
+            os.replace(tmp, cache_path)  # atomic on POSIX
+            print(f"[builtin_ref] Cached → {cache_path}")
+        except Exception as e:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            raise RuntimeError(f"Failed to generate built-in voice reference for '{speaker_name}': {e}") from e
+
+    return cache_path
 
 async def check_file_size(file: UploadFile) -> UploadFile:
     """Reject uploads over MAX_UPLOAD_BYTES to prevent memory exhaustion."""
@@ -638,9 +694,16 @@ def synthesize_segment(text: str, engine: str,
         chunk_path = tmp_path(f"seg_chunk_{i}", ".wav")
         chunk_paths.append(chunk_path)
         if engine == "f5":
-            if ref_wav is None:
-                raise HTTPException(400, "F5-TTS requires a custom voice profile.")
-            synthesize_chunk_f5(chunk=chunk, ref_wav=ref_wav, speed=speed, chunk_path=chunk_path)
+            # If a custom ref WAV was supplied, use it directly.
+            # If this is a built-in XTTS speaker, lazily generate (and cache) a
+            # reference clip using XTTS so F5 can clone that voice character.
+            f5_ref = ref_wav
+            if f5_ref is None:
+                if speaker_name:
+                    f5_ref = get_builtin_ref_wav(speaker_name)
+                else:
+                    raise HTTPException(400, "F5-TTS requires a voice reference (custom profile or built-in speaker).")
+            synthesize_chunk_f5(chunk=chunk, ref_wav=f5_ref, speed=speed, chunk_path=chunk_path)
         else:
             kwargs: dict = dict(
                 text=chunk,
@@ -776,7 +839,11 @@ async def synthesize(
         else:
             # ── Single-voice path ─────────────────────────────────
             if is_builtin_voice:
-                ref_wav_path: str | None = None
+                if engine == "f5":
+                    # F5 needs an actual WAV — lazily generate & cache from XTTS.
+                    ref_wav_path: str | None = get_builtin_ref_wav(builtin_speaker)
+                else:
+                    ref_wav_path = None   # XTTS uses speaker= kwarg instead
             else:
                 ref_wav_path = os.path.join(VOICES_DIR, f"{profile_id}.wav")
                 if not os.path.exists(ref_wav_path):
