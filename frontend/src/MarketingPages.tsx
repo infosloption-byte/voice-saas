@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { VoxNav, VoxFooter } from './LandingPage'
 import { icons } from './constants'
 import './landing.css'
@@ -50,6 +51,392 @@ function SHead({ pre, title, accent, sub }: { pre?: string; title: string; accen
       <h2 className="vox-h2">{title}{accent && <> <span className="vox-grad-text">{accent}</span></>}</h2>
       {sub && <p className="vox-lead" style={{ marginTop: 16 }}>{sub}</p>}
     </div>
+  )
+}
+
+// ── Animated platform UI mockups ─────────────────────────────────
+
+const px = {
+  bg: '#12111a',
+  card: '#1c1a28',
+  border: '#2e2b44',
+  accent: '#a78bfa',
+  coral: '#f87171',
+  text1: '#e8e6f0',
+  text2: '#9490b5',
+  text3: '#5a5673',
+  green: '#34d399',
+  blue: '#60a5fa',
+  yellow: '#fbbf24',
+}
+
+function MockFrame({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+  return (
+    <div style={{
+      background: px.bg,
+      border: `1px solid ${px.border}`,
+      borderRadius: 14,
+      overflow: 'hidden',
+      width: '100%',
+      aspectRatio: '16/10',
+      position: 'relative',
+      ...style,
+    }}>
+      {/* titlebar dots */}
+      <div style={{ display: 'flex', gap: 6, padding: '10px 14px 8px', borderBottom: `1px solid ${px.border}` }}>
+        <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#f87171', opacity: 0.7 }} />
+        <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#fbbf24', opacity: 0.7 }} />
+        <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#34d399', opacity: 0.7 }} />
+      </div>
+      <div style={{ padding: '14px 16px', height: 'calc(100% - 32px)', overflow: 'hidden', boxSizing: 'border-box' }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function MockSynthesizeVoice() {
+  const [active, setActive] = useState(0)
+  const voices = ['Claribel', 'Daisy', 'Your Clone']
+  const emotions = ['Natural', 'Calm', 'Energetic', 'Whisper']
+  const [generating, setGenerating] = useState(false)
+  const [done, setDone] = useState(false)
+
+  useEffect(() => {
+    const t = setInterval(() => setActive(a => (a + 1) % voices.length), 2200)
+    return () => clearInterval(t)
+  }, [])
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      setGenerating(true); setDone(false)
+      setTimeout(() => { setGenerating(false); setDone(true) }, 1400)
+      setTimeout(() => setDone(false), 3200)
+    }, 4000)
+    return () => clearInterval(t)
+  }, [])
+
+  return (
+    <MockFrame>
+      {/* voice picker row */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+        {voices.map((v, i) => (
+          <div key={v} style={{
+            padding: '5px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+            background: i === active ? px.accent : px.card,
+            color: i === active ? '#fff' : px.text2,
+            border: `1px solid ${i === active ? px.accent : px.border}`,
+            transition: 'all 0.4s',
+            cursor: 'pointer',
+          }}>{v}</div>
+        ))}
+      </div>
+      {/* emotion strip */}
+      <div style={{ display: 'flex', gap: 5, marginBottom: 14 }}>
+        {emotions.map((e, i) => (
+          <div key={e} style={{
+            padding: '3px 9px', borderRadius: 12, fontSize: 10,
+            background: i === 0 ? '#3b3458' : 'transparent',
+            color: i === 0 ? px.accent : px.text3,
+            border: `1px solid ${i === 0 ? px.accent : px.border}`,
+          }}>{e}</div>
+        ))}
+      </div>
+      {/* script box */}
+      <div style={{
+        background: px.card, borderRadius: 8, border: `1px solid ${px.border}`,
+        padding: '10px 12px', fontSize: 11, color: px.text1, lineHeight: 1.6, marginBottom: 12,
+      }}>
+        Welcome to this episode. Today we explore<br />
+        the future of AI-powered voice synthesis.
+        <span style={{
+          display: 'inline-block', width: 2, height: 12, background: px.accent,
+          marginLeft: 3, verticalAlign: 'middle',
+          animation: 'vox-blink 1s steps(1) infinite',
+        }} />
+      </div>
+      {/* generate button + waveform */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{
+          padding: '7px 18px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+          background: generating ? '#3b3458' : done ? px.green : `linear-gradient(90deg,${px.accent},#818cf8)`,
+          color: '#fff', cursor: 'pointer', transition: 'all 0.3s', whiteSpace: 'nowrap',
+        }}>
+          {generating ? '⏳ Generating…' : done ? '✓ Clip saved' : '▶ Generate'}
+        </div>
+        {done && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            {[4,7,10,6,9,5,8,11,4,7,9,5].map((h, i) => (
+              <div key={i} style={{
+                width: 3, height: h, borderRadius: 2,
+                background: `linear-gradient(180deg,${px.accent},#818cf8)`,
+                opacity: 0.85,
+              }} />
+            ))}
+          </div>
+        )}
+      </div>
+    </MockFrame>
+  )
+}
+
+function MockEmotionEditor() {
+  const [sel, setSel] = useState(1)
+  const scripts = [
+    { name: 'Intro', emotion: 'Whisper', color: px.blue },
+    { name: 'Chapter 1', emotion: 'Energetic', color: px.coral },
+    { name: 'Outro', emotion: 'Calm', color: px.green },
+  ]
+  useEffect(() => {
+    const t = setInterval(() => setSel(s => (s + 1) % scripts.length), 2000)
+    return () => clearInterval(t)
+  }, [])
+  const emotions = ['Natural', 'Calm', 'Energetic', 'Cheerful', 'Whisper', 'Dramatic']
+  return (
+    <MockFrame>
+      <div style={{ display: 'flex', gap: 10, height: '100%' }}>
+        {/* script list */}
+        <div style={{ width: 110, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {scripts.map((s, i) => (
+            <div key={s.name} onClick={() => setSel(i)} style={{
+              padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
+              background: i === sel ? px.card : 'transparent',
+              border: `1px solid ${i === sel ? s.color : px.border}`,
+              transition: 'all 0.3s',
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: i === sel ? px.text1 : px.text3, marginBottom: 3 }}>{s.name}</div>
+              <div style={{ fontSize: 9, color: s.color, fontWeight: 600 }}>{s.emotion}</div>
+            </div>
+          ))}
+        </div>
+        {/* emotion picker */}
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 10, color: px.text3, marginBottom: 8, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Emotion</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
+            {emotions.map(e => (
+              <div key={e} style={{
+                padding: '6px 8px', borderRadius: 7, fontSize: 10, fontWeight: 600, textAlign: 'center',
+                background: e === scripts[sel].emotion ? scripts[sel].color + '33' : px.card,
+                color: e === scripts[sel].emotion ? scripts[sel].color : px.text2,
+                border: `1px solid ${e === scripts[sel].emotion ? scripts[sel].color : px.border}`,
+                transition: 'all 0.4s',
+              }}>{e}</div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </MockFrame>
+  )
+}
+
+function MockMultiLane() {
+  const lanes = [
+    { label: 'Voice', color: px.accent, clips: [[0,38],[45,72],[78,95]] },
+    { label: 'Music', color: px.blue,   clips: [[0,100]] },
+    { label: 'SFX',   color: px.yellow, clips: [[2,12],[50,62]] },
+  ]
+  return (
+    <MockFrame>
+      {/* timeline header */}
+      <div style={{ display: 'flex', gap: 2, marginBottom: 8 }}>
+        {Array.from({ length: 10 }, (_, i) => (
+          <div key={i} style={{ flex: 1, fontSize: 8, color: px.text3, textAlign: 'center' }}>{i * 10}s</div>
+        ))}
+      </div>
+      {/* lanes */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {lanes.map(lane => (
+          <div key={lane.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 36, fontSize: 9, fontWeight: 700, color: lane.color, flexShrink: 0, textAlign: 'right' }}>{lane.label}</div>
+            <div style={{ flex: 1, height: 24, background: px.card, borderRadius: 6, position: 'relative', border: `1px solid ${px.border}` }}>
+              {lane.clips.map(([s, e], ci) => (
+                <div key={ci} style={{
+                  position: 'absolute', left: `${s}%`, width: `${e - s}%`, top: 2, bottom: 2,
+                  background: lane.color + '55', border: `1px solid ${lane.color}`,
+                  borderRadius: 4,
+                }} />
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <div style={{ width: 22, height: 22, borderRadius: 6, border: `1px solid ${px.border}`, background: px.card, display: 'grid', placeItems: 'center', fontSize: 9, color: px.text3 }}>M</div>
+              <div style={{ width: 22, height: 22, borderRadius: 6, border: `1px solid ${px.border}`, background: px.card, display: 'grid', placeItems: 'center', fontSize: 9, color: px.text3 }}>S</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {/* playhead */}
+      <div style={{ position: 'relative', marginTop: 6, height: 20 }}>
+        <div style={{
+          position: 'absolute', left: '28%', top: 0, bottom: 0,
+          width: 1, background: px.coral, opacity: 0.8,
+        }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: px.coral, marginLeft: -2.5 }} />
+        </div>
+        <div style={{ fontSize: 8, color: px.text3, paddingTop: 6, paddingLeft: 4 }}>▶ 0:27.4</div>
+      </div>
+    </MockFrame>
+  )
+}
+
+function MockMinimap() {
+  return (
+    <MockFrame>
+      {/* minimap strip at top */}
+      <div style={{
+        background: px.card, border: `1px solid ${px.border}`, borderRadius: 8,
+        height: 36, marginBottom: 12, position: 'relative', overflow: 'hidden',
+      }}>
+        <div style={{ fontSize: 8, color: px.text3, padding: '4px 8px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Overview</div>
+        {/* clip blobs in minimap */}
+        {[[3,18,px.accent],[22,40,px.blue],[44,55,px.accent],[60,80,px.yellow],[83,97,px.blue]].map(([l,r,c],i)=>(
+          <div key={i} style={{
+            position:'absolute',bottom:4,left:`${l}%`,width:`${(r as number)-(l as number)}%`,height:10,
+            background: (c as string)+'66', borderRadius:3,
+          }}/>
+        ))}
+        {/* viewport rect */}
+        <div style={{
+          position:'absolute',left:'30%',top:0,bottom:0,width:'35%',
+          background:'rgba(167,139,250,0.15)',border:'1px solid '+px.accent,
+          borderRadius:4,
+        }}/>
+      </div>
+      {/* main timeline (zoomed) */}
+      <div style={{ display:'flex',flexDirection:'column',gap:6 }}>
+        {[px.accent, px.blue, px.yellow].map((c,i)=>(
+          <div key={i} style={{ height:22, background:px.card, border:`1px solid ${px.border}`, borderRadius:6, position:'relative', overflow:'hidden' }}>
+            <div style={{
+              position:'absolute',left:`${5+i*8}%`,width:`${40-i*4}%`,top:2,bottom:2,
+              background:c+'55',border:`1px solid ${c}`,borderRadius:4,
+            }}/>
+          </div>
+        ))}
+      </div>
+    </MockFrame>
+  )
+}
+
+function MockClipEditor() {
+  const [trimL, setTrimL] = useState(10)
+  const [trimR, setTrimR] = useState(85)
+  const bars = Array.from({ length: 60 }, (_, i) => 20 + Math.abs(Math.sin(i * 0.45 + 1) * 30 + Math.cos(i * 0.7) * 15))
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      setTrimL(l => l === 10 ? 18 : 10)
+      setTrimR(r => r === 85 ? 75 : 85)
+    }, 2500)
+    return () => clearInterval(t)
+  }, [])
+
+  return (
+    <MockFrame>
+      {/* waveform */}
+      <div style={{
+        background: px.card, border: `1px solid ${px.border}`, borderRadius: 8,
+        height: 64, position: 'relative', overflow: 'hidden', marginBottom: 12,
+        display: 'flex', alignItems: 'center', gap: 1, padding: '0 2px',
+      }}>
+        {/* trim handles */}
+        <div style={{
+          position: 'absolute', left: `${trimL}%`, top: 0, bottom: 0,
+          width: 3, background: px.accent, borderRadius: '3px 0 0 3px', cursor: 'ew-resize',
+          transition: 'left 0.5s ease',
+          zIndex: 2,
+        }} />
+        <div style={{
+          position: 'absolute', right: `${100 - trimR}%`, top: 0, bottom: 0,
+          width: 3, background: px.accent, borderRadius: '0 3px 3px 0', cursor: 'ew-resize',
+          transition: 'right 0.5s ease',
+          zIndex: 2,
+        }} />
+        {/* dimmed regions outside trim */}
+        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${trimL}%`, background: 'rgba(0,0,0,0.55)', transition: 'width 0.5s ease', zIndex: 1 }} />
+        <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: `${100 - trimR}%`, background: 'rgba(0,0,0,0.55)', transition: 'width 0.5s ease', zIndex: 1 }} />
+        {bars.map((h, i) => (
+          <div key={i} style={{
+            flex: 1, height: `${h}%`, minHeight: 2,
+            background: `linear-gradient(180deg,${px.accent},#818cf8)`,
+            borderRadius: 1, opacity: 0.75,
+          }} />
+        ))}
+      </div>
+      {/* controls */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ padding: '5px 12px', borderRadius: 16, fontSize: 10, fontWeight: 700, background: `linear-gradient(90deg,${px.accent},#818cf8)`, color: '#fff' }}>▶ Play</div>
+        <div style={{ padding: '5px 12px', borderRadius: 16, fontSize: 10, fontWeight: 700, background: px.card, border: `1px solid ${px.border}`, color: px.text2 }}>✂ Split</div>
+        <div style={{ padding: '5px 12px', borderRadius: 16, fontSize: 10, fontWeight: 700, background: px.card, border: `1px solid ${px.border}`, color: px.text2 }}>⬜ Gap</div>
+        <div style={{ marginLeft: 'auto', fontSize: 10, color: px.text3 }}>
+          {trimL / 10 | 0}:{String((trimL % 10) * 6).padStart(2,'0')} → {trimR / 10 | 0}:{String((trimR % 10) * 6).padStart(2,'0')}
+        </div>
+      </div>
+    </MockFrame>
+  )
+}
+
+function MockExport() {
+  const [phase, setPhase] = useState<'idle'|'mixing'|'done'>('idle')
+  const [progress, setProgress] = useState(0)
+
+  useEffect(() => {
+    const cycle = () => {
+      setPhase('mixing'); setProgress(0)
+      const tick = setInterval(() => setProgress(p => {
+        if (p >= 100) { clearInterval(tick); setPhase('done'); setTimeout(() => setPhase('idle'), 2500); return 100 }
+        return p + 8
+      }), 100)
+    }
+    cycle()
+    const t = setInterval(cycle, 5000)
+    return () => clearInterval(t)
+  }, [])
+
+  return (
+    <MockFrame>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* format cards */}
+        <div style={{ display: 'flex', gap: 8 }}>
+          {[
+            { fmt: 'Single WAV', desc: 'Mixed master', icon: '🎵', active: true },
+            { fmt: 'ZIP Archive', desc: 'All clips', icon: '📦', active: false },
+          ].map(f => (
+            <div key={f.fmt} style={{
+              flex: 1, padding: '10px 12px', borderRadius: 10,
+              background: f.active ? '#3b3458' : px.card,
+              border: `1px solid ${f.active ? px.accent : px.border}`,
+            }}>
+              <div style={{ fontSize: 16, marginBottom: 4 }}>{f.icon}</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: f.active ? px.text1 : px.text2, marginBottom: 2 }}>{f.fmt}</div>
+              <div style={{ fontSize: 9, color: px.text3 }}>{f.desc}</div>
+            </div>
+          ))}
+        </div>
+        {/* progress bar */}
+        <div style={{ background: px.card, border: `1px solid ${px.border}`, borderRadius: 8, padding: '10px 12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 10 }}>
+            <span style={{ color: px.text2, fontWeight: 600 }}>
+              {phase === 'idle' ? 'Ready to export' : phase === 'mixing' ? '⏳ Mixing down…' : '✓ Export complete'}
+            </span>
+            <span style={{ color: phase === 'done' ? px.green : px.text3 }}>{phase === 'idle' ? '' : `${Math.min(progress, 100)}%`}</span>
+          </div>
+          <div style={{ height: 6, background: '#2e2b44', borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{
+              height: '100%', borderRadius: 3,
+              background: phase === 'done' ? px.green : `linear-gradient(90deg,${px.accent},#818cf8)`,
+              width: phase === 'idle' ? '0%' : `${Math.min(progress, 100)}%`,
+              transition: 'width 0.15s linear, background 0.3s',
+            }} />
+          </div>
+        </div>
+        {/* download row */}
+        {phase === 'done' && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 12px', background: px.card, borderRadius: 8, border: `1px solid ${px.green}` }}>
+            <span style={{ fontSize: 10, color: px.green, fontWeight: 700 }}>⬇ project-master.wav</span>
+            <span style={{ fontSize: 9, color: px.text3, marginLeft: 'auto' }}>44.1 kHz · 16-bit</span>
+          </div>
+        )}
+      </div>
+    </MockFrame>
   )
 }
 
@@ -148,9 +535,13 @@ export function StudioPage(props: PageProps) {
       <section className="vox-section" style={{ paddingTop: 0 }}>
         <div className="vox-wrap" style={{ display: 'flex', flexDirection: 'column', gap: 72, maxWidth: 1000 }}>
           <FRow icon={icons.mic} title="Synthesize in your voice" reverse={false}
-            desc="Pick your cloned voice profile or any studio voice, set the emotion and speed, and generate. Each synthesis is saved as a reusable clip ready for the timeline." />
+            desc="Pick your cloned voice profile or any studio voice, set the emotion and speed, and generate. Each synthesis is saved as a reusable clip ready for the timeline.">
+            <MockSynthesizeVoice />
+          </FRow>
           <FRow icon={icons.music} title="Fine-tune emotion per script" reverse={true}
-            desc="Different scripts in the same project can use different emotions. A Whisper intro, an Energetic segment, a Calm outro — all in one project, all in the same voice." />
+            desc="Different scripts in the same project can use different emotions. A Whisper intro, an Energetic segment, a Calm outro — all in one project, all in the same voice.">
+            <MockEmotionEditor />
+          </FRow>
         </div>
       </section>
       <Cta onSignUp={props.onSignUp} />
@@ -350,16 +741,24 @@ export function TimelinePage(props: PageProps) {
         <div className="vox-wrap" style={{ display: 'flex', flexDirection: 'column', gap: 72, maxWidth: 1000 }}>
           <FRow icon={icons.assembly} reverse={false}
             title="Multi-lane track view"
-            desc="Stack voice clips, music, and SFX across independent lanes. Each lane has its own volume and mute control — a real mixing workspace, no plugins required." />
+            desc="Stack voice clips, music, and SFX across independent lanes. Each lane has its own volume and mute control — a real mixing workspace, no plugins required.">
+            <MockMultiLane />
+          </FRow>
           <FRow icon={icons.scripts} reverse={true}
             title="Minimap navigation"
-            desc="A full-width minimap above the timeline shows every clip at once. Click or drag to jump to any position — no more scrolling through long sessions blind." />
+            desc="A full-width minimap above the timeline shows every clip at once. Click or drag to jump to any position — no more scrolling through long sessions blind.">
+            <MockMinimap />
+          </FRow>
           <FRow icon={icons.download} reverse={false}
             title="Precise clip editing"
-            desc="Trim start and end by dragging handles. Split a clip at the cursor. Insert silence gaps to control pacing. Zoom from project-level to frame-level with the scroll wheel." />
+            desc="Trim start and end by dragging handles. Split a clip at the cursor. Insert silence gaps to control pacing. Zoom from project-level to frame-level with the scroll wheel.">
+            <MockClipEditor />
+          </FRow>
           <FRow icon={icons.music} reverse={true}
             title="One-click export"
-            desc="Mix the assembled timeline down to a single high-quality WAV with one click. Or export every clip individually as a ZIP archive — your choice." />
+            desc="Mix the assembled timeline down to a single high-quality WAV with one click. Or export every clip individually as a ZIP archive — your choice.">
+            <MockExport />
+          </FRow>
         </div>
       </section>
       <section className="vox-section" style={{ paddingTop: 0 }}>
