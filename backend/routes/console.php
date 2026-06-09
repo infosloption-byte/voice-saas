@@ -2,7 +2,14 @@
 
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
+
+// Delete audio files not updated in 90 days (configurable via AUDIO_PRUNE_DAYS).
+Schedule::command('audio:prune', ['--days' => (int) env('AUDIO_PRUNE_DAYS', 90)])
+    ->daily()
+    ->withoutOverlapping()
+    ->runInBackground();
