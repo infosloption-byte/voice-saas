@@ -473,6 +473,7 @@ LANG_NAMES: dict[str, str] = {
     "it": "Italian", "pt": "Portuguese", "pl": "Polish", "tr": "Turkish",
     "ru": "Russian", "nl": "Dutch", "cs": "Czech", "ar": "Arabic",
     "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "hi": "Hindi",
+    "hu": "Hungarian",
 }
 
 _TRANSLATE_SYSTEM = (
