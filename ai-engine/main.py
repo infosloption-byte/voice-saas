@@ -39,6 +39,10 @@ import re
 import subprocess
 import uuid
 import tempfile
+import time
+import threading
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import soundfile as sf
 
@@ -778,23 +782,68 @@ def synthesize_segment(text: str, engine: str,
 
 
 # ── FEATURE 4: SYNTHESIZE (XTTS v2 or F5-TTS, single- or multi-voice) ──
-@app.post("/synthesize")
-async def synthesize(
-    text: str          = Form(...),
-    profile_id: str    = Form(...),
-    language: str      = Form(default="en"),
-    tts_engine: str    = Form(default="xtts"),   # "xtts" | "f5"
-    # XTTS-specific knobs (ignored by F5-TTS)
-    temperature: float = Form(default=0.65),
-    top_k: int         = Form(default=50),
-    top_p: float       = Form(default=0.85),
-    speed: float       = Form(default=1.0),
-    repetition_penalty: float = Form(default=5.0),
-    gap_ms: int        = Form(default=60),
-    # Multi-voice: JSON string mapping speaker label → profile_id
-    speaker_map: str   = Form(default=""),
-    _key: None         = Depends(verify_api_key),
-):
+# ── SYNTHESIS JOB QUEUE ───────────────────────────────────────────
+# Heavy TTS work runs in a bounded background thread pool rather than
+# blocking the HTTP worker for the full (potentially minutes-long)
+# synthesis. Clients submit a job, poll /synthesize/status/{id}, then
+# download from /synthesize/result/{id}. SYNTH_WORKERS defaults to 1 so
+# synthesis stays serialized on CPU-only hosts — this prevents two heavy
+# (especially F5) runs from racing and OOM-killing the worker. On a GPU
+# host it can safely be raised.
+SYNTH_WORKERS    = max(1, int(os.getenv("SYNTH_WORKERS", "1")))
+JOB_TTL_SECONDS  = int(os.getenv("SYNTH_JOB_TTL", "1800"))   # 30 min
+_synth_executor  = ThreadPoolExecutor(max_workers=SYNTH_WORKERS)
+_synth_jobs: dict[str, dict] = {}
+_synth_jobs_lock = threading.Lock()
+
+
+def _cleanup_synth_jobs() -> None:
+    """Drop finished/abandoned jobs older than the TTL and delete their WAVs."""
+    now = time.time()
+    with _synth_jobs_lock:
+        stale = [jid for jid, j in _synth_jobs.items()
+                 if now - j["created_at"] > JOB_TTL_SECONDS]
+        for jid in stale:
+            job = _synth_jobs.pop(jid)
+            p = job.get("result_path")
+            if p and os.path.exists(p):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+
+
+def _run_synth_job(job_id: str, params: dict) -> None:
+    """Background worker: run synthesis and stash the outcome on the job record."""
+    with _synth_jobs_lock:
+        if job_id in _synth_jobs:
+            _synth_jobs[job_id]["status"] = "processing"
+    try:
+        out_path = _perform_synthesis(**params)
+        with _synth_jobs_lock:
+            if job_id in _synth_jobs:
+                _synth_jobs[job_id].update(status="done", result_path=out_path)
+    except HTTPException as e:
+        with _synth_jobs_lock:
+            if job_id in _synth_jobs:
+                _synth_jobs[job_id].update(status="error", error=str(e.detail), code=e.status_code)
+    except Exception as e:
+        with _synth_jobs_lock:
+            if job_id in _synth_jobs:
+                _synth_jobs[job_id].update(status="error", error=str(e), code=500)
+
+
+def _perform_synthesis(
+    text: str, profile_id: str, language: str, tts_engine: str,
+    temperature: float, top_k: int, top_p: float, speed: float,
+    repetition_penalty: float, gap_ms: int, speaker_map: str,
+) -> str:
+    """Run synthesis end to end and return the path to the finished WAV.
+
+    Raises HTTPException on validation / availability / processing errors.
+    This is the shared core used by both the legacy synchronous /synthesize
+    endpoint and the background job queue.
+    """
     import json as _json
     import shutil
 
@@ -936,11 +985,7 @@ async def synthesize(
                 if not concatenate_wavs(all_chunk_paths, out_path, gap_ms=gap_ms):
                     raise HTTPException(500, "Failed to merge audio chunks.")
 
-        return FileResponse(
-            out_path,
-            media_type="audio/wav",
-            headers={"Content-Disposition": "attachment; filename=synthesized.wav"},
-        )
+        return out_path
     except HTTPException:
         raise
     except Exception as e:
@@ -950,6 +995,115 @@ async def synthesize(
         for p in all_chunk_paths:
             if os.path.exists(p):
                 os.remove(p)
+
+
+# ── Synthesis HTTP endpoints ──────────────────────────────────────
+def _synth_params(
+    text: str, profile_id: str, language: str, tts_engine: str,
+    temperature: float, top_k: int, top_p: float, speed: float,
+    repetition_penalty: float, gap_ms: int, speaker_map: str,
+) -> dict:
+    return dict(
+        text=text, profile_id=profile_id, language=language, tts_engine=tts_engine,
+        temperature=temperature, top_k=top_k, top_p=top_p, speed=speed,
+        repetition_penalty=repetition_penalty, gap_ms=gap_ms, speaker_map=speaker_map,
+    )
+
+
+@app.post("/synthesize")
+async def synthesize(
+    text: str          = Form(...),
+    profile_id: str    = Form(...),
+    language: str      = Form(default="en"),
+    tts_engine: str    = Form(default="xtts"),   # "xtts" | "f5"
+    temperature: float = Form(default=0.65),
+    top_k: int         = Form(default=50),
+    top_p: float       = Form(default=0.85),
+    speed: float       = Form(default=1.0),
+    repetition_penalty: float = Form(default=5.0),
+    gap_ms: int        = Form(default=60),
+    speaker_map: str   = Form(default=""),
+    _key: None         = Depends(verify_api_key),
+):
+    """Legacy synchronous synthesis. Runs in the shared executor so it does
+    not block the event loop and stays serialized with queued jobs."""
+    params = _synth_params(text, profile_id, language, tts_engine, temperature,
+                           top_k, top_p, speed, repetition_penalty, gap_ms, speaker_map)
+    loop = asyncio.get_event_loop()
+    out_path = await loop.run_in_executor(_synth_executor, lambda: _perform_synthesis(**params))
+    return FileResponse(
+        out_path,
+        media_type="audio/wav",
+        headers={"Content-Disposition": "attachment; filename=synthesized.wav"},
+    )
+
+
+@app.post("/synthesize/submit")
+async def synthesize_submit(
+    text: str          = Form(...),
+    profile_id: str    = Form(...),
+    language: str      = Form(default="en"),
+    tts_engine: str    = Form(default="xtts"),
+    temperature: float = Form(default=0.65),
+    top_k: int         = Form(default=50),
+    top_p: float       = Form(default=0.85),
+    speed: float       = Form(default=1.0),
+    repetition_penalty: float = Form(default=5.0),
+    gap_ms: int        = Form(default=60),
+    speaker_map: str   = Form(default=""),
+    _key: None         = Depends(verify_api_key),
+):
+    """Enqueue a synthesis job and return its id immediately."""
+    _cleanup_synth_jobs()
+    params = _synth_params(text, profile_id, language, tts_engine, temperature,
+                           top_k, top_p, speed, repetition_penalty, gap_ms, speaker_map)
+    job_id = uuid.uuid4().hex
+    with _synth_jobs_lock:
+        _synth_jobs[job_id] = {
+            "status": "queued",
+            "created_at": time.time(),
+            "result_path": None,
+            "error": None,
+        }
+        queued_ahead = sum(1 for j in _synth_jobs.values() if j["status"] in ("queued", "processing")) - 1
+    _synth_executor.submit(_run_synth_job, job_id, params)
+    return {"job_id": job_id, "status": "queued", "queued_ahead": max(0, queued_ahead)}
+
+
+@app.get("/synthesize/status/{job_id}")
+async def synthesize_status(job_id: str, _key: None = Depends(verify_api_key)):
+    """Poll a job's state. Returns {status: queued|processing|done|error}."""
+    with _synth_jobs_lock:
+        job = _synth_jobs.get(job_id)
+        if not job:
+            raise HTTPException(404, "Job not found or expired.")
+        resp = {"job_id": job_id, "status": job["status"]}
+        if job["status"] == "error":
+            resp["error"] = job.get("error", "Synthesis failed.")
+            resp["code"] = job.get("code", 500)
+        return resp
+
+
+@app.get("/synthesize/result/{job_id}")
+async def synthesize_result(job_id: str, _key: None = Depends(verify_api_key)):
+    """Download the finished WAV. 409 if not ready, 410 if it expired."""
+    with _synth_jobs_lock:
+        job = _synth_jobs.get(job_id)
+        if not job:
+            raise HTTPException(404, "Job not found or expired.")
+        status = job["status"]
+        result_path = job.get("result_path")
+        if status == "error":
+            raise HTTPException(job.get("code", 500), job.get("error", "Synthesis failed."))
+        if status != "done":
+            raise HTTPException(409, "Synthesis not finished yet.")
+    if not result_path or not os.path.exists(result_path):
+        raise HTTPException(410, "Result expired.")
+    return FileResponse(
+        result_path,
+        media_type="audio/wav",
+        headers={"Content-Disposition": "attachment; filename=synthesized.wav"},
+    )
 
 
 # ── LEGACY: CLONE-VOICE (one-shot, XTTS or F5) ────────────────────
