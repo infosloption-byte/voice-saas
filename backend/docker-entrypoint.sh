@@ -27,5 +27,8 @@ for i in $(seq 1 30); do
 done
 
 
+# Run the Laravel scheduler every minute in the background
+( while true; do php artisan schedule:run --no-interaction >> /dev/null 2>&1; sleep 60; done ) &
+
 # Start the dev server
 exec php artisan serve --host=0.0.0.0 --port=8080
