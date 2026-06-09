@@ -569,3 +569,4 @@
 }
 
 @keyframes vox-blink { 0%,100%{opacity:1} 50%{opacity:0} }
+@keyframes vox-spin { to { transform: rotate(360deg) } }
