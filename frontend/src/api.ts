@@ -198,6 +198,69 @@ class ApiClient {
     })
   }
 
+  /**
+   * Background synthesis: submit a job, poll status every `pollMs`, then
+   * download the finished WAV. Falls back to the legacy synchronous
+   * /synthesize endpoint if the engine has no job queue (404 on submit).
+   */
+  async engineSynthesize(
+    formData: FormData,
+    signal?: AbortSignal,
+    pollMs = 2000,
+  ): Promise<Blob> {
+    const headers: Record<string, string> = {}
+    if (ENGINE_API_KEY) headers['X-Engine-Key'] = ENGINE_API_KEY
+
+    // 1. Submit
+    let submit: Response
+    try {
+      submit = await fetch(`${ENGINE_BASE}/synthesize/submit`, {
+        method: 'POST', body: formData, credentials: 'omit', signal, headers,
+      })
+    } catch (e) {
+      throw e
+    }
+    if (submit.status === 404) {
+      // Older engine without the queue — use the synchronous path.
+      return this.enginePost('/synthesize', formData, signal) as Promise<Blob>
+    }
+    if (!submit.ok) {
+      const text = await submit.text().catch(() => '')
+      throw new ApiError(`Engine error: HTTP ${submit.status}`, submit.status, { body: text })
+    }
+    const { job_id } = (await submit.json()) as { job_id: string }
+
+    // 2. Poll status until done or error
+    for (;;) {
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+      await new Promise(res => setTimeout(res, pollMs))
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+
+      const sr = await fetch(`${ENGINE_BASE}/synthesize/status/${job_id}`, {
+        method: 'GET', credentials: 'omit', headers, signal,
+      })
+      if (!sr.ok) {
+        const text = await sr.text().catch(() => '')
+        throw new ApiError(`Engine error: HTTP ${sr.status}`, sr.status, { body: text })
+      }
+      const st = (await sr.json()) as { status: string; error?: string; code?: number }
+      if (st.status === 'error') {
+        throw new ApiError(st.error ?? 'Synthesis failed', st.code ?? 500)
+      }
+      if (st.status === 'done') break
+    }
+
+    // 3. Download the result
+    const rr = await fetch(`${ENGINE_BASE}/synthesize/result/${job_id}`, {
+      method: 'GET', credentials: 'omit', headers, signal,
+    })
+    if (!rr.ok) {
+      const text = await rr.text().catch(() => '')
+      throw new ApiError(`Engine error: HTTP ${rr.status}`, rr.status, { body: text })
+    }
+    return rr.blob()
+  }
+
   engineFetchBlob(path: string): Promise<Blob> {
     const fullPath = path.startsWith('/') ? path : '/' + path
     const engineHeaders: Record<string, string> = {}

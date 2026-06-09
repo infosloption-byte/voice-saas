@@ -80,6 +80,9 @@ services:
       - COQUI_TOS_AGREED=1
       - AI_ENGINE_API_KEY=${AI_ENGINE_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      # Concurrent synthesis jobs. Keep at 1 on CPU (serializes heavy work,
+      # avoids OOM); raise on a GPU host with headroom.
+      - SYNTH_WORKERS=${SYNTH_WORKERS:-1}
     command: uvicorn main:app --host 0.0.0.0 --port 8000
     networks:
       - voice-network
