@@ -26,6 +26,12 @@ RUN pip install --no-cache-dir \
     torchaudio==2.2.2+cu118 \
     --index-url https://download.pytorch.org/whl/cu118
 
+# Constraints file pins torch so later installs (f5-tts) can't upgrade it.
+# Without this, f5-tts pulls a newer torch whose torch.load default
+# (weights_only=True in 2.6+) breaks XTTS v2 checkpoint loading.
+RUN echo "torch==2.2.2+cu118"      > /tmp/gpu_constraints.txt && \
+    echo "torchaudio==2.2.2+cu118" >> /tmp/gpu_constraints.txt
+
 # ── Core deps (same versions as CPU image) ───────────────────────────
 RUN pip install --no-cache-dir \
     fastapi \
@@ -37,8 +43,11 @@ RUN pip install --no-cache-dir \
     soundfile \
     numpy
 
-# ── F5-TTS — no CPU constraint, will use CUDA ────────────────────────
-RUN pip install --no-cache-dir f5-tts || \
+# ── F5-TTS — pinned to keep the cu118 torch (won't upgrade it) ───────
+RUN pip install --no-cache-dir \
+    --extra-index-url https://download.pytorch.org/whl/cu118 \
+    -c /tmp/gpu_constraints.txt \
+    f5-tts || \
     echo "WARNING: f5-tts install failed — XTTS v2 still available"
 
 COPY . .
