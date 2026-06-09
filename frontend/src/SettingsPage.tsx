@@ -795,7 +795,7 @@ function EngineSettings() {
     setLoading(true)
     api.get('/admin/engines')
       .then(d => setEngines(d as EngineConfig[]))
-      .catch(() => toast.error('Failed to load engine configs'))
+      .catch(() => toast.err('Failed to load engine configs'))
       .finally(() => setLoading(false))
   }
 
@@ -806,7 +806,7 @@ function EngineSettings() {
     try {
       const updated = await api.post(`/admin/engines/${eng.id}/test`, {}) as EngineConfig
       setEngines(prev => prev.map(e => e.id === eng.id ? updated : e))
-    } catch { toast.error('Test failed') }
+    } catch { toast.err('Test failed') }
     finally { setTestingId(null) }
   }
 
@@ -815,9 +815,9 @@ function EngineSettings() {
     setActivatingId(eng.id)
     try {
       await api.post(`/admin/engines/${eng.id}/activate`, {})
-      toast.success(`Switched to "${eng.name}"`)
+      toast.ok(`Switched to "${eng.name}"`)
       load()
-    } catch { toast.error('Activation failed') }
+    } catch { toast.err('Activation failed') }
     finally { setActivatingId(null) }
   }
 
@@ -826,7 +826,7 @@ function EngineSettings() {
     try {
       await api.delete(`/admin/engines/${eng.id}`)
       setEngines(prev => prev.filter(e => e.id !== eng.id))
-    } catch { toast.error('Delete failed') }
+    } catch { toast.err('Delete failed') }
   }
 
   const handleAdd = async () => {
@@ -836,7 +836,7 @@ function EngineSettings() {
       const created = await api.post('/admin/engines', { name: addName.trim(), url: addUrl.trim() }) as EngineConfig
       setEngines(prev => [...prev, created])
       setAddName(''); setAddUrl(''); setShowAdd(false)
-    } catch { toast.error('Failed to add engine') }
+    } catch { toast.err('Failed to add engine') }
     finally { setAdding(false) }
   }
 
