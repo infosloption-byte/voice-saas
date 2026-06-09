@@ -35,6 +35,13 @@ services:
       - REDIS_HOST=redis
       - AI_ENGINE_URL=http://ai-engine:8000
       - ADMIN_EMAIL=${ADMIN_EMAIL:-}
+      # Audio storage — leave AUDIO_DISK=local until S3 is provisioned
+      - AUDIO_DISK=${AUDIO_DISK:-local}
+      - AUDIO_PRUNE_DAYS=${AUDIO_PRUNE_DAYS:-90}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+      - AWS_BUCKET=${AWS_BUCKET:-}
     depends_on:
       db:
         condition: service_healthy
