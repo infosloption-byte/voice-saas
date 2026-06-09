@@ -7,3 +7,4 @@ backend/.env
 !.env.example
 !frontend/.env.example
 !backend/.env.example
+.claude/worktrees/
