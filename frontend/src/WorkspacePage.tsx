@@ -442,7 +442,7 @@ export function WorkspacePage({
         for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
           if (signal?.aborted) throw new Error('AbortError')
           try {
-            return await api.enginePost('/synthesize', chunkFd, signal) as Blob
+            return await api.engineSynthesize(chunkFd, signal)
           } catch (e) {
             if ((e as Error).name === 'AbortError') throw e
             if (e instanceof ApiError) {
@@ -477,7 +477,7 @@ export function WorkspacePage({
         for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
           if (signal?.aborted) return false
           try {
-            raw = await api.enginePost('/synthesize', fd, signal) as Blob
+            raw = await api.engineSynthesize(fd, signal)
             break
           } catch (e) {
             if ((e as Error).name === 'AbortError') return false
