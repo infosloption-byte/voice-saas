@@ -566,7 +566,7 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
         fd.append('profile_id', engineKey)
         fd.append('language', 'en')
         fd.append('tts_engine', engine)
-        audioBlob = await api.enginePost('/synthesize', fd) as Blob
+        audioBlob = await api.engineSynthesize(fd)
       }
       const previewUrl = URL.createObjectURL(audioBlob)
       const audio = new Audio(previewUrl)
