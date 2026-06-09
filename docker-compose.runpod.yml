@@ -1,0 +1,57 @@
+# ── RunPod: AI-engine-only compose file ──────────────────────────────
+# Deploy this on your RunPod pod (or any GPU server) to run just the
+# AI engine. The web stack (nginx/backend/frontend/db/redis) stays on
+# your existing server.
+#
+# Usage on RunPod:
+#   docker compose -f docker-compose.runpod.yml up -d
+#
+# Required env vars (set in RunPod's "Environment Variables" panel or .env):
+#   AI_ENGINE_API_KEY   — shared secret; must match the value on the main server
+#   GEMINI_API_KEY      — for the Translate feature (optional)
+#
+# After the pod starts, copy its public URL into the Admin → AI Engines
+# panel on your Voxora dashboard and click Activate.
+
+services:
+  ai-engine:
+    build:
+      context: ./ai-engine
+      dockerfile: Dockerfile.gpu
+    image: voxora-ai-gpu
+    container_name: voice_ai_gpu
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - voice_profiles:/app/voice_profiles
+      - ai_models:/root/.cache/huggingface
+      - tts_models:/root/.local/share/tts
+      - builtin_refs:/app/builtin_refs
+    environment:
+      - COQUI_TOS_AGREED=1
+      - AI_ENGINE_API_KEY=${AI_ENGINE_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      # On GPU allow more concurrent synthesis jobs (1 per GPU stream is safe)
+      - SYNTH_WORKERS=${SYNTH_WORKERS:-2}
+      # Allow F5-TTS (it requires CUDA — the GPU image has it)
+      - F5_ALLOW_CPU=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 180s   # GPU model load takes ~2-3 min on first boot
+
+volumes:
+  voice_profiles:
+  ai_models:
+  tts_models:
+  builtin_refs:
