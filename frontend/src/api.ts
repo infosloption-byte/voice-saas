@@ -197,6 +197,20 @@ class ApiClient {
       return r.json()
     })
   }
+
+  engineFetchBlob(path: string): Promise<Blob> {
+    const fullPath = path.startsWith('/') ? path : '/' + path
+    const engineHeaders: Record<string, string> = {}
+    if (ENGINE_API_KEY) engineHeaders['X-Engine-Key'] = ENGINE_API_KEY
+    return fetch(`${ENGINE_BASE}${fullPath}`, {
+      method: 'GET',
+      credentials: 'omit',
+      headers: engineHeaders,
+    }).then(r => {
+      if (!r.ok) throw new ApiError(`Engine error: HTTP ${r.status}`, r.status)
+      return r.blob()
+    })
+  }
 }
 
 export const api = new ApiClient()
