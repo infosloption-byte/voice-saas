@@ -214,14 +214,13 @@ export default function App() {
 
   // ── Engine status + capability probe ─────────────────────────────
   const checkEngine = useCallback(() => {
-    api.get('/')
+    api.get('/engine/capabilities')
       .then((data: unknown) => {
         setEngineStatus('online')
         const d = data as Record<string, unknown>
-        const engines = (d?.engines ?? {}) as Partial<EngineCaps>
         setEngineCaps({
-          xtts: engines.xtts === true,
-          f5:   engines.f5   === true,
+          xtts: d?.xtts === true,
+          f5:   d?.f5   === true,
         })
       })
       .catch(() => {
