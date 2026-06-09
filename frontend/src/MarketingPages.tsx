@@ -506,7 +506,7 @@ export function StudioPage(props: PageProps) {
       <StatStrip items={[
         { val: '30+', label: 'Studio voices' },
         { val: '9',   label: 'Emotion presets' },
-        { val: '16',  label: 'Languages' },
+        { val: '17',  label: 'Languages' },
         { val: 'WAV', label: 'Export format' },
       ]} />
       <hr className="vox-rule" />
@@ -521,7 +521,7 @@ export function StudioPage(props: PageProps) {
               { icon: icons.music,    title: '9 emotion presets',        desc: 'Natural, Calm, Energetic, Cheerful, Serious, Dramatic, Whisper, Storytelling — dial in the mood.' },
               { icon: icons.profiles, title: 'Multi-voice scripts',      desc: 'Assign a different voice to each speaker. Full podcasts and dialogues from a single script.' },
               { icon: icons.upload,   title: 'Audio → Script',           desc: 'Upload audio and Voxora transcribes it to an editable script automatically.' },
-              { icon: icons.globe,    title: 'Translate in one click',   desc: 'AI translation (Gemini) rewrites your script in 16 languages without leaving the editor.' },
+              { icon: icons.globe,    title: 'Translate in one click',   desc: 'AI translation (Gemini) rewrites your script in 17 languages without leaving the editor.' },
             ].map(it => (
               <div key={it.title} className="vox-card">
                 <div className="vox-card-icon">{it.icon}</div>
@@ -552,20 +552,99 @@ export function StudioPage(props: PageProps) {
 // ═══════════════════════════════════════════════════════════════════
 // VOICE LIBRARY
 // ═══════════════════════════════════════════════════════════════════
-const SAMPLE_VOICES = [
-  { name: 'Aria',   style: 'Warm & conversational', lang: 'English'  },
-  { name: 'Marcus', style: 'Deep & authoritative',  lang: 'English'  },
-  { name: 'Sofia',  style: 'Bright & cheerful',     lang: 'Spanish'  },
-  { name: 'Lena',   style: 'Clear & professional',  lang: 'German'   },
-  { name: 'Kenji',  style: 'Calm & measured',       lang: 'Japanese' },
-  { name: 'Priya',  style: 'Expressive & warm',     lang: 'Hindi'    },
-  { name: 'Tom',    style: 'Friendly & upbeat',     lang: 'English'  },
-  { name: 'Chloé',  style: 'Elegant & smooth',      lang: 'French'   },
-  { name: 'Omar',   style: 'Rich & resonant',       lang: 'Arabic'   },
-  { name: 'Yuki',   style: 'Light & natural',       lang: 'Japanese' },
-  { name: 'Elena',  style: 'Confident & clear',     lang: 'Russian'  },
-  { name: 'Carlos', style: 'Warm & persuasive',     lang: 'Spanish'  },
+const SAMPLE_VOICES: { name: string; full: string; style: string; lang: string; gender: 'F'|'M' }[] = [
+  { name: 'Claribel',  full: 'Claribel Dervla',   style: 'Warm & conversational',   lang: 'English',    gender: 'F' },
+  { name: 'Daisy',     full: 'Daisy Studious',     style: 'Clear & professional',    lang: 'English',    gender: 'F' },
+  { name: 'Gracie',    full: 'Gracie Wise',        style: 'Bright & cheerful',       lang: 'English',    gender: 'F' },
+  { name: 'Tammie',    full: 'Tammie Ema',         style: 'Friendly & upbeat',       lang: 'English',    gender: 'F' },
+  { name: 'Ana',       full: 'Ana Florence',       style: 'Smooth & expressive',     lang: 'English',    gender: 'F' },
+  { name: 'Sofia',     full: 'Sofia Hellen',       style: 'Elegant & measured',      lang: 'English',    gender: 'F' },
+  { name: 'Tammy',     full: 'Tammy Grit',         style: 'Bold & assertive',        lang: 'English',    gender: 'F' },
+  { name: 'Brenda',    full: 'Brenda Stern',       style: 'Authoritative & calm',    lang: 'English',    gender: 'F' },
+  { name: 'Gitta',     full: 'Gitta Nikolina',     style: 'Crisp & energetic',       lang: 'English',    gender: 'F' },
+  { name: 'Nova',      full: 'Nova Hogarth',       style: 'Deep & resonant',         lang: 'English',    gender: 'F' },
+  { name: 'Maja',      full: 'Maja Ruoho',         style: 'Soft & intimate',         lang: 'English',    gender: 'F' },
+  { name: 'Lilya',     full: 'Lilya Stainthorpe',  style: 'Gentle & storytelling',   lang: 'English',    gender: 'F' },
+  { name: 'Narelle',   full: 'Narelle Moon',       style: 'Light & natural',         lang: 'English',    gender: 'F' },
+  { name: 'Alma',      full: 'Alma María',         style: 'Warm & persuasive',       lang: 'Spanish',    gender: 'F' },
+  { name: 'Rosemarie', full: 'Rosemarie Okafor',   style: 'Rich & confident',        lang: 'English',    gender: 'F' },
+  { name: 'Andrew',    full: 'Andrew Chipper',     style: 'Energetic & punchy',      lang: 'English',    gender: 'M' },
+  { name: 'Badr',      full: 'Badr Odhiambo',      style: 'Deep & authoritative',    lang: 'Arabic',     gender: 'M' },
+  { name: 'Dionisio',  full: 'Dionisio Schuyler',  style: 'Dramatic & expressive',   lang: 'English',    gender: 'M' },
+  { name: 'Royston',   full: 'Royston Min',        style: 'Calm & precise',          lang: 'English',    gender: 'M' },
+  { name: 'Viktor',    full: 'Viktor Eka',         style: 'Firm & professional',     lang: 'Russian',    gender: 'M' },
+  { name: 'Craig',     full: 'Craig Gutsy',        style: 'Strong & confident',      lang: 'English',    gender: 'M' },
+  { name: 'Damien',    full: 'Damien Black',       style: 'Smooth & charismatic',    lang: 'English',    gender: 'M' },
+  { name: 'Baldur',    full: 'Baldur Sanjin',      style: 'Bold & resonant',         lang: 'English',    gender: 'M' },
+  { name: 'Zacharie',  full: 'Zacharie Aimilios',  style: 'Clear & engaging',        lang: 'French',     gender: 'M' },
+  { name: 'Aaron',     full: 'Aaron Dreschner',    style: 'Warm & trustworthy',      lang: 'German',     gender: 'M' },
+  { name: 'Kumar',     full: 'Kumar Dahl',         style: 'Expressive & vibrant',    lang: 'Hindi',      gender: 'M' },
+  { name: 'Luis',      full: 'Luis Moray',         style: 'Smooth & conversational', lang: 'Portuguese', gender: 'M' },
+  { name: 'Marcos',    full: 'Marcos Rudaski',     style: 'Energetic & warm',        lang: 'Spanish',    gender: 'M' },
+  { name: 'Torcull',   full: 'Torcull Diarmuid',   style: 'Rich & storytelling',     lang: 'English',    gender: 'M' },
+  { name: 'Wulf',      full: 'Wulf Carlevaro',     style: 'Deep & mysterious',       lang: 'English',    gender: 'M' },
 ]
+
+function VoiceFilter() {
+  const [gender, setGender] = useState<'All'|'F'|'M'>('All')
+  const [lang, setLang] = useState('All')
+  const langs = ['All', ...Array.from(new Set(SAMPLE_VOICES.map(v => v.lang))).sort()]
+  const visible = SAMPLE_VOICES.filter(v =>
+    (gender === 'All' || v.gender === gender) &&
+    (lang === 'All' || v.lang === lang)
+  )
+  return (
+    <div>
+      {/* filter bar */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {(['All','F','M'] as const).map(g => (
+            <button key={g} onClick={() => setGender(g)} style={{
+              padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              background: gender === g ? 'var(--vx-accent)' : 'transparent',
+              color: gender === g ? '#fff' : 'var(--vx-text-3)',
+              border: `1px solid ${gender === g ? 'var(--vx-accent)' : 'var(--vx-border)'}`,
+              transition: 'all 0.2s',
+            }}>{g === 'All' ? 'All' : g === 'F' ? 'Female' : 'Male'}</button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {langs.map(l => (
+            <button key={l} onClick={() => setLang(l)} style={{
+              padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              background: lang === l ? '#3b3458' : 'transparent',
+              color: lang === l ? 'var(--vx-accent)' : 'var(--vx-text-3)',
+              border: `1px solid ${lang === l ? 'var(--vx-accent)' : 'var(--vx-border)'}`,
+              transition: 'all 0.2s',
+            }}>{l}</button>
+          ))}
+        </div>
+      </div>
+      {/* voice grid */}
+      <div className="vox-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 12 }}>
+        {visible.map(v => (
+          <div key={v.full} className="vox-voice" style={{ gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div className="vox-voice-avatar" style={{
+                background: v.gender === 'F'
+                  ? 'linear-gradient(135deg,#a78bfa,#818cf8)'
+                  : 'linear-gradient(135deg,#60a5fa,#34d399)',
+              }}>{v.name[0]}</div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--vx-text)' }}>{v.name}</div>
+                <div style={{ fontSize: 11, color: 'var(--vx-text-3)', marginTop: 1 }}>{v.lang} · {v.gender === 'F' ? 'Female' : 'Male'}</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--vx-text-2)', lineHeight: 1.4 }}>{v.style}</div>
+          </div>
+        ))}
+      </div>
+      <p style={{ textAlign: 'center', marginTop: 24, fontSize: 13, color: 'var(--vx-text-3)' }}>
+        Every voice is available on all plans — including Free.
+      </p>
+    </div>
+  )
+}
 
 export function VoicesPage(props: PageProps) {
   return (
@@ -601,30 +680,14 @@ export function VoicesPage(props: PageProps) {
       <hr className="vox-rule" />
       <section className="vox-section">
         <div className="vox-wrap">
-          <SHead pre="Studio library" title="30+ voices," accent="ready instantly."
-            sub="No recording needed. Browse by language, style, or gender — or just pick one and generate." />
-          <div className="vox-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 14 }}>
-            {SAMPLE_VOICES.map(v => (
-              <div key={v.name} className="vox-voice">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div className="vox-voice-avatar">{v.name[0]}</div>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--vx-text)' }}>{v.name}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--vx-text-3)' }}>{v.lang}</div>
-                  </div>
-                </div>
-                <div style={{ fontSize: 12.5, color: 'var(--vx-text-2)' }}>{v.style}</div>
-              </div>
-            ))}
-          </div>
-          <p style={{ textAlign: 'center', marginTop: 28, fontSize: 13.5, color: 'var(--vx-text-3)' }}>
-            + more voices added regularly. Create a free account to browse the full library.
-          </p>
+          <SHead pre="Studio library" title="30 voices," accent="ready instantly."
+            sub="No recording needed. Browse by language, style, or gender — every voice is available on all plans." />
+          <VoiceFilter />
         </div>
       </section>
       <StatStrip items={[
-        { val: '30+', label: 'Studio voices' },
-        { val: '16',  label: 'Languages covered' },
+        { val: '30',  label: 'Studio voices' },
+        { val: '17',  label: 'Synthesis languages' },
         { val: '9',   label: 'Emotion styles' },
         { val: '∞',   label: 'Clones on Pro' },
       ]} />
@@ -639,7 +702,7 @@ export function VoicesPage(props: PageProps) {
 const SUPPORTED_LANGS = [
   'English', 'Spanish', 'French', 'German', 'Italian', 'Portuguese',
   'Japanese', 'Korean', 'Chinese (Mandarin)', 'Arabic', 'Hindi',
-  'Russian', 'Dutch', 'Polish', 'Swedish', 'Turkish',
+  'Russian', 'Dutch', 'Polish', 'Czech', 'Turkish', 'Hungarian',
 ]
 
 export function TranslationPage(props: PageProps) {
@@ -648,7 +711,7 @@ export function TranslationPage(props: PageProps) {
       <Hero
         eyebrow="AI Translation"
         h1="Write once. Speak in"
-        accent="16 languages."
+        accent="17 languages."
         lead="Translate your script with one click — powered by Gemini AI. Synthesize in the target language immediately. No copy-pasting, no external tools."
         cta="Try translation free" ctaIcon={icons.globe} onSignUp={props.onSignUp}
       />
@@ -666,7 +729,7 @@ export function TranslationPage(props: PageProps) {
             sub="The translate button lives in the script toolbar. Pick a target language, click, and the result appears inline — ready to synthesize." />
           <div className="vox-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))' }}>
             {[
-              { n: '1', title: 'Write your script',     desc: 'Type or import in any of the 16 supported languages.' },
+              { n: '1', title: 'Write your script',     desc: 'Type or import in any of the 17 supported languages.' },
               { n: '2', title: 'Click Translate',        desc: 'Choose a target language from the toolbar. Gemini AI rewrites naturally.' },
               { n: '3', title: 'Review & synthesize',   desc: 'The translated text appears inline. Hit Generate to produce speech in the new language.' },
               { n: '4', title: 'Repeat for any market', desc: 'Translate the same script to as many languages as your plan allows.' },
@@ -684,7 +747,7 @@ export function TranslationPage(props: PageProps) {
       </section>
       <section className="vox-section" style={{ paddingTop: 0 }}>
         <div className="vox-wrap">
-          <SHead title="16 supported" accent="languages" />
+          <SHead title="17 supported" accent="languages" />
           <div className="vox-chips">
             {SUPPORTED_LANGS.map(l => <span key={l} className="vox-chip">{l}</span>)}
           </div>
@@ -796,7 +859,7 @@ export function AudiobooksPage(props: PageProps) {
       <StatStrip items={[
         { val: '∞',  label: 'Scripts on Pro'   },
         { val: '∞',  label: 'Words per script on Pro' },
-        { val: '16', label: 'Languages'          },
+        { val: '17', label: 'Languages'          },
         { val: '1',  label: 'Export click'       },
       ]} />
       <hr className="vox-rule" />
