@@ -60,6 +60,20 @@ return [
             'report' => false,
         ],
 
+        // ── Audio disk ─────────────────────────────────────────────
+        // Flip AUDIO_DISK=s3 + AWS_* creds to migrate from local to S3.
+        // When 'local', files land in storage/app/audio/; no other change needed.
+        'audio' => array_filter([
+            'driver'                  => env('AUDIO_DISK', 'local'),
+            'root'                    => env('AUDIO_DISK', 'local') === 's3' ? null : storage_path('app/audio'),
+            'key'                     => env('AWS_ACCESS_KEY_ID'),
+            'secret'                  => env('AWS_SECRET_ACCESS_KEY'),
+            'region'                  => env('AWS_DEFAULT_REGION'),
+            'bucket'                  => env('AWS_BUCKET'),
+            'throw'                   => false,
+            'report'                  => false,
+        ], fn($v) => $v !== null),
+
     ],
 
     /*

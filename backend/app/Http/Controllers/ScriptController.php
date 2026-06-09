@@ -142,8 +142,8 @@ class ScriptController extends Controller
         $project = $request->user()->projects()->findOrFail($projectId);
         $script = $project->scripts()->findOrFail($id);
 
-        if ($script->audio_url && Storage::disk('local')->exists($script->audio_url)) {
-            Storage::disk('local')->delete($script->audio_url);
+        if ($script->audio_url) {
+            Storage::disk('audio')->delete($script->audio_url);
         }
 
         $script->delete();
@@ -159,21 +159,49 @@ class ScriptController extends Controller
 
         $request->validate(['file' => 'required|file|max:102400']);
 
-        $path = 'audio/' . $request->user()->id . '/' . $id . '.wav';
+        // Delete old file (may be .wav or .mp3 from an earlier save)
+        if ($script->audio_url) {
+            Storage::disk('audio')->delete($script->audio_url);
+        }
 
-        if ($script->audio_url && Storage::disk('local')->exists($script->audio_url)) {
-            Storage::disk('local')->delete($script->audio_url);
+        $uploaded  = $request->file('file');
+        $tmpWav    = $uploaded->getRealPath();
+        $ext       = 'mp3';
+        $storePath = $request->user()->id . '/' . $id . '.' . $ext;
+
+        // Convert WAV → MP3 via ffmpeg (smaller files, browser-native playback).
+        // Falls back to storing raw WAV if ffmpeg is not installed.
+        $tmpMp3 = tempnam(sys_get_temp_dir(), 'vox_audio_') . '.mp3';
+        try {
+            $proc = proc_open(
+                ['ffmpeg', '-y', '-i', $tmpWav, '-codec:a', 'libmp3lame', '-q:a', '4', $tmpMp3],
+                [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $pipes
+            );
+            $ok = is_resource($proc) && proc_close($proc) === 0 && file_exists($tmpMp3);
+        } catch (\Throwable) {
+            $ok = false;
+        }
+
+        if ($ok) {
+            $bytes = file_get_contents($tmpMp3);
+            @unlink($tmpMp3);
+        } else {
+            // ffmpeg unavailable — store WAV as-is
+            $bytes     = $uploaded->get();
+            $ext       = 'wav';
+            $storePath = $request->user()->id . '/' . $id . '.' . $ext;
         }
 
         try {
-            Storage::disk('local')->put($path, $request->file('file')->get());
+            Storage::disk('audio')->put($storePath, $bytes);
         } catch (\Throwable $e) {
             return response()->json(['message' => 'Failed to store audio file.'], 500);
         }
 
-        $script->update(['audio_url' => $path]);
+        $script->update(['audio_url' => $storePath]);
 
-        return response()->json(['audio_url' => $path]);
+        return response()->json(['audio_url' => $storePath]);
     }
 
     public function serveAudio(Request $request, string $id)
@@ -182,14 +210,25 @@ class ScriptController extends Controller
             $q->where('user_id', $request->user()->id);
         })->findOrFail($id);
 
-        if (!$script->audio_url || !Storage::disk('local')->exists($script->audio_url)) {
+        if (!$script->audio_url || !Storage::disk('audio')->exists($script->audio_url)) {
             abort(404, 'Audio file not found');
         }
 
-        $content = Storage::disk('local')->get($script->audio_url);
+        $isS3 = config('filesystems.disks.audio.driver') === 's3';
+        if ($isS3) {
+            // Issue a temporary signed URL (10 min) and redirect.
+            $url = Storage::disk('audio')->temporaryUrl($script->audio_url, now()->addMinutes(10));
+            return redirect($url);
+        }
+
+        $content  = Storage::disk('audio')->get($script->audio_url);
+        $ext      = pathinfo($script->audio_url, PATHINFO_EXTENSION);
+        $mimeType = $ext === 'mp3' ? 'audio/mpeg' : 'audio/wav';
+        $filename = $id . '.' . $ext;
+
         return response($content, 200, [
-            'Content-Type'        => 'audio/wav',
-            'Content-Disposition' => 'inline; filename="' . $id . '.wav"',
+            'Content-Type'        => $mimeType,
+            'Content-Disposition' => 'inline; filename="' . $filename . '"',
             'Cache-Control'       => 'private, no-cache, must-revalidate',
             'Content-Length'      => strlen($content),
         ]);
