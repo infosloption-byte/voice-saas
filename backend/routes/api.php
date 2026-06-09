@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\EngineConfigController;
 use App\Http\Controllers\EngineCapabilitiesController;
+use App\Http\Controllers\EngineSynthesisProxyController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GuestLimitsController;
@@ -100,8 +101,12 @@ Route::middleware('auth:sanctum')->group(function () {
 // ── PayPal webhook (public — no auth) ────────────────────────────────
 Route::post('/subscription/webhook', [SubscriptionController::class, 'webhook']);
 
-// ── Engine capabilities (public — frontend checks before/after login) ──
-Route::get('/engine/capabilities', [EngineCapabilitiesController::class, 'show']);
+// ── Engine proxy (public — routes synthesis to the active engine) ────
+Route::get ('/engine/capabilities',                 [EngineCapabilitiesController::class,   'show']);
+Route::post('/engine/synthesize/submit',            [EngineSynthesisProxyController::class, 'submit']);
+Route::get ('/engine/synthesize/status/{jobId}',    [EngineSynthesisProxyController::class, 'status']);
+Route::get ('/engine/synthesize/result/{jobId}',    [EngineSynthesisProxyController::class, 'result']);
+Route::post('/engine/synthesize',                   [EngineSynthesisProxyController::class, 'legacy']);
 
 // ── Guest limits (public — used before login) ─────────────────────────
 Route::get('/guest-limits', [GuestLimitsController::class, 'show']);
