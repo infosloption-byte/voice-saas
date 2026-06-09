@@ -49,6 +49,7 @@ services:
         - VITE_API_URL=${VITE_API_URL:-https://usevoxora.online/api}
         - VITE_ENGINE_URL=${VITE_ENGINE_URL:-https://usevoxora.online/ai}
         - VITE_ENGINE_API_KEY=${VITE_ENGINE_API_KEY:-}
+        - VITE_ADMIN_EMAIL=${VITE_ADMIN_EMAIL:-}
         - VITE_PAYPAL_CLIENT_ID=${VITE_PAYPAL_CLIENT_ID:-}
         - VITE_PAYPAL_PLAN_STARTER=${VITE_PAYPAL_PLAN_STARTER:-}
         - VITE_PAYPAL_PLAN_PRO=${VITE_PAYPAL_PLAN_PRO:-}
@@ -73,6 +74,7 @@ services:
       - voice_profiles:/app/voice_profiles
       - ai_models:/root/.cache/huggingface
       - tts_models:/root/.local/share/tts  # Add this line!
+      - builtin_refs:/app/builtin_refs
     environment:
       - COQUI_TOS_AGREED=1
       - AI_ENGINE_API_KEY=${AI_ENGINE_API_KEY:-}
@@ -94,6 +96,8 @@ services:
     environment:
       MYSQL_DATABASE: voice_saas
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
     networks:
       - voice-network
     healthcheck:
@@ -106,6 +110,9 @@ services:
   redis:
     image: redis:alpine
     container_name: voice_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
     networks:
       - voice-network
 
@@ -117,3 +124,6 @@ volumes:
   voice_profiles:
   ai_models:
   tts_models:
+  builtin_refs:
+  mysql_data:
+  redis_data:

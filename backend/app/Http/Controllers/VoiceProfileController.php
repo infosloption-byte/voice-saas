@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\EngineResolver;
 use App\Services\PlanLimits;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -110,7 +111,7 @@ class VoiceProfileController extends Controller
 
         // If a file was uploaded, forward it to the AI engine
         if ($request->hasFile('file')) {
-            $engineUrl = config('services.ai_engine.url', 'http://127.0.0.1:8000');
+            $engineUrl = EngineResolver::activeUrl();
             $engineApiKey = config('services.ai_engine.key', '');
 
             try {
@@ -177,7 +178,7 @@ class VoiceProfileController extends Controller
 
         // Remove the voice file from the AI engine (best-effort, non-fatal)
         if ($profile->engine_key) {
-            $engineUrl    = config('services.ai_engine.url', 'http://127.0.0.1:8000');
+            $engineUrl    = EngineResolver::activeUrl();
             $engineApiKey = config('services.ai_engine.key', '');
             Http::withHeaders($engineApiKey ? ['X-Engine-Key' => $engineApiKey] : [])
                 ->timeout(10)
