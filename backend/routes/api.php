@@ -2,6 +2,7 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Admin\EngineConfigController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GuestLimitsController;
@@ -105,4 +106,12 @@ Route::get('/guest-limits', [GuestLimitsController::class, 'show']);
 Route::get('/plan-limits', [PlanLimitsController::class, 'index']);
 Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::put('/admin/plan-limits/{plan}', [PlanLimitsController::class, 'update']);
+
+    // AI Engine management
+    Route::get(   '/admin/engines',                        [EngineConfigController::class, 'index']);
+    Route::post(  '/admin/engines',                        [EngineConfigController::class, 'store']);
+    Route::put(   '/admin/engines/{engineConfig}',         [EngineConfigController::class, 'update']);
+    Route::delete('/admin/engines/{engineConfig}',         [EngineConfigController::class, 'destroy']);
+    Route::post(  '/admin/engines/{engineConfig}/activate',[EngineConfigController::class, 'activate']);
+    Route::post(  '/admin/engines/{engineConfig}/test',    [EngineConfigController::class, 'test']);
 });
