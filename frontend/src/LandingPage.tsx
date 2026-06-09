@@ -15,7 +15,7 @@ export function LogoMark({ size = 32 }: { size?: number }) {
 export const PRODUCT_LINKS = [
   { key: 'feature-studio',      label: 'Studio',        desc: 'Script editor & voice synthesis', icon: icons.scripts },
   { key: 'feature-voices',      label: 'Voice Library', desc: '30+ voices + voice cloning',      icon: icons.mic     },
-  { key: 'feature-translation', label: 'Translation',   desc: 'AI scripts in 16 languages',       icon: icons.globe   },
+  { key: 'feature-translation', label: 'Translation',   desc: 'AI scripts in 17 languages',       icon: icons.globe   },
   { key: 'feature-timeline',    label: 'Timeline',      desc: 'Multi-lane audio assembly',        icon: icons.assembly },
   { key: 'feature-audiobooks',  label: 'Audiobooks',    desc: 'Long-form audio production',        icon: icons.music   },
 ]
@@ -250,7 +250,7 @@ interface LandingPageProps {
 
 const MARQUEE_ITEMS = [
   { icon: '🎙', label: 'Voice Cloning'      },
-  { icon: '🌍', label: '16 Languages'        },
+  { icon: '🌍', label: '17 Languages'        },
   { icon: '🎵', label: 'Timeline Assembly'   },
   { icon: '📖', label: 'Audiobook Production' },
   { icon: '🤖', label: 'AI Translation'       },
@@ -277,8 +277,8 @@ const USE_CASES = [
   {
     emoji: '📚',
     title: 'E-learning Authors',
-    desc: 'Produce consistent narration across hundreds of lessons. Translate courses into 16 languages with one click per script.',
-    chips: ['16 languages', 'Translation', 'Projects', 'Consistent voice'],
+    desc: 'Produce consistent narration across hundreds of lessons. Translate courses into 17 languages with one click per script.',
+    chips: ['17 languages', 'Translation', 'Projects', 'Consistent voice'],
   },
   {
     emoji: '✍️',
@@ -327,7 +327,7 @@ const CHECK = (
 const FEATURES = [
   { icon: icons.mic,      title: 'Voice Cloning',           desc: 'Record a 10-second sample — or upload a WAV. Voxora captures timbre, pacing, and intonation and speaks any script in a voice that sounds unmistakably like you.' },
   { icon: icons.speaker,  title: 'Studio Voice Library',    desc: 'No sample? Pick from 30+ professional studio voices across genders, styles, and languages. Ready to use in seconds — no account upgrade needed on Free.' },
-  { icon: icons.globe,    title: '16 Languages + AI Translate', desc: 'Write in one language and translate your entire script with one click. Powered by Gemini AI. Generate natural speech in Spanish, Japanese, Arabic, Hindi, French and 11 more.' },
+  { icon: icons.globe,    title: '17 Languages + AI Translate', desc: 'Write in one language and translate your entire script with one click. Powered by Gemini AI. Generate natural speech in Spanish, Japanese, Arabic, Hindi, French and 11 more.' },
   { icon: icons.music,    title: '9 Emotion Presets',       desc: 'Natural, Calm, Energetic, Cheerful, Serious, Dramatic, Whisper, Storytelling — shape the exact delivery your content needs, with fine-grained controls for power users.' },
   { icon: icons.upload,   title: 'Audio → Script',          desc: 'Upload any audio file and Voxora transcribes it to an editable script automatically. Re-voice in a different language, change the emotion, or rebuild from scratch.' },
   { icon: icons.profiles, title: 'Multi-Voice Scripts',     desc: 'Assign a different voice to each speaker — run full podcast dialogues, character narration, or interview formats from a single script in a single project.' },

@@ -18,6 +18,7 @@ export const LANGUAGES = [
   { code: 'cs', label: 'Czech' }, { code: 'ar', label: 'Arabic' },
   { code: 'zh', label: 'Chinese' }, { code: 'ja', label: 'Japanese' },
   { code: 'ko', label: 'Korean' }, { code: 'hi', label: 'Hindi' },
+  { code: 'hu', label: 'Hungarian' },
 ]
 
 export const EMOJIS = ['🎬', '🎙', '📹', '🎤', '🎵', '📺', '🌟', '🚀', '💡', '🎯', '📚', '🎧']
