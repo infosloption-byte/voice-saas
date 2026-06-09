@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\EngineResolver;
+use App\Services\VoiceProfileStore;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 
@@ -19,12 +20,44 @@ class EngineSynthesisProxyController extends Controller
         return $key ? ['X-Engine-Key' => $key] : [];
     }
 
+    /**
+     * Make sure every voice profile referenced by this request is present on
+     * the active engine, provisioning from shared storage if needed. Covers
+     * the single `profile_id` field and any engine_keys inside `speaker_map`.
+     */
+    private function ensureProfiles(Request $request, string $engineUrl): void
+    {
+        $keys = [];
+
+        if ($pid = $request->input('profile_id')) {
+            $keys[] = $pid;
+        }
+
+        if ($map = $request->input('speaker_map')) {
+            $decoded = is_string($map) ? json_decode($map, true) : $map;
+            if (is_array($decoded)) {
+                foreach ($decoded as $engineKey) {
+                    if (is_string($engineKey)) {
+                        $keys[] = $engineKey;
+                    }
+                }
+            }
+        }
+
+        foreach (array_unique($keys) as $key) {
+            VoiceProfileStore::ensureOnEngine($engineUrl, $key);
+        }
+    }
+
     /** POST /api/engine/synthesize/submit  — forward multipart to the active engine */
     public function submit(Request $request)
     {
-        $url = $this->engineUrl() . '/synthesize/submit';
+        $engineUrl = $this->engineUrl();
+        $url       = $engineUrl . '/synthesize/submit';
 
         try {
+            $this->ensureProfiles($request, $engineUrl);
+
             $pending = Http::timeout(30)
                 ->withHeaders($this->engineHeaders())
                 ->asMultipart();
@@ -94,9 +127,12 @@ class EngineSynthesisProxyController extends Controller
     /** POST /api/engine/synthesize  — legacy synchronous path */
     public function legacy(Request $request)
     {
-        $url = $this->engineUrl() . '/synthesize';
+        $engineUrl = $this->engineUrl();
+        $url       = $engineUrl . '/synthesize';
 
         try {
+            $this->ensureProfiles($request, $engineUrl);
+
             $pending = Http::timeout(120)
                 ->withHeaders($this->engineHeaders())
                 ->asMultipart();
