@@ -451,6 +451,41 @@ async def built_in_voices(_key: None = Depends(verify_api_key)):
     return {"speakers": speakers}
 
 
+@app.get("/voice-preview/{speaker_name}")
+async def voice_preview(speaker_name: str):
+    """Return a short WAV preview clip for a built-in XTTS speaker.
+
+    No API key required — used by the public marketing voice library.
+    The clip is lazily generated on first request and cached on disk.
+    """
+    if not models["xtts"]:
+        raise HTTPException(503, "XTTS v2 model is not available — preview not ready yet.")
+
+    # Decode URL-encoded name and sanity-check it against known speakers
+    from urllib.parse import unquote
+    decoded = unquote(speaker_name)
+    try:
+        known: list[str] = list(models["xtts"].speakers or [])
+    except Exception:
+        known = []
+    if known and decoded not in known:
+        raise HTTPException(404, f"Unknown speaker: {decoded!r}")
+
+    try:
+        wav_path = get_builtin_ref_wav(decoded)
+    except RuntimeError as e:
+        raise HTTPException(500, str(e))
+
+    return FileResponse(
+        wav_path,
+        media_type="audio/wav",
+        headers={
+            "Cache-Control": "public, max-age=86400",
+            "Content-Disposition": 'inline; filename="{}.wav"'.format(re.sub(r'\W', '_', decoded)),
+        },
+    )
+
+
 # ── TRANSLATION ───────────────────────────────────────────────────
 import json as _json
 import urllib.request as _urllib_req

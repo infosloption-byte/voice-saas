@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { VoxNav, VoxFooter } from './LandingPage'
 import { icons } from './constants'
 import './landing.css'
@@ -585,6 +585,70 @@ const SAMPLE_VOICES: { name: string; full: string; style: string; lang: string; 
   { name: 'Wulf',      full: 'Wulf Carlevaro',     style: 'Deep & mysterious',       lang: 'English',    gender: 'M' },
 ]
 
+const ENGINE_BASE = (import.meta.env.VITE_ENGINE_URL as string | undefined) ?? ''
+
+function VoicePreviewBtn({ full }: { full: string }) {
+  const [state, setState] = useState<'idle'|'loading'|'playing'>('idle')
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  const toggle = async () => {
+    if (state === 'playing') {
+      audioRef.current?.pause()
+      setState('idle')
+      return
+    }
+    if (state === 'loading') return
+
+    // If we already have the audio element loaded, just replay
+    if (audioRef.current && audioRef.current.src) {
+      audioRef.current.currentTime = 0
+      audioRef.current.play()
+      setState('playing')
+      return
+    }
+
+    setState('loading')
+    try {
+      const url = `${ENGINE_BASE}/voice-preview/${encodeURIComponent(full)}`
+      const res = await fetch(url)
+      if (!res.ok) throw new Error('preview unavailable')
+      const blob = await res.blob()
+      const objUrl = URL.createObjectURL(blob)
+      const audio = new Audio(objUrl)
+      audioRef.current = audio
+      audio.onended = () => setState('idle')
+      audio.onerror = () => setState('idle')
+      await audio.play()
+      setState('playing')
+    } catch {
+      setState('idle')
+    }
+  }
+
+  useEffect(() => () => { audioRef.current?.pause() }, [])
+
+  return (
+    <button onClick={toggle} title={state === 'playing' ? 'Pause preview' : 'Play preview'} style={{
+      width: 32, height: 32, borderRadius: '50%', border: 'none', cursor: 'pointer',
+      background: state === 'playing'
+        ? 'linear-gradient(135deg,#a78bfa,#818cf8)'
+        : 'rgba(167,139,250,0.12)',
+      color: state === 'playing' ? '#fff' : '#a78bfa',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      flexShrink: 0, transition: 'all 0.2s',
+      outline: state === 'playing' ? '2px solid #a78bfa' : 'none',
+      outlineOffset: 2,
+    }}>
+      {state === 'loading'
+        ? <span style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid #a78bfa', borderTopColor: 'transparent', borderRadius: '50%', animation: 'vox-spin 0.7s linear infinite' }} />
+        : state === 'playing'
+          ? <svg width="10" height="12" viewBox="0 0 10 12" fill="currentColor"><rect x="0" y="0" width="3" height="12" rx="1"/><rect x="7" y="0" width="3" height="12" rx="1"/></svg>
+          : <svg width="10" height="12" viewBox="0 0 10 12" fill="currentColor"><path d="M0 0 L10 6 L0 12 Z"/></svg>
+      }
+    </button>
+  )
+}
+
 function VoiceFilter() {
   const [gender, setGender] = useState<'All'|'F'|'M'>('All')
   const [lang, setLang] = useState('All')
@@ -621,26 +685,28 @@ function VoiceFilter() {
         </div>
       </div>
       {/* voice grid */}
-      <div className="vox-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 12 }}>
+      <div className="vox-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
         {visible.map(v => (
           <div key={v.full} className="vox-voice" style={{ gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div className="vox-voice-avatar" style={{
                 background: v.gender === 'F'
                   ? 'linear-gradient(135deg,#a78bfa,#818cf8)'
                   : 'linear-gradient(135deg,#60a5fa,#34d399)',
+                flexShrink: 0,
               }}>{v.name[0]}</div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--vx-text)' }}>{v.name}</div>
-                <div style={{ fontSize: 11, color: 'var(--vx-text-3)', marginTop: 1 }}>{v.lang} · {v.gender === 'F' ? 'Female' : 'Male'}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--vx-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.name}</div>
+                <div style={{ fontSize: 10, color: 'var(--vx-text-3)', marginTop: 1 }}>{v.lang} · {v.gender === 'F' ? 'Female' : 'Male'}</div>
               </div>
+              <VoicePreviewBtn full={v.full} />
             </div>
-            <div style={{ fontSize: 12, color: 'var(--vx-text-2)', lineHeight: 1.4 }}>{v.style}</div>
+            <div style={{ fontSize: 11.5, color: 'var(--vx-text-2)', lineHeight: 1.4 }}>{v.style}</div>
           </div>
         ))}
       </div>
       <p style={{ textAlign: 'center', marginTop: 24, fontSize: 13, color: 'var(--vx-text-3)' }}>
-        Every voice is available on all plans — including Free.
+        Every voice is available on all plans — including Free. Click ▶ to preview.
       </p>
     </div>
   )
