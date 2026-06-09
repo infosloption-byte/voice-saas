@@ -212,18 +212,23 @@ class ApiClient {
     const headers: Record<string, string> = {}
     if (ENGINE_API_KEY) headers['X-Engine-Key'] = ENGINE_API_KEY
 
-    // 1. Submit
+    // 1. Submit — routed through backend so it uses the active engine
+    const csrfToken = getCookie('XSRF-TOKEN')
+    const submitHeaders: Record<string, string> = {}
+    if (csrfToken) submitHeaders['X-XSRF-TOKEN'] = csrfToken
+
     let submit: Response
     try {
-      submit = await fetch(`${ENGINE_BASE}/synthesize/submit`, {
-        method: 'POST', body: formData, credentials: 'omit', signal, headers,
+      submit = await fetch(`${LARAVEL_API}/engine/synthesize/submit`, {
+        method: 'POST', body: formData, credentials: 'include', signal,
+        headers: submitHeaders,
       })
     } catch (e) {
       throw e
     }
     if (submit.status === 404) {
       // Older engine without the queue — use the synchronous path.
-      return this.enginePost('/synthesize', formData, signal) as Promise<Blob>
+      return this.legacySynthesize(formData, signal) as Promise<Blob>
     }
     if (!submit.ok) {
       const text = await submit.text().catch(() => '')
@@ -237,8 +242,8 @@ class ApiClient {
       await new Promise(res => setTimeout(res, pollMs))
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
 
-      const sr = await fetch(`${ENGINE_BASE}/synthesize/status/${job_id}`, {
-        method: 'GET', credentials: 'omit', headers, signal,
+      const sr = await fetch(`${LARAVEL_API}/engine/synthesize/status/${job_id}`, {
+        method: 'GET', credentials: 'include', signal,
       })
       if (!sr.ok) {
         const text = await sr.text().catch(() => '')
@@ -252,14 +257,29 @@ class ApiClient {
     }
 
     // 3. Download the result
-    const rr = await fetch(`${ENGINE_BASE}/synthesize/result/${job_id}`, {
-      method: 'GET', credentials: 'omit', headers, signal,
+    const rr = await fetch(`${LARAVEL_API}/engine/synthesize/result/${job_id}`, {
+      method: 'GET', credentials: 'include', signal,
     })
     if (!rr.ok) {
       const text = await rr.text().catch(() => '')
       throw new ApiError(`Engine error: HTTP ${rr.status}`, rr.status, { body: text })
     }
     return rr.blob()
+  }
+
+  /** Legacy synchronous synthesis, proxied through the backend */
+  async legacySynthesize(formData: FormData, signal?: AbortSignal): Promise<Blob> {
+    const csrfToken = getCookie('XSRF-TOKEN')
+    const h: Record<string, string> = {}
+    if (csrfToken) h['X-XSRF-TOKEN'] = csrfToken
+    const r = await fetch(`${LARAVEL_API}/engine/synthesize`, {
+      method: 'POST', body: formData, credentials: 'include', signal, headers: h,
+    })
+    if (!r.ok) {
+      const text = await r.text().catch(() => '')
+      throw new ApiError(`Engine error: HTTP ${r.status}`, r.status, { body: text })
+    }
+    return r.blob()
   }
 
   engineFetchBlob(path: string): Promise<Blob> {
