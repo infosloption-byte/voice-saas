@@ -675,6 +675,23 @@ async def list_voice_profiles():
 
 
 # ── FEATURE 3b: DELETE VOICE PROFILE ─────────────────────────────
+@app.get("/voice-profile/{profile_id}/preview")
+async def preview_voice_profile(
+    profile_id: str,
+    _key: None = Depends(verify_api_key),
+):
+    """Stream the reference WAV for a user's cloned voice profile."""
+    safe_id  = sanitize_profile_id(profile_id)
+    wav_path = os.path.join(VOICES_DIR, f"{safe_id}.wav")
+    if not os.path.exists(wav_path):
+        raise HTTPException(404, f"Voice profile '{safe_id}' not found.")
+    return FileResponse(
+        wav_path,
+        media_type="audio/wav",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
 @app.delete("/voice-profile/{profile_id}")
 async def delete_voice_profile(
     profile_id: str,

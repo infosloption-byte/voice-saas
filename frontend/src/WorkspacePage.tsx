@@ -9,6 +9,81 @@ import { type GateType, type GuestUsage } from './hooks/useGuestSession'
 import { DEFAULT_GUEST_LIMITS } from './hooks/useGuestLimits'
 import type { Project, Script, VoiceProfile, SaveState, EngineCaps, GuestLimits } from './types'
 
+// ── Voice preview hook ────────────────────────────────────────────
+// Manages a single shared audio instance so only one voice plays at a time.
+function useVoicePreview() {
+  const [playingId, setPlayingId] = useState<string | null>(null)
+  const [loadingId, setLoadingId] = useState<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const blobCache = useRef<Map<string, string>>(new Map())
+
+  const stop = useCallback(() => {
+    audioRef.current?.pause()
+    audioRef.current = null
+    setPlayingId(null)
+  }, [])
+
+  const toggle = useCallback(async (id: string, url: string) => {
+    if (playingId === id) { stop(); return }
+    stop()
+    setLoadingId(id)
+    try {
+      let objUrl = blobCache.current.get(id)
+      if (!objUrl) {
+        const blob = await api.engineFetchBlob(url)
+        objUrl = URL.createObjectURL(blob)
+        blobCache.current.set(id, objUrl)
+      }
+      const audio = new Audio(objUrl)
+      audioRef.current = audio
+      audio.onended = () => setPlayingId(null)
+      audio.onerror = () => setPlayingId(null)
+      await audio.play()
+      setPlayingId(id)
+    } catch {
+      setPlayingId(null)
+    } finally {
+      setLoadingId(null)
+    }
+  }, [playingId, stop])
+
+  useEffect(() => () => { audioRef.current?.pause() }, [])
+
+  return { playingId, loadingId, toggle, stop }
+}
+
+// ── Small play/pause button used inside the voice picker ──────────
+function VoicePlayBtn({
+  id, playingId, loadingId, toggle, url,
+}: {
+  id: string; playingId: string | null; loadingId: string | null
+  toggle: (id: string, url: string) => void; url: string
+}) {
+  const isPlaying = playingId === id
+  const isLoading = loadingId === id
+  return (
+    <button
+      onClick={e => { e.stopPropagation(); toggle(id, url) }}
+      title={isPlaying ? 'Stop preview' : 'Preview voice'}
+      style={{
+        width: 24, height: 24, borderRadius: '50%', border: 'none',
+        flexShrink: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: isPlaying ? 'var(--accent)' : 'var(--accent-lt)',
+        color: isPlaying ? '#fff' : 'var(--accent)',
+        transition: 'all 0.15s',
+        marginLeft: 'auto',
+      }}
+    >
+      {isLoading
+        ? <span style={{ width: 10, height: 10, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />
+        : isPlaying
+          ? <svg width="8" height="10" viewBox="0 0 8 10" fill="currentColor"><rect x="0" y="0" width="2.5" height="10" rx="1"/><rect x="5.5" y="0" width="2.5" height="10" rx="1"/></svg>
+          : <svg width="8" height="10" viewBox="0 0 8 10" fill="currentColor"><path d="M0 0 L8 5 L0 10 Z"/></svg>
+      }
+    </button>
+  )
+}
+
 const SCRIPT_TEMPLATES = [
   { id: 'blank',         label: 'Blank Script',    emoji: '📄', description: 'Start from scratch', title: 'Untitled Script', content: '' },
   { id: 'podcast-intro', label: 'Podcast Intro',   emoji: '🎙', description: '~30 second welcome hook', title: 'Podcast Intro',
@@ -156,6 +231,7 @@ export function WorkspacePage({
   const [showLangMenu,     setShowLangMenu]     = useState(false)
   const [showToneMenu,     setShowToneMenu]     = useState(false)
   const [showVoiceMenu,    setShowVoiceMenu]    = useState(false)
+  const voicePreview = useVoicePreview()
   const [showTranslateMenu, setShowTranslateMenu] = useState(false)
   const [translateTarget, setTranslateTarget]   = useState('es')
   const [showAdvanced,     setShowAdvanced]     = useState(false)
@@ -1561,25 +1637,42 @@ export function WorkspacePage({
                                 <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--accent-lt)', border: '1px solid var(--accent-mid)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                   <svg viewBox="0 0 20 20" fill="none" stroke="var(--accent)" strokeWidth="1.6" style={{ width: 11, height: 11 }}><path d="M12 2a3 3 0 0 1 3 3v4a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" /><path d="M19 10v1a7 7 0 0 1-14 0v-1" /></svg>
                                 </div>
-                                <div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
                                   <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-1)' }}>{vp.name ?? vp.profile_id}</div>
                                   {vp.duration && <div style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>{vp.duration.toFixed(1)}s sample</div>}
                                 </div>
+                                <VoicePlayBtn
+                                  id={`custom:${vp.profile_id}`}
+                                  url={`/voice-profile/${encodeURIComponent(vp.profile_id)}/preview`}
+                                  playingId={voicePreview.playingId}
+                                  loadingId={voicePreview.loadingId}
+                                  toggle={voicePreview.toggle}
+                                />
                               </button>
                             ))}
                           </>}
                           {/* Built-in library — works with both XTTS and F5 */}
                           {true && <>
                             <div style={{ padding: '8px 12px 6px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)', borderTop: voiceProfiles.length ? '1px solid var(--border-2)' : undefined, marginTop: voiceProfiles.length ? 4 : 0 }}>Voxora Library</div>
-                            {BUILT_IN_VOICES.map(bv => (
-                              <button key={bv.id} onClick={() => { onUpdateScript(activeScript.id, { profileId: bv.id }); setShowVoiceMenu(false) }}
-                                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 12px', border: 'none', background: currentId === bv.id ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s', borderLeft: currentId === bv.id ? '3px solid var(--accent)' : '3px solid transparent' }}>
-                                <div style={{ width: 22, height: 22, borderRadius: '50%', background: bv.gender === 'F' ? 'rgba(201,66,120,0.10)' : 'rgba(66,120,201,0.10)', border: `1px solid ${bv.gender === 'F' ? 'rgba(201,66,120,0.25)' : 'rgba(66,120,201,0.25)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 11 }}>
-                                  {bv.gender === 'F' ? '♀' : '♂'}
-                                </div>
-                                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-1)' }}>{bv.name}</div>
-                              </button>
-                            ))}
+                            {BUILT_IN_VOICES.map(bv => {
+                              const speakerName = bv.id.replace('builtin:', '')
+                              return (
+                                <button key={bv.id} onClick={() => { onUpdateScript(activeScript.id, { profileId: bv.id }); setShowVoiceMenu(false) }}
+                                  style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 12px', border: 'none', background: currentId === bv.id ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s', borderLeft: currentId === bv.id ? '3px solid var(--accent)' : '3px solid transparent' }}>
+                                  <div style={{ width: 22, height: 22, borderRadius: '50%', background: bv.gender === 'F' ? 'rgba(201,66,120,0.10)' : 'rgba(66,120,201,0.10)', border: `1px solid ${bv.gender === 'F' ? 'rgba(201,66,120,0.25)' : 'rgba(66,120,201,0.25)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 11 }}>
+                                    {bv.gender === 'F' ? '♀' : '♂'}
+                                  </div>
+                                  <div style={{ flex: 1, fontSize: 12, fontWeight: 500, color: 'var(--text-1)' }}>{bv.name}</div>
+                                  <VoicePlayBtn
+                                    id={bv.id}
+                                    url={`/voice-preview/${encodeURIComponent(speakerName)}`}
+                                    playingId={voicePreview.playingId}
+                                    loadingId={voicePreview.loadingId}
+                                    toggle={voicePreview.toggle}
+                                  />
+                                </button>
+                              )
+                            })}
                           </>}
                         </div>
                       </>
