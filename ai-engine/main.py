@@ -64,7 +64,7 @@ def f5_usable() -> bool:
 VOICES_DIR = "voice_profiles"
 os.makedirs(VOICES_DIR, exist_ok=True)
 
-BUILTIN_REFS_DIR = "builtin_refs"
+BUILTIN_REFS_DIR = os.getenv("BUILTIN_REFS_DIR", "builtin_refs")
 os.makedirs(BUILTIN_REFS_DIR, exist_ok=True)
 
 TMP_DIR = tempfile.gettempdir()

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\EngineResolver;
 use App\Mail\AccountDeletedMail;
 use App\Mail\WelcomeMail;
 use Illuminate\Http\Request;
@@ -90,7 +91,7 @@ class AuthController extends Controller
     public function deleteAccount(Request $request)
     {
         $user = $request->user();
-        $engineUrl = config('services.ai_engine.url', 'http://127.0.0.1:8000');
+        $engineUrl = EngineResolver::activeUrl();
         $engineKey = config('services.ai_engine.key', '');
 
         // Delete voice files from the AI engine before removing user data

@@ -7,6 +7,7 @@ WORKDIR /app
 ARG VITE_API_URL
 ARG VITE_ENGINE_URL
 ARG VITE_ENGINE_API_KEY
+ARG VITE_ADMIN_EMAIL
 ARG VITE_PAYPAL_CLIENT_ID
 ARG VITE_PAYPAL_PLAN_STARTER
 ARG VITE_PAYPAL_PLAN_PRO
@@ -24,6 +25,7 @@ RUN set -e; \
     _api="$VITE_API_URL"; \
     _engine="$VITE_ENGINE_URL"; \
     _key="$VITE_ENGINE_API_KEY"; \
+    _admin="$VITE_ADMIN_EMAIL"; \
     _paypal="$VITE_PAYPAL_CLIENT_ID"; \
     _plan_starter="$VITE_PAYPAL_PLAN_STARTER"; \
     _plan_pro="$VITE_PAYPAL_PLAN_PRO"; \
@@ -31,6 +33,7 @@ RUN set -e; \
     [ -n "$_api" ]          && export VITE_API_URL="$_api"                     || true; \
     [ -n "$_engine" ]       && export VITE_ENGINE_URL="$_engine"               || true; \
     [ -n "$_key" ]          && export VITE_ENGINE_API_KEY="$_key"              || true; \
+    [ -n "$_admin" ]        && export VITE_ADMIN_EMAIL="$_admin"               || true; \
     [ -n "$_paypal" ]       && export VITE_PAYPAL_CLIENT_ID="$_paypal"         || true; \
     [ -n "$_plan_starter" ] && export VITE_PAYPAL_PLAN_STARTER="$_plan_starter" || true; \
     [ -n "$_plan_pro" ]     && export VITE_PAYPAL_PLAN_PRO="$_plan_pro"        || true; \
