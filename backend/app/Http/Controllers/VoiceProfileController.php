@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\EngineResolver;
 use App\Services\PlanLimits;
+use App\Services\VoiceProfileStore;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -142,6 +143,10 @@ class VoiceProfileController extends Controller
                 $engineData = $response->json();
                 $duration   = $engineData['duration_seconds'] ?? null;
 
+                // Keep a copy in shared storage so the profile can be used on
+                // any engine, not just the one that was active at save time.
+                VoiceProfileStore::put($engineKey, $file);
+
             } catch (\Exception $e) {
                 Log::error('AI engine connection error', ['error' => $e->getMessage()]);
                 return response()->json([
@@ -183,6 +188,9 @@ class VoiceProfileController extends Controller
             Http::withHeaders($engineApiKey ? ['X-Engine-Key' => $engineApiKey] : [])
                 ->timeout(10)
                 ->delete("{$engineUrl}/voice-profile/{$profile->engine_key}");
+
+            // Also remove the shared copy.
+            VoiceProfileStore::delete($profile->engine_key);
         }
 
         $profile->delete();
