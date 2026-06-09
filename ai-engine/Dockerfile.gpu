@@ -1,0 +1,50 @@
+# ── GPU Dockerfile for RunPod (CUDA 11.8 / XTTS v2 + F5-TTS) ────────
+# Build on RunPod or any CUDA 11.8-capable host:
+#   docker build -f Dockerfile.gpu -t voxora-ai-gpu .
+#
+# The only difference from the CPU Dockerfile is:
+#   1. Base image carries CUDA runtime
+#   2. Torch is the cu118 wheel (GPU) instead of the +cpu wheel
+#   3. F5-TTS installed without the CPU constraint — it will use the GPU
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV COQUI_TOS_AGREED=1
+
+RUN apt-get update && apt-get install -y \
+    python3.10 python3.10-dev python3-pip \
+    ffmpeg libsox-dev sox gcc g++ libsndfile1 git curl \
+    && ln -sf python3.10 /usr/bin/python3 \
+    && ln -sf python3.10 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# ── GPU torch (cu118) ────────────────────────────────────────────────
+RUN pip install --no-cache-dir \
+    torch==2.2.2+cu118 \
+    torchaudio==2.2.2+cu118 \
+    --index-url https://download.pytorch.org/whl/cu118
+
+# ── Core deps (same versions as CPU image) ───────────────────────────
+RUN pip install --no-cache-dir \
+    fastapi \
+    uvicorn \
+    python-multipart \
+    openai-whisper \
+    "tts==0.22.0" \
+    "transformers==4.36.2" \
+    soundfile \
+    numpy
+
+# ── F5-TTS — no CPU constraint, will use CUDA ────────────────────────
+RUN pip install --no-cache-dir f5-tts || \
+    echo "WARNING: f5-tts install failed — XTTS v2 still available"
+
+COPY . .
+
+EXPOSE 8000
+
+# Multiple uvicorn workers are safe on GPU (each synthesis is serialized
+# by the ThreadPoolExecutor anyway, so workers just help with I/O overlap).
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
