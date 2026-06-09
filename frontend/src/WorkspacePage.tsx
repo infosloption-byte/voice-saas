@@ -1643,7 +1643,7 @@ export function WorkspacePage({
                                 </div>
                                 <VoicePlayBtn
                                   id={`custom:${vp.profile_id}`}
-                                  url={`/voice-profile/${encodeURIComponent(vp.profile_id)}/preview`}
+                                  url={`/voice-profile/${encodeURIComponent(vp.engine_key ?? vp.profile_id)}/preview`}
                                   playingId={voicePreview.playingId}
                                   loadingId={voicePreview.loadingId}
                                   toggle={voicePreview.toggle}
