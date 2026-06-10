@@ -278,10 +278,19 @@ def concatenate_wavs(wav_paths: list[str], output_path: str, gap_ms: int = 60) -
 
 
 # ── F5-TTS synthesis helper ────────────────────────────────────────
-def synthesize_chunk_f5(chunk: str, ref_wav: str, speed: float, chunk_path: str) -> None:
+def synthesize_chunk_f5(
+    chunk: str, ref_wav: str, speed: float, chunk_path: str,
+    cfg_strength: float = 2.0, target_rms: float = 0.1,
+    sway_sampling_coef: float = -1.0,
+) -> None:
     """
     Synthesize a single text chunk using F5-TTS and save to chunk_path.
     Handles multiple F5-TTS API versions gracefully.
+
+    cfg_strength / target_rms / sway_sampling_coef are F5's own inference
+    knobs and are how we express "tone" on F5 (it has no temperature/top_k
+    like XTTS). Higher cfg_strength = more emphatic adherence; target_rms
+    controls loudness; sway_sampling_coef nearer 0 = more pitch variation.
     """
     f5 = models["f5tts"]
     if f5 is None:
@@ -297,8 +306,10 @@ def synthesize_chunk_f5(chunk: str, ref_wav: str, speed: float, chunk_path: str)
             ref_text="",          # auto-transcription from ref audio
             gen_text=chunk,
             speed=max(0.5, min(2.0, speed)),
-            target_rms=0.1,
+            target_rms=target_rms,
             cross_fade_duration=0.15,
+            cfg_strength=cfg_strength,
+            sway_sampling_coef=sway_sampling_coef,
         )
         # infer() returns (wav_array, sample_rate, spectrogram)
         if isinstance(result, (tuple, list)) and len(result) >= 2:
@@ -760,7 +771,9 @@ def synthesize_segment(text: str, engine: str,
                     f5_ref = get_builtin_ref_wav(speaker_name)
                 else:
                     raise HTTPException(400, "F5-TTS requires a voice reference (custom profile or built-in speaker).")
-            synthesize_chunk_f5(chunk=chunk, ref_wav=f5_ref, speed=speed, chunk_path=chunk_path)
+            synthesize_chunk_f5(chunk=chunk, ref_wav=f5_ref, speed=speed, chunk_path=chunk_path,
+                                cfg_strength=cfg_strength, target_rms=target_rms,
+                                sway_sampling_coef=sway_sampling_coef)
         else:
             kwargs: dict = dict(
                 text=chunk,
@@ -837,6 +850,8 @@ def _perform_synthesis(
     text: str, profile_id: str, language: str, tts_engine: str,
     temperature: float, top_k: int, top_p: float, speed: float,
     repetition_penalty: float, gap_ms: int, speaker_map: str,
+    cfg_strength: float = 2.0, target_rms: float = 0.1,
+    sway_sampling_coef: float = -1.0,
 ) -> str:
     """Run synthesis end to end and return the path to the finished WAV.
 
@@ -960,7 +975,9 @@ def _perform_synthesis(
                 all_chunk_paths.append(chunk_path)
 
                 if engine == "f5":
-                    synthesize_chunk_f5(chunk=chunk, ref_wav=ref_wav_path, speed=speed, chunk_path=chunk_path)
+                    synthesize_chunk_f5(chunk=chunk, ref_wav=ref_wav_path, speed=speed, chunk_path=chunk_path,
+                                        cfg_strength=cfg_strength, target_rms=target_rms,
+                                        sway_sampling_coef=sway_sampling_coef)
                 else:
                     xtts_kwargs: dict = dict(
                         text=chunk,
@@ -1002,11 +1019,15 @@ def _synth_params(
     text: str, profile_id: str, language: str, tts_engine: str,
     temperature: float, top_k: int, top_p: float, speed: float,
     repetition_penalty: float, gap_ms: int, speaker_map: str,
+    cfg_strength: float = 2.0, target_rms: float = 0.1,
+    sway_sampling_coef: float = -1.0,
 ) -> dict:
     return dict(
         text=text, profile_id=profile_id, language=language, tts_engine=tts_engine,
         temperature=temperature, top_k=top_k, top_p=top_p, speed=speed,
         repetition_penalty=repetition_penalty, gap_ms=gap_ms, speaker_map=speaker_map,
+        cfg_strength=cfg_strength, target_rms=target_rms,
+        sway_sampling_coef=sway_sampling_coef,
     )
 
 
@@ -1023,12 +1044,16 @@ async def synthesize(
     repetition_penalty: float = Form(default=5.0),
     gap_ms: int        = Form(default=60),
     speaker_map: str   = Form(default=""),
+    cfg_strength: float       = Form(default=2.0),    # F5 tone knobs (ignored by XTTS)
+    target_rms: float         = Form(default=0.1),
+    sway_sampling_coef: float = Form(default=-1.0),
     _key: None         = Depends(verify_api_key),
 ):
     """Legacy synchronous synthesis. Runs in the shared executor so it does
     not block the event loop and stays serialized with queued jobs."""
     params = _synth_params(text, profile_id, language, tts_engine, temperature,
-                           top_k, top_p, speed, repetition_penalty, gap_ms, speaker_map)
+                           top_k, top_p, speed, repetition_penalty, gap_ms, speaker_map,
+                           cfg_strength, target_rms, sway_sampling_coef)
     loop = asyncio.get_event_loop()
     out_path = await loop.run_in_executor(_synth_executor, lambda: _perform_synthesis(**params))
     return FileResponse(
@@ -1051,12 +1076,16 @@ async def synthesize_submit(
     repetition_penalty: float = Form(default=5.0),
     gap_ms: int        = Form(default=60),
     speaker_map: str   = Form(default=""),
+    cfg_strength: float       = Form(default=2.0),    # F5 tone knobs (ignored by XTTS)
+    target_rms: float         = Form(default=0.1),
+    sway_sampling_coef: float = Form(default=-1.0),
     _key: None         = Depends(verify_api_key),
 ):
     """Enqueue a synthesis job and return its id immediately."""
     _cleanup_synth_jobs()
     params = _synth_params(text, profile_id, language, tts_engine, temperature,
-                           top_k, top_p, speed, repetition_penalty, gap_ms, speaker_map)
+                           top_k, top_p, speed, repetition_penalty, gap_ms, speaker_map,
+                           cfg_strength, target_rms, sway_sampling_coef)
     job_id = uuid.uuid4().hex
     with _synth_jobs_lock:
         _synth_jobs[job_id] = {
@@ -1150,7 +1179,9 @@ async def clone(
             if engine == "f5":
                 synthesize_chunk_f5(chunk=chunk, ref_wav=ref_path,
                                     speed=max(0.5, min(2.0, speed)),
-                                    chunk_path=cp)
+                                    chunk_path=cp,
+                                    cfg_strength=cfg_strength, target_rms=target_rms,
+                                    sway_sampling_coef=sway_sampling_coef)
             else:
                 models["xtts"].tts_to_file(
                     text=chunk,

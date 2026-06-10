@@ -23,16 +23,21 @@ export const LANGUAGES = [
 
 export const EMOJIS = ['🎬', '🎙', '📹', '🎤', '🎵', '📺', '🌟', '🚀', '💡', '🎯', '📚', '🎧']
 
+// XTTS knobs: temperature / top_k / top_p (sampling).
+// F5 knobs: cfg_strength (emphasis/adherence), f5_rms (loudness),
+//           f5_sway (nearer 0 = more pitch variation), f5_pace (speed ×).
+// F5 has no temperature/top_k, so each tone is also mapped to F5's own
+// inference controls so the selector has a real effect on both engines.
 export const TONE_PRESETS = {
-  natural:     { label: 'Natural',      emoji: '🎙', desc: 'Balanced, conversational delivery',        temperature: 0.65, top_k: 50, top_p: 0.85 },
-  expressive:  { label: 'Expressive',   emoji: '🎭', desc: 'Vivid emotion with wider pitch range',      temperature: 0.85, top_k: 80, top_p: 0.95 },
-  calm:        { label: 'Calm',         emoji: '😌', desc: 'Soft, steady — great for meditation',       temperature: 0.40, top_k: 30, top_p: 0.70 },
-  energetic:   { label: 'Energetic',    emoji: '⚡', desc: 'Fast-paced, punchy and enthusiastic',       temperature: 0.90, top_k: 90, top_p: 0.98 },
-  cheerful:    { label: 'Cheerful',     emoji: '😊', desc: 'Warm, upbeat and friendly',                 temperature: 0.80, top_k: 70, top_p: 0.92 },
-  serious:     { label: 'Serious',      emoji: '🎯', desc: 'Controlled, authoritative and precise',     temperature: 0.45, top_k: 35, top_p: 0.75 },
-  dramatic:    { label: 'Dramatic',     emoji: '🎬', desc: 'High contrast — bold pauses and emphasis',  temperature: 0.95, top_k: 95, top_p: 0.99 },
-  whisper:     { label: 'Whisper',      emoji: '🤫', desc: 'Hushed, intimate and breathy',              temperature: 0.30, top_k: 20, top_p: 0.60 },
-  storytelling:{ label: 'Storytelling', emoji: '📖', desc: 'Flowing narrative with gentle variation',   temperature: 0.72, top_k: 60, top_p: 0.88 },
+  natural:     { label: 'Natural',      emoji: '🎙', desc: 'Balanced, conversational delivery',        temperature: 0.65, top_k: 50, top_p: 0.85, cfg_strength: 2.0, f5_rms: 0.10, f5_sway: -1.0, f5_pace: 1.00 },
+  expressive:  { label: 'Expressive',   emoji: '🎭', desc: 'Vivid emotion with wider pitch range',      temperature: 0.85, top_k: 80, top_p: 0.95, cfg_strength: 2.6, f5_rms: 0.12, f5_sway: -0.6, f5_pace: 1.03 },
+  calm:        { label: 'Calm',         emoji: '😌', desc: 'Soft, steady — great for meditation',       temperature: 0.40, top_k: 30, top_p: 0.70, cfg_strength: 1.6, f5_rms: 0.07, f5_sway: -1.2, f5_pace: 0.92 },
+  energetic:   { label: 'Energetic',    emoji: '⚡', desc: 'Fast-paced, punchy and enthusiastic',       temperature: 0.90, top_k: 90, top_p: 0.98, cfg_strength: 2.8, f5_rms: 0.14, f5_sway: -0.5, f5_pace: 1.12 },
+  cheerful:    { label: 'Cheerful',     emoji: '😊', desc: 'Warm, upbeat and friendly',                 temperature: 0.80, top_k: 70, top_p: 0.92, cfg_strength: 2.4, f5_rms: 0.12, f5_sway: -0.7, f5_pace: 1.05 },
+  serious:     { label: 'Serious',      emoji: '🎯', desc: 'Controlled, authoritative and precise',     temperature: 0.45, top_k: 35, top_p: 0.75, cfg_strength: 2.2, f5_rms: 0.10, f5_sway: -1.2, f5_pace: 0.96 },
+  dramatic:    { label: 'Dramatic',     emoji: '🎬', desc: 'High contrast — bold pauses and emphasis',  temperature: 0.95, top_k: 95, top_p: 0.99, cfg_strength: 3.0, f5_rms: 0.13, f5_sway: -0.4, f5_pace: 0.98 },
+  whisper:     { label: 'Whisper',      emoji: '🤫', desc: 'Hushed, intimate and breathy',              temperature: 0.30, top_k: 20, top_p: 0.60, cfg_strength: 1.4, f5_rms: 0.05, f5_sway: -1.3, f5_pace: 0.90 },
+  storytelling:{ label: 'Storytelling', emoji: '📖', desc: 'Flowing narrative with gentle variation',   temperature: 0.72, top_k: 60, top_p: 0.88, cfg_strength: 2.1, f5_rms: 0.10, f5_sway: -0.9, f5_pace: 1.00 },
 } as const
 export type TonePreset = keyof typeof TONE_PRESETS
 
