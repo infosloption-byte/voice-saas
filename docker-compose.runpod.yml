@@ -36,6 +36,11 @@ services:
       - SYNTH_WORKERS=${SYNTH_WORKERS:-2}
       # Allow F5-TTS (it requires CUDA — the GPU image has it)
       - F5_ALLOW_CPU=0
+      # Optional multilingual F5 checkpoint (enables the language picker for
+      # F5). Leave blank for the default English-first model.
+      - F5_MODEL=${F5_MODEL:-}
+      - F5_CKPT_FILE=${F5_CKPT_FILE:-}
+      - F5_VOCAB_FILE=${F5_VOCAB_FILE:-}
     deploy:
       resources:
         reservations:
