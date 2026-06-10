@@ -395,12 +395,16 @@ function AudioSettings({ engineCaps, onSave }: { engineCaps: EngineCaps; onSave:
           )}
         </div>
       </SettingsRow>
-      <SettingsRow label="Default language" hint="Used when creating new scripts. XTTS v2 is multilingual; F5-TTS needs a multilingual model.">
-        {(() => { const langDisabled = engine === 'f5' && !engineCaps?.f5_multilingual; return (
-        <select className="full-input" value={defaultLang} onChange={e => setDefaultLang(e.target.value)} disabled={langDisabled} style={{ width: 160, padding: '6px 10px', opacity: langDisabled ? 0.45 : 1 }}>
-          {languages.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
-        </select>
-        ) })()}
+      <SettingsRow label="Default language" hint="Used when creating new scripts. XTTS v2 is multilingual; F5-TTS speaks its loaded model's language(s).">
+        {(() => {
+          const f5Langs = engineCaps?.f5_languages ?? []
+          const langList = engine === 'f5' ? languages.filter(l => f5Langs.includes(l.code)) : languages
+          const langDisabled = engine === 'f5' && langList.length <= 1
+          return (
+          <select className="full-input" value={defaultLang} onChange={e => setDefaultLang(e.target.value)} disabled={langDisabled} style={{ width: 160, padding: '6px 10px', opacity: langDisabled ? 0.45 : 1 }}>
+            {(langList.length ? langList : languages).map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+          </select>
+          ) })()}
       </SettingsRow>
       <SettingsRow label="Default speech speed" hint={`${defaultSpeed.toFixed(1)}× — affects all new scripts`}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

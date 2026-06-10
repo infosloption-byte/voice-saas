@@ -1584,16 +1584,21 @@ export function WorkspacePage({
 
               {/* ── Accent language picker ── */}
               {(() => {
-                // XTTS is always multilingual; F5 only when a multilingual
-                // checkpoint is loaded on the active engine.
-                const disabled = engine === 'f5' && !engineCaps.f5_multilingual
+                // XTTS is multilingual. F5 speaks only its checkpoint's
+                // language(s), reported by the engine as f5_languages.
+                const f5Langs = engineCaps.f5_languages ?? []
+                const langOptions = engine === 'f5'
+                  ? LANGUAGES.filter(l => f5Langs.includes(l.code))
+                  : LANGUAGES
+                // Disable only when there's nothing meaningful to choose.
+                const disabled = engine === 'f5' && langOptions.length <= 1
                 const currentLang = LANGUAGES.find(l => l.code === (activeScript.language || 'en'))
                 return (
                   <div style={{ position: 'relative' }}>
                     <button
                       className="btn btn--sm btn--ghost"
                       disabled={disabled}
-                      title={disabled ? 'This F5-TTS model is English-only — switch to XTTS v2 or load a multilingual F5 model for other languages' : 'Accent language'}
+                      title={disabled ? 'This F5-TTS model speaks one language — switch to XTTS v2, or load a different F5 model for more languages' : 'Accent language'}
                       style={{ gap: 5, paddingRight: 8, opacity: disabled ? 0.45 : 1 }}
                       onClick={() => { if (!disabled) setShowLangMenu(v => !v) }}
                     >
@@ -1605,7 +1610,7 @@ export function WorkspacePage({
                         <div style={{ position: 'fixed', inset: 0, zIndex: 199 }} onClick={() => setShowLangMenu(false)} />
                         <div style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: 6, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)', zIndex: 200, minWidth: 160, maxHeight: 360, overflow: 'hidden auto' }}>
                           <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>Accent language</div>
-                          {LANGUAGES.map(l => (
+                          {langOptions.map(l => (
                             <button key={l.code} onClick={() => { onUpdateScript(activeScript.id, { language: l.code }); setShowLangMenu(false) }}
                               style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '6px 12px', border: 'none', background: (activeScript.language || 'en') === l.code ? 'var(--accent-lt)' : 'transparent', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--text-1)', transition: 'background 0.1s', borderLeft: (activeScript.language || 'en') === l.code ? '3px solid var(--accent)' : '3px solid transparent', whiteSpace: 'nowrap' }}>
                               {l.label}
