@@ -396,17 +396,26 @@ export function WorkspacePage({
       const top_k       = adv.top_k       ?? toneParams.top_k
       const top_p       = adv.top_p       ?? toneParams.top_p
 
+      // F5 has no temperature/top_k; the same tone maps to F5's own knobs.
+      // Pace folds the tone's pace into the user's speed setting.
+      const userSpeed = Math.max(0.5, Math.min(2.0, script.speed ?? 1.0))
+      const f5Speed   = Math.max(0.5, Math.min(2.0, userSpeed * (toneParams.f5_pace ?? 1.0)))
+
       const fd = new FormData()
       fd.append('text',        text.trim())
       fd.append('profile_id',  engineKey)
       fd.append('language',    script.language || 'en')
-      fd.append('speed',       String(Math.max(0.5, Math.min(2.0, script.speed ?? 1.0))))
+      fd.append('speed',       String(ttsEngine === 'f5' ? f5Speed : userSpeed))
       fd.append('tts_engine',  ttsEngine)
       // XTTS-specific knobs (ignored by F5-TTS)
       fd.append('temperature', String(temperature))
       fd.append('top_k',       String(top_k))
       fd.append('top_p',       String(top_p))
       fd.append('gap_ms',      '60')
+      // F5-specific tone knobs (ignored by XTTS)
+      fd.append('cfg_strength',       String(toneParams.cfg_strength ?? 2.0))
+      fd.append('target_rms',         String(toneParams.f5_rms ?? 0.1))
+      fd.append('sway_sampling_coef', String(toneParams.f5_sway ?? -1.0))
       // Reduces word/phrase repetition loops in XTTS output
       if (ttsEngine === 'xtts') fd.append('repetition_penalty', '5.0')
 
@@ -436,6 +445,9 @@ export function WorkspacePage({
         chunkFd.append('top_k',       fd.get('top_k') as string)
         chunkFd.append('top_p',       fd.get('top_p') as string)
         chunkFd.append('gap_ms',      fd.get('gap_ms') as string)
+        chunkFd.append('cfg_strength',       fd.get('cfg_strength') as string)
+        chunkFd.append('target_rms',         fd.get('target_rms') as string)
+        chunkFd.append('sway_sampling_coef', fd.get('sway_sampling_coef') as string)
         if (fd.get('repetition_penalty')) chunkFd.append('repetition_penalty', fd.get('repetition_penalty') as string)
 
         const MAX_RETRIES = 2
@@ -1301,8 +1313,8 @@ export function WorkspacePage({
                 {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : ''}
               </span>
 
-              {/* Translate (XTTS only) */}
-              {engine !== 'f5' && (
+              {/* Translate — engine-independent (Gemini text translation) */}
+              {(
                 <div style={{ position: 'relative' }}>
                   <button
                     className="btn btn--sm btn--ghost"
@@ -1468,8 +1480,9 @@ export function WorkspacePage({
 
               <div style={{ flex: 1 }} />
 
-              {/* Tone preset popup (XTTS only) */}
-              {engine !== 'f5' && (() => {
+              {/* Tone preset popup — works on both engines (mapped to each
+                  engine's own knobs: XTTS sampling, F5 cfg/rms/sway/pace) */}
+              {(() => {
                 const activeTone = (activeScript.tone ?? 'natural') as TonePreset
                 const activePreset = TONE_PRESETS[activeTone]
                 return (
@@ -1571,14 +1584,16 @@ export function WorkspacePage({
 
               {/* ── Accent language picker ── */}
               {(() => {
-                const disabled = engine === 'f5'
+                // XTTS is always multilingual; F5 only when a multilingual
+                // checkpoint is loaded on the active engine.
+                const disabled = engine === 'f5' && !engineCaps.f5_multilingual
                 const currentLang = LANGUAGES.find(l => l.code === (activeScript.language || 'en'))
                 return (
                   <div style={{ position: 'relative' }}>
                     <button
                       className="btn btn--sm btn--ghost"
                       disabled={disabled}
-                      title={disabled ? 'Language selection is only used by XTTS v2' : 'Accent language'}
+                      title={disabled ? 'This F5-TTS model is English-only — switch to XTTS v2 or load a multilingual F5 model for other languages' : 'Accent language'}
                       style={{ gap: 5, paddingRight: 8, opacity: disabled ? 0.45 : 1 }}
                       onClick={() => { if (!disabled) setShowLangMenu(v => !v) }}
                     >
