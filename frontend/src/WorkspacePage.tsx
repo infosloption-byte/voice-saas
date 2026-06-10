@@ -401,8 +401,14 @@ export function WorkspacePage({
       const userSpeed = Math.max(0.5, Math.min(2.0, script.speed ?? 1.0))
       const f5Speed   = Math.max(0.5, Math.min(2.0, userSpeed * (toneParams.f5_pace ?? 1.0)))
 
+      // One id per generate action; the backend records quota once per batch
+      // so a chunked synthesis (many submits) only counts as a single use.
+      const batchId = (crypto as Crypto & { randomUUID?: () => string }).randomUUID?.()
+        ?? `b_${Date.now()}_${Math.random().toString(36).slice(2)}`
+
       const fd = new FormData()
       fd.append('text',        text.trim())
+      fd.append('batch_id',    batchId)
       fd.append('profile_id',  engineKey)
       fd.append('language',    script.language || 'en')
       fd.append('speed',       String(ttsEngine === 'f5' ? f5Speed : userSpeed))
@@ -437,6 +443,7 @@ export function WorkspacePage({
       const synthesizeText = async (chunkText: string): Promise<Blob> => {
         const chunkFd = new FormData()
         chunkFd.append('text',        chunkText)
+        chunkFd.append('batch_id',    batchId)
         chunkFd.append('profile_id',  fd.get('profile_id') as string)
         chunkFd.append('language',    fd.get('language') as string)
         chunkFd.append('speed',       fd.get('speed') as string)
@@ -737,9 +744,8 @@ export function WorkspacePage({
       if (ok) {
         const url = await loadAudioBlob(`audio_${activeScript.id}`)
         setAudioUrl(url)
-        // Record usage (fire-and-forget; non-critical)
-        api.post('/synthesis/record', {}).catch(() => {})
-        // Refresh quota display
+        // Usage is recorded server-side by the synthesis proxy (deduped per
+        // batch_id); just refresh the quota display here.
         api.get('/synthesis/quota').then(q => setSynthQuota(q as typeof synthQuota)).catch(() => {})
       }
       // ok === false means user cancelled — no error to show
