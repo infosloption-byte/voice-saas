@@ -18,7 +18,8 @@ class ProjectController extends Controller
         $validated = $request->validate([
             'id'          => 'required|string|max:36',
             'name'        => 'required|string|max:255',
-            'emoji'       => 'nullable|string|max:10',
+            // Reject control / invisible characters; a real emoji is short.
+            'emoji'       => ['nullable', 'string', 'max:10', 'not_regex:/[\x00-\x1F\x7F]/'],
             'description' => 'nullable|string|max:2000',
         ]);
 

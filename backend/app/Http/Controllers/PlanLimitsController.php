@@ -63,6 +63,7 @@ class PlanLimitsController extends Controller
             ->update(array_merge($validated, ['updated_at' => now()]));
 
         PlanLimits::flushCache();
+        \Illuminate\Support\Facades\Cache::forget('guest_limits');
 
         return response()->json([
             'message' => "Plan limits for '{$plan}' updated successfully.",
