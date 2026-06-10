@@ -403,7 +403,28 @@ async def load_all_models():
         print("--- Model Loading Complete ---")
         return
 
-    # F5-TTS — optional, graceful fallback
+    # F5-TTS — optional, graceful fallback.
+    #
+    # The default (no args) loads F5's standard English-centric checkpoint.
+    # To run a multilingual F5 checkpoint, set any of these env vars:
+    #   F5_MODEL       — a model name known to your f5_tts version
+    #                    (e.g. "F5TTS_Base", or a community multilingual name)
+    #   F5_CKPT_FILE   — path/HF id of a custom .safetensors/.pt checkpoint
+    #   F5_VOCAB_FILE  — matching vocab.txt for that checkpoint
+    # Whatever the checkpoint was trained on is what F5 can speak; F5 reads the
+    # input text directly and is not conditioned on a language id.
+    f5_model      = os.getenv("F5_MODEL", "").strip()
+    f5_ckpt_file  = os.getenv("F5_CKPT_FILE", "").strip()
+    f5_vocab_file = os.getenv("F5_VOCAB_FILE", "").strip()
+
+    f5_kwargs: dict = {}
+    if f5_model:
+        f5_kwargs["model"] = f5_model
+    if f5_ckpt_file:
+        f5_kwargs["ckpt_file"] = f5_ckpt_file
+    if f5_vocab_file:
+        f5_kwargs["vocab_file"] = f5_vocab_file
+
     f5_loaded = False
     for import_path in [
         ("f5_tts.api", "F5TTS"),
@@ -415,8 +436,15 @@ async def load_all_models():
             import importlib
             mod = importlib.import_module(module_name)
             F5TTSClass = getattr(mod, class_name)
-            print(f"Loading F5-TTS (from {module_name})…")
-            models["f5tts"] = F5TTSClass()
+            desc = f"model={f5_model or 'default'}" + (", custom ckpt" if f5_ckpt_file else "")
+            print(f"Loading F5-TTS (from {module_name}, {desc})…")
+            try:
+                models["f5tts"] = F5TTSClass(**f5_kwargs) if f5_kwargs else F5TTSClass()
+            except TypeError as te:
+                # Older f5_tts whose constructor doesn't accept these kwargs —
+                # fall back to the default model rather than failing outright.
+                print(f"⚠ F5-TTS ignored custom model kwargs ({te}); loading default.")
+                models["f5tts"] = F5TTSClass()
             print("✓ F5-TTS ready")
             f5_loaded = True
             break
@@ -448,6 +476,11 @@ async def status():
             # Report F5 as available only when it can actually run, so the
             # frontend disables the F5 option on CPU-only servers.
             "f5":   f5_usable(),
+            # True when a custom/multilingual F5 checkpoint is configured, so
+            # the frontend can offer the language picker for F5 too.
+            "f5_multilingual": f5_usable() and bool(
+                os.getenv("F5_MODEL", "").strip() or os.getenv("F5_CKPT_FILE", "").strip()
+            ),
         },
         "gpu": CUDA_AVAILABLE,
     }
