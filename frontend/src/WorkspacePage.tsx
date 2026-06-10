@@ -1584,14 +1584,16 @@ export function WorkspacePage({
 
               {/* ── Accent language picker ── */}
               {(() => {
-                const disabled = engine === 'f5'
+                // XTTS is always multilingual; F5 only when a multilingual
+                // checkpoint is loaded on the active engine.
+                const disabled = engine === 'f5' && !engineCaps.f5_multilingual
                 const currentLang = LANGUAGES.find(l => l.code === (activeScript.language || 'en'))
                 return (
                   <div style={{ position: 'relative' }}>
                     <button
                       className="btn btn--sm btn--ghost"
                       disabled={disabled}
-                      title={disabled ? 'Language selection is only used by XTTS v2' : 'Accent language'}
+                      title={disabled ? 'This F5-TTS model is English-only — switch to XTTS v2 or load a multilingual F5 model for other languages' : 'Accent language'}
                       style={{ gap: 5, paddingRight: 8, opacity: disabled ? 0.45 : 1 }}
                       onClick={() => { if (!disabled) setShowLangMenu(v => !v) }}
                     >

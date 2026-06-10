@@ -395,10 +395,12 @@ function AudioSettings({ engineCaps, onSave }: { engineCaps: EngineCaps; onSave:
           )}
         </div>
       </SettingsRow>
-      <SettingsRow label="Default language" hint="Used when creating new scripts. XTTS v2 only — F5-TTS is English-first.">
-        <select className="full-input" value={defaultLang} onChange={e => setDefaultLang(e.target.value)} disabled={engine === 'f5'} style={{ width: 160, padding: '6px 10px', opacity: engine === 'f5' ? 0.45 : 1 }}>
+      <SettingsRow label="Default language" hint="Used when creating new scripts. XTTS v2 is multilingual; F5-TTS needs a multilingual model.">
+        {(() => { const langDisabled = engine === 'f5' && !engineCaps?.f5_multilingual; return (
+        <select className="full-input" value={defaultLang} onChange={e => setDefaultLang(e.target.value)} disabled={langDisabled} style={{ width: 160, padding: '6px 10px', opacity: langDisabled ? 0.45 : 1 }}>
           {languages.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
         </select>
+        ) })()}
       </SettingsRow>
       <SettingsRow label="Default speech speed" hint={`${defaultSpeed.toFixed(1)}× — affects all new scripts`}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

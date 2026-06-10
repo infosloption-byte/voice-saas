@@ -35,6 +35,13 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - SYNTH_WORKERS=${SYNTH_WORKERS:-2}
       - F5_ALLOW_CPU=0
+      # Optional: run a multilingual F5 checkpoint so F5 can speak non-English
+      # languages (enables the language picker for F5 in the UI). Leave blank
+      # for the default English-first model. Set a model name your f5_tts
+      # version knows, or point F5_CKPT_FILE/F5_VOCAB_FILE at a custom checkpoint.
+      - F5_MODEL=${F5_MODEL:-}
+      - F5_CKPT_FILE=${F5_CKPT_FILE:-}
+      - F5_VOCAB_FILE=${F5_VOCAB_FILE:-}
     deploy:
       resources:
         reservations:

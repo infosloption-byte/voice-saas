@@ -108,6 +108,8 @@ export interface HistoryState {
 export interface EngineCaps {
   xtts: boolean
   f5: boolean
+  /** True when the active engine runs a multilingual F5 checkpoint. */
+  f5_multilingual?: boolean
 }
 
 export interface GuestLimits {

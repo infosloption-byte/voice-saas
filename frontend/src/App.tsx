@@ -131,7 +131,7 @@ export default function App() {
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('scripts')
   const [engineStatus, setEngineStatus] = useState<EngineStatus>('checking')
   // Per-engine availability reported by GET /
-  const [engineCaps, setEngineCaps] = useState<EngineCaps>({ xtts: false, f5: false })
+  const [engineCaps, setEngineCaps] = useState<EngineCaps>({ xtts: false, f5: false, f5_multilingual: false })
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('vo_dark')
     if (saved !== null) return saved === 'true'
@@ -221,6 +221,7 @@ export default function App() {
         setEngineCaps({
           xtts: d?.xtts === true,
           f5:   d?.f5   === true,
+          f5_multilingual: d?.f5_multilingual === true,
         })
       })
       .catch(() => {
