@@ -54,6 +54,10 @@ COPY . .
 
 EXPOSE 8000
 
-# Multiple uvicorn workers are safe on GPU (each synthesis is serialized
-# by the ThreadPoolExecutor anyway, so workers just help with I/O overlap).
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# IMPORTANT: a single uvicorn worker only. The synthesis job queue
+# (_synth_jobs) lives in process memory, so submit / status / result must
+# all be served by the same process. With >1 worker, a client's poll can
+# land on a different worker that never saw the job, returning a spurious
+# 404 "Job not found or expired." Real synthesis concurrency is provided by
+# the in-process SYNTH_WORKERS thread pool, not by uvicorn workers.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
