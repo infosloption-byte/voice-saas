@@ -102,11 +102,23 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::post('/subscription/webhook', [SubscriptionController::class, 'webhook']);
 
 // ── Engine proxy (public — routes synthesis to the active engine) ────
-Route::get ('/engine/capabilities',                 [EngineCapabilitiesController::class,   'show']);
-Route::post('/engine/synthesize/submit',            [EngineSynthesisProxyController::class, 'submit']);
-Route::get ('/engine/synthesize/status/{jobId}',    [EngineSynthesisProxyController::class, 'status']);
-Route::get ('/engine/synthesize/result/{jobId}',    [EngineSynthesisProxyController::class, 'result']);
-Route::post('/engine/synthesize',                   [EngineSynthesisProxyController::class, 'legacy']);
+// Synthesis is GPU-expensive, so it is rate-limited to curb scripted abuse /
+// DoS. Authenticated users additionally have their plan quota enforced inside
+// the controller; guests are gated client-side. Job ids are constrained to the
+// engine's hex-UUID format to block path traversal on the {jobId} segment.
+Route::get('/engine/capabilities', [EngineCapabilitiesController::class, 'show']);
+
+Route::middleware('throttle:30,1')->group(function () {
+    Route::post('/engine/synthesize/submit', [EngineSynthesisProxyController::class, 'submit']);
+    Route::post('/engine/synthesize',        [EngineSynthesisProxyController::class, 'legacy']);
+});
+
+Route::middleware('throttle:120,1')->group(function () {
+    Route::get('/engine/synthesize/status/{jobId}', [EngineSynthesisProxyController::class, 'status'])
+        ->where('jobId', '[A-Za-z0-9\-]{1,64}');
+    Route::get('/engine/synthesize/result/{jobId}', [EngineSynthesisProxyController::class, 'result'])
+        ->where('jobId', '[A-Za-z0-9\-]{1,64}');
+});
 
 // ── Guest limits (public — used before login) ─────────────────────────
 Route::get('/guest-limits', [GuestLimitsController::class, 'show']);
