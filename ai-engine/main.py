@@ -56,6 +56,9 @@ os.environ["COQUI_TOS_AGREED"] = "1"
 # the operator explicitly opts in via F5_ALLOW_CPU=1.
 CUDA_AVAILABLE = bool(getattr(torch, "cuda", None) and torch.cuda.is_available())
 F5_ALLOW_CPU   = os.getenv("F5_ALLOW_CPU", "0").strip().lower() in ("1", "true", "yes", "on")
+# Language code(s) the loaded F5 checkpoint can speak. Default English; set
+# F5_LANGUAGES (e.g. "es" or "es,en") when loading a non-English F5 model.
+F5_LANGUAGES   = [c.strip().lower() for c in os.getenv("F5_LANGUAGES", "en").split(",") if c.strip()] or ["en"]
 
 models: dict = {"stt": None, "xtts": None, "f5tts": None}
 
@@ -405,25 +408,39 @@ async def load_all_models():
 
     # F5-TTS — optional, graceful fallback.
     #
-    # The default (no args) loads F5's standard English-centric checkpoint.
-    # To run a multilingual F5 checkpoint, set any of these env vars:
+    # The default (no args) loads F5's standard English checkpoint. F5 has no
+    # language id — each checkpoint speaks the language(s) it was trained on,
+    # and reads the input text directly. To run a different-language F5 model:
     #   F5_MODEL       — a model name known to your f5_tts version
-    #                    (e.g. "F5TTS_Base", or a community multilingual name)
-    #   F5_CKPT_FILE   — path/HF id of a custom .safetensors/.pt checkpoint
-    #   F5_VOCAB_FILE  — matching vocab.txt for that checkpoint
-    # Whatever the checkpoint was trained on is what F5 can speak; F5 reads the
-    # input text directly and is not conditioned on a language id.
+    #   F5_CKPT_FILE   — path / hf://repo/file of a custom checkpoint
+    #   F5_VOCAB_FILE  — matching vocab.txt (hf:// allowed)
+    #   F5_LANGUAGES   — comma-separated codes the checkpoint speaks (e.g. "es"
+    #                    or "es,en"); drives which languages the UI offers for F5
+    # Example (Spanish):
+    #   F5_CKPT_FILE=hf://jpgallegoar/F5-Spanish/model_1250000.safetensors
+    #   F5_VOCAB_FILE=hf://jpgallegoar/F5-Spanish/vocab.txt
+    #   F5_LANGUAGES=es
     f5_model      = os.getenv("F5_MODEL", "").strip()
     f5_ckpt_file  = os.getenv("F5_CKPT_FILE", "").strip()
     f5_vocab_file = os.getenv("F5_VOCAB_FILE", "").strip()
+
+    # Resolve hf:// references to local files (the F5TTS constructor wants paths).
+    def _resolve(ref: str) -> str:
+        if ref.startswith("hf://"):
+            try:
+                from cached_path import cached_path
+                return str(cached_path(ref))
+            except Exception as e:
+                print(f"⚠ Could not resolve {ref} via cached_path: {e}")
+        return ref
 
     f5_kwargs: dict = {}
     if f5_model:
         f5_kwargs["model"] = f5_model
     if f5_ckpt_file:
-        f5_kwargs["ckpt_file"] = f5_ckpt_file
+        f5_kwargs["ckpt_file"] = _resolve(f5_ckpt_file)
     if f5_vocab_file:
-        f5_kwargs["vocab_file"] = f5_vocab_file
+        f5_kwargs["vocab_file"] = _resolve(f5_vocab_file)
 
     f5_loaded = False
     for import_path in [
@@ -476,11 +493,10 @@ async def status():
             # Report F5 as available only when it can actually run, so the
             # frontend disables the F5 option on CPU-only servers.
             "f5":   f5_usable(),
-            # True when a custom/multilingual F5 checkpoint is configured, so
-            # the frontend can offer the language picker for F5 too.
-            "f5_multilingual": f5_usable() and bool(
-                os.getenv("F5_MODEL", "").strip() or os.getenv("F5_CKPT_FILE", "").strip()
-            ),
+            # Language code(s) the loaded F5 checkpoint speaks. The frontend
+            # offers exactly these in the F5 language picker. Defaults to
+            # English; set F5_LANGUAGES alongside a non-English checkpoint.
+            "f5_languages": F5_LANGUAGES if f5_usable() else [],
         },
         "gpu": CUDA_AVAILABLE,
     }
