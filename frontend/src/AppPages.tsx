@@ -558,6 +558,7 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
         fd.append('text', previewText)
         fd.append('file', voiceBlob, 'voice.wav')
         fd.append('tts_engine', engine)
+        fd.append('purpose', 'preview')
         audioBlob = await api.enginePost('/clone-voice', fd) as Blob
       } else {
         const engineKey = profiles.find(vp => vp.profile_id === profile_id)?.engine_key ?? profile_id

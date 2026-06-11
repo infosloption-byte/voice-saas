@@ -7,6 +7,7 @@ use App\Mail\SubscriptionActivatedMail;
 use App\Mail\SubscriptionCancelledMail;
 use App\Mail\SubscriptionSuspendedMail;
 use App\Models\Subscription;
+use App\Services\AuditLog;
 use App\Services\PayPalService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -124,6 +125,11 @@ class SubscriptionController extends Controller
             ));
         } catch (\Throwable) { /* non-fatal */ }
 
+        AuditLog::record('subscription.activated', [
+            'plan'            => $resolvedPlan,
+            'subscription_id' => $validated['subscription_id'],
+        ], $request->user()->id);
+
         return response()->json(['plan' => $sub->plan, 'status' => $sub->status]);
     }
 
@@ -158,6 +164,10 @@ class SubscriptionController extends Controller
 
         $this->paypal->cancelSubscription($sub->paypal_subscription_id);
         $sub->update(['status' => 'cancelled']);
+        AuditLog::record('subscription.cancelled', [
+            'plan'            => $sub->plan,
+            'subscription_id' => $sub->paypal_subscription_id,
+        ], $request->user()->id);
 
         try {
             Mail::to($request->user())->send(new SubscriptionCancelledMail(

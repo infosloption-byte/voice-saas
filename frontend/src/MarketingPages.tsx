@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { VoxNav, VoxFooter } from './LandingPage'
 import { icons } from './constants'
+import { api } from './api'
 import './landing.css'
 
 interface PageProps {
@@ -585,8 +586,6 @@ const SAMPLE_VOICES: { name: string; full: string; style: string; lang: string; 
   { name: 'Wulf',      full: 'Wulf Carlevaro',     style: 'Deep & mysterious',       lang: 'English',    gender: 'M' },
 ]
 
-const ENGINE_BASE = (import.meta.env.VITE_ENGINE_URL as string | undefined) ?? ''
-
 function VoicePreviewBtn({ full }: { full: string }) {
   const [state, setState] = useState<'idle'|'loading'|'playing'>('idle')
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -609,10 +608,7 @@ function VoicePreviewBtn({ full }: { full: string }) {
 
     setState('loading')
     try {
-      const url = `${ENGINE_BASE}/voice-preview/${encodeURIComponent(full)}`
-      const res = await fetch(url)
-      if (!res.ok) throw new Error('preview unavailable')
-      const blob = await res.blob()
+      const blob = await api.engineFetchBlob(`/voice-preview/${encodeURIComponent(full)}`)
       const objUrl = URL.createObjectURL(blob)
       const audio = new Audio(objUrl)
       audioRef.current = audio
