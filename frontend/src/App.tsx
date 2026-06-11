@@ -977,7 +977,7 @@ export default function App() {
         <ActivityLogPanel
           onClose={() => setShowActivityLog(false)}
           projects={projects}
-          activeProjectId={activeProjectId}
+          lockedProjectId={page === 'workspace' ? activeProjectId : null}
         />
       )}
       {guestGateType && (

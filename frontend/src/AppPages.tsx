@@ -360,24 +360,24 @@ const EVENT_LABELS: Record<string, string> = {
   task:        'Task',
 }
 
-export function ActivityLogPanel({ onClose, projects, activeProjectId }: {
+export function ActivityLogPanel({ onClose, projects, lockedProjectId }: {
   onClose: () => void
   projects: Project[]
-  activeProjectId?: string | null
+  /** When set (user is inside a project workspace) the panel is scoped to
+   *  this project only and the filter tabs are hidden. */
+  lockedProjectId?: string | null
 }) {
-  const [entries, setEntries]       = useState<LogEntry[]>([])
-  const [filterId, setFilterId]     = useState<string | 'all'>('all')
-  const [loading, setLoading]       = useState(false)
+  const [entries, setEntries]   = useState<LogEntry[]>([])
+  const [tabId, setTabId]       = useState<string | 'all'>('all')
+  const [loading, setLoading]   = useState(false)
+  const filterId = lockedProjectId ?? tabId
   const runningCount = entries.filter(e => e.status === 'running').length
+  const lockedProject = lockedProjectId ? projects.find(p => p.id === lockedProjectId) : null
 
-  // Initial load + subscribe to in-memory changes
-  useEffect(() => {
-    setLoading(true)
-    activityLog.fetch().finally(() => setLoading(false))
-    return activityLog.subscribe(setEntries)
-  }, [])
+  // Subscribe to in-memory changes
+  useEffect(() => activityLog.subscribe(setEntries), [])
 
-  // When filter changes re-fetch scoped data
+  // Fetch scoped data on mount and whenever scope changes
   useEffect(() => {
     setLoading(true)
     activityLog.fetch(filterId === 'all' ? undefined : filterId)
@@ -391,6 +391,11 @@ export function ActivityLogPanel({ onClose, projects, activeProjectId }: {
     }, 15_000)
     return () => clearInterval(id)
   }, [filterId])
+
+  async function handleClear() {
+    const ok = await activityLog.clear(filterId === 'all' ? undefined : filterId)
+    if (!ok) toast.err('Failed to clear activity log — try again')
+  }
 
   const visible = filterId === 'all'
     ? entries
@@ -450,12 +455,14 @@ export function ActivityLogPanel({ onClose, projects, activeProjectId }: {
               )}
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
-              Real-time task history · synced to backend
+              {lockedProject
+                ? <>Tasks in {lockedProject.emoji} <strong>{lockedProject.name}</strong></>
+                : 'Real-time task history across all projects'}
             </div>
           </div>
           <button
             className="btn btn--ghost btn--sm"
-            onClick={() => activityLog.clear(filterId === 'all' ? undefined : filterId)}
+            onClick={handleClear}
             title="Clear log"
             style={{ fontSize: 11, padding: '4px 8px' }}
           >
@@ -464,27 +471,30 @@ export function ActivityLogPanel({ onClose, projects, activeProjectId }: {
           <button className="btn btn--ghost btn--sm" onClick={onClose} title="Close">{icons.close}</button>
         </div>
 
-        {/* Project filter tabs */}
-        <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 10 }}>
-          <button
-            className={`btn btn--sm ${filterId === 'all' ? 'btn--primary' : 'btn--ghost'}`}
-            onClick={() => setFilterId('all')}
-            style={{ fontSize: 11, flexShrink: 0 }}
-          >
-            All Projects
-          </button>
-          {projects.slice(0, 6).map(p => (
+        {/* Project filter tabs — only outside a project workspace */}
+        {!lockedProjectId && projects.length > 0 && (
+          <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 10 }}>
             <button
-              key={p.id}
-              className={`btn btn--sm ${filterId === p.id ? 'btn--primary' : 'btn--ghost'}`}
-              onClick={() => setFilterId(p.id)}
-              title={p.name}
-              style={{ fontSize: 11, flexShrink: 0, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              className={`btn btn--sm ${tabId === 'all' ? 'btn--primary' : 'btn--ghost'}`}
+              onClick={() => setTabId('all')}
+              style={{ fontSize: 11, flexShrink: 0 }}
             >
-              {p.emoji} {p.name}
+              All Projects
             </button>
-          ))}
-        </div>
+            {projects.slice(0, 6).map(p => (
+              <button
+                key={p.id}
+                className={`btn btn--sm ${tabId === p.id ? 'btn--primary' : 'btn--ghost'}`}
+                onClick={() => setTabId(p.id)}
+                title={p.name}
+                style={{ fontSize: 11, flexShrink: 0, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              >
+                {p.emoji} {p.name}
+              </button>
+            ))}
+          </div>
+        )}
+        {lockedProjectId && <div style={{ paddingBottom: 12 }} />}
       </div>
 
       {/* Entries */}

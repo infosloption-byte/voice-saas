@@ -58,7 +58,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Activity logs
     Route::get(   'activity-logs',      [ActivityLogController::class, 'index']);
     Route::post(  'activity-logs',      [ActivityLogController::class, 'store']);
-    Route::patch( 'activity-logs/{activityLog}', [ActivityLogController::class, 'update']);
+    Route::match(['put', 'patch'], 'activity-logs/{activityLog}', [ActivityLogController::class, 'update']);
     Route::delete('activity-logs',      [ActivityLogController::class, 'destroy']);
 
     // Voice profiles
