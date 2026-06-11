@@ -54,6 +54,14 @@ class AuthController extends Controller
         ]);
 
         if (Auth::attempt($request->only('email', 'password'))) {
+            if (Auth::user()->isSuspended() && !Auth::user()->isAdmin()) {
+                Auth::guard('web')->logout();
+                AuditLog::record('auth.login.suspended', ['email' => $request->input('email')]);
+                return response()->json([
+                    'message' => 'This account has been suspended. Contact support.',
+                ], 403);
+            }
+
             $request->session()->regenerate();
             AuditLog::record('auth.login.success', ['email' => $request->input('email')], Auth::id());
 

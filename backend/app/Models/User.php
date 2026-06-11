@@ -81,6 +81,11 @@ class User extends Authenticatable implements MustVerifyEmail
 
     public function getPlanNameAttribute(): string
     {
+        // Admin-granted override wins over the PayPal subscription
+        if (in_array($this->plan_override, ['starter', 'pro'], true)) {
+            return $this->plan_override;
+        }
+
         $sub = $this->subscription;
 
         if (!$sub || $sub->status !== 'active') {
@@ -92,5 +97,10 @@ class User extends Authenticatable implements MustVerifyEmail
             'pro'     => 'pro',
             default   => 'free',
         };
+    }
+
+    public function isSuspended(): bool
+    {
+        return $this->suspended_at !== null;
     }
 }
