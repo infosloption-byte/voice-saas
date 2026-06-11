@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\BulkSynthesisJob;
+use App\Models\ActivityLog;
+use App\Models\Script;
 use App\Services\EngineResolver;
 use App\Services\SynthesisQuota;
 use App\Services\VoiceProfileStore;
@@ -259,5 +262,62 @@ class EngineSynthesisProxyController extends Controller
         } catch (\Throwable $e) {
             return response()->json(['detail' => 'Engine proxy error: ' . $e->getMessage()], 502);
         }
+    }
+
+    /**
+     * POST /api/engine/synthesize/bulk-queue
+     *
+     * Validates the request, creates an ActivityLog entry, and dispatches a
+     * BulkSynthesisJob so synthesis continues even if the browser tab closes.
+     */
+    public function queueBulk(Request $request)
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'script_ids' => ['required', 'array', 'min:1', 'max:50'],
+            'script_ids.*' => ['integer'],
+            'engine'     => ['required', 'string', 'in:xtts,f5'],
+            'project_id' => ['required', 'integer'],
+        ]);
+
+        $projectId = (int) $validated['project_id'];
+        $scriptIds = $validated['script_ids'];
+        $engine    = $validated['engine'];
+
+        // Verify all scripts belong to the authenticated user's project.
+        $ownedCount = Script::whereIn('id', $scriptIds)
+            ->where('project_id', $projectId)
+            ->whereHas('project', fn ($q) => $q->where('user_id', $user->id))
+            ->count();
+
+        if ($ownedCount !== count($scriptIds)) {
+            return response()->json([
+                'message' => 'One or more scripts do not belong to your project.',
+            ], 422);
+        }
+
+        $log = ActivityLog::create([
+            'user_id'    => $user->id,
+            'project_id' => $projectId,
+            'event_type' => 'synthesis',
+            'message'    => 'Bulk synthesis queued: ' . count($scriptIds) . ' scripts',
+            'status'     => 'running',
+            'started_at' => now(),
+        ]);
+
+        BulkSynthesisJob::dispatch(
+            $user->id,
+            $projectId,
+            $scriptIds,
+            $engine,
+            $log->id,
+        );
+
+        return response()->json([
+            'queued'          => true,
+            'activity_log_id' => $log->id,
+            'script_count'    => count($scriptIds),
+        ]);
     }
 }

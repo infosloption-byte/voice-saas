@@ -814,15 +814,17 @@ export function WorkspacePage({
       { projectId: project.id, eventType: 'synthesis' },
     )
 
+    let failedCount = 0
     for (const script of pending) {
       if (controller.signal.aborted) break
       setBulkActiveId(script.id)
       bulkLog.update(`Synthesising "${script.title}"`, engine.toUpperCase())
       try {
         const ok = await generateVoiceover(script, script.content, controller.signal, engine)
-        if (!ok && !controller.signal.aborted) setBulkErrors(prev => [...prev, script.title])
+        if (!ok && !controller.signal.aborted) { failedCount++; setBulkErrors(prev => [...prev, script.title]) }
       } catch (e) {
-        setBulkErrors(prev => [...prev, script.title])
+        failedCount++; setBulkErrors(prev => [...prev, script.title])
+        // Engine is unreachable — no point continuing the batch
         if ((e as Error).message.includes('multiple attempts')) break
       }
       setBulkProgress(p => p + 1)
@@ -833,6 +835,30 @@ export function WorkspacePage({
     setBulkTotal(0)
     setBulkProgress(0)
     bulkLog.done(`${pending.length} scripts processed`)
+
+    api.post('/notifications/bulk-synthesis-complete', {
+      project_name: project.name,
+      total: pending.length,
+      failed: failedCount + (controller.signal.aborted ? 1 : 0),
+    }).catch(() => {}) // non-fatal
+  }
+
+  // ── Queue bulk synthesis server-side ─────────────────────────────
+  async function handleQueueBulk() {
+    const pending = project.scripts.filter(s => s.content.trim() && !s.hasAudio)
+    if (!pending.length) { toast.info('All scripts already have audio.'); return }
+    if (isGuest) { toast.err('Sign in to use background synthesis.'); return }
+
+    try {
+      await api.post('/engine/synthesize/bulk-queue', {
+        script_ids: pending.map(s => s.id),
+        engine,
+        project_id: project.id,
+      })
+      toast.ok('Bulk synthesis queued — you\'ll get an email when done. Close this tab safely.')
+    } catch (e) {
+      toast.err((e as Error).message || 'Failed to queue bulk synthesis.')
+    }
   }
 
   // ── Audio transcription ───────────────────────────────────────────
@@ -1226,6 +1252,17 @@ export function WorkspacePage({
                 <>{icons.bolt} Generate All ({pendingCount})</>
               )}
             </button>
+
+            {!bulkGenerating && (
+              <button
+                className="btn btn--sm btn--ghost"
+                style={{ width: '100%', justifyContent: 'center', marginTop: 6 }}
+                onClick={handleQueueBulk}
+                title="Run synthesis on the server — safe to close this tab"
+              >
+                Queue in background
+              </button>
+            )}
 
             {!bulkGenerating && bulkErrors.length > 0 && (
               <div className="msg msg--err" style={{ marginTop: 8, fontSize: 11, lineHeight: 1.5 }}>
