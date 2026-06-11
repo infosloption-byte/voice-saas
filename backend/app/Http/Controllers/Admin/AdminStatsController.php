@@ -22,15 +22,17 @@ class AdminStatsController extends Controller
         $proSubs = DB::table('subscriptions')
             ->where('status', 'active')->where('plan', 'pro')->count();
 
-        // Synthesis today
-        $synthToday = DB::table('synthesis_usage')
-            ->where('period', today()->toDateString())
-            ->sum('count');
+        // Synthesis / translation today — counted from activity logs, since
+        // usage tables bucket by day OR month depending on the user's plan
+        $synthToday = DB::table('activity_logs')
+            ->where('event_type', 'synthesis')
+            ->where('started_at', '>=', today())
+            ->count();
 
-        // Translation today
-        $transToday = DB::table('translation_usage')
-            ->where('period', today()->toDateString())
-            ->sum('count');
+        $transToday = DB::table('activity_logs')
+            ->where('event_type', 'translation')
+            ->where('started_at', '>=', today())
+            ->count();
 
         // Jobs in last 24h
         $jobsToday  = DB::table('activity_logs')
@@ -62,12 +64,13 @@ class AdminStatsController extends Controller
             $growth[] = ['day' => $day, 'count' => $growthRaw[$day]->count ?? 0];
         }
 
-        // Synthesis chart: last 7 days
+        // Synthesis chart: last 7 days (day buckets)
         $synthChart = DB::table('synthesis_usage')
-            ->select('period as day', DB::raw('SUM(count) as total'))
-            ->where('period', '>=', now()->subDays(6)->toDateString())
-            ->groupBy('period')
-            ->orderBy('period')
+            ->select('period_key as day', DB::raw('SUM(count) as total'))
+            ->where('period_type', 'day')
+            ->where('period_key', '>=', now()->subDays(6)->toDateString())
+            ->groupBy('period_key')
+            ->orderBy('period_key')
             ->get()
             ->keyBy('day');
 
