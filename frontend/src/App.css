@@ -2474,6 +2474,16 @@
   to   { opacity: 1; transform: none }
 }
 
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(40px) }
+  to   { opacity: 1; transform: none }
+}
+
+.btn--active {
+  background: var(--accent-lt) !important;
+  color: var(--accent) !important;
+}
+
 .modal__title {
   font-size: 17px;
   font-weight: 600;

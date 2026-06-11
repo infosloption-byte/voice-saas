@@ -22,7 +22,7 @@ import { icons } from './constants'
 import { loadAudioRawBlob, saveAudioBlob, uid } from './audio'
 import {
   DashboardPage, ProjectsPage, ProfilesPage,
-  NewProjectModal, ShortcutsModal,
+  NewProjectModal, ShortcutsModal, ActivityLogPanel,
 } from './AppPages'
 import { WorkspacePage } from './WorkspacePage'
 import { AssemblyPage } from './AssemblyPage'
@@ -146,6 +146,7 @@ export default function App() {
   const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfile[]>([])
   const [showNewProject, setShowNewProject] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const [showActivityLog, setShowActivityLog] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem('sidebar-collapsed') === '1'
@@ -191,15 +192,36 @@ export default function App() {
     localStorage.setItem('vo_dark', String(darkMode))
   }, [darkMode])
 
+  // ── Page state persistence ────────────────────────────────────────
+  const RESTORABLE_PAGES: Page[] = ['dashboard', 'projects', 'profiles', 'settings', 'workspace']
+
+  // Save nav state whenever it changes (authenticated users only)
+  useEffect(() => {
+    if (!user) return
+    if (!RESTORABLE_PAGES.includes(page)) return
+    sessionStorage.setItem('vx_nav', JSON.stringify({ page, activeProjectId, activeScriptId, workspaceTab }))
+  }, [page, activeProjectId, activeScriptId, workspaceTab, user]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Bootstrap ─────────────────────────────────────────────────────
   useEffect(() => {
-
-
     if (resetToken) return // Don't auto-navigate when handling password reset
 
     checkUser().then(userData => {
       if (userData) {
         loadProjects()
+        // Restore saved page instead of always going to dashboard
+        try {
+          const saved = JSON.parse(sessionStorage.getItem('vx_nav') ?? 'null')
+          if (saved?.page && RESTORABLE_PAGES.includes(saved.page)) {
+            if (saved.page === 'workspace' && saved.activeProjectId) {
+              setActiveProjectId(saved.activeProjectId)
+              if (saved.activeScriptId) setActiveScriptId(saved.activeScriptId)
+              if (saved.workspaceTab) setWorkspaceTab(saved.workspaceTab as WorkspaceTab)
+            }
+            setPage(saved.page)
+            return
+          }
+        } catch { /* ignore malformed storage */ }
         setPage('dashboard')
       } else if (guestSession.session) {
         // Resume existing valid guest session
@@ -385,6 +407,7 @@ export default function App() {
 
   async function signOut() {
     await authSignOut()
+    sessionStorage.removeItem('vx_nav')
     setActiveProjectId(null)
     setActiveScriptId(null)
     setGuestMode(false)
@@ -711,6 +734,22 @@ export default function App() {
 
           <div className="topbar__spacer" />
 
+          {/* Activity log toggle */}
+          <button
+            className={`btn btn--ghost btn--sm${showActivityLog ? ' btn--active' : ''}`}
+            onClick={() => setShowActivityLog(v => !v)}
+            title="Toggle activity log"
+            style={{ gap: 6 }}
+          >
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ width: 15, height: 15 }}>
+              <rect x="3" y="3" width="14" height="14" rx="2" />
+              <line x1="7" y1="7" x2="13" y2="7" strokeLinecap="round" />
+              <line x1="7" y1="10" x2="13" y2="10" strokeLinecap="round" />
+              <line x1="7" y1="13" x2="10" y2="13" strokeLinecap="round" />
+            </svg>
+            <span className="btn__label">Log</span>
+          </button>
+
           {page === 'projects' && (
             <button className="btn btn--primary btn--sm" onClick={() => setShowNewProject(true)}>
               {icons.plus}<span className="btn__label"> New Project</span>
@@ -775,11 +814,13 @@ export default function App() {
         <div className={workspaceTab === 'assembly' && page === 'workspace' ? '' : 'content'}>
           {page === 'dashboard' && (
             <DashboardPage
+              user={user}
               projects={guestMode && guestProject.project ? [guestProject.project] : projects}
               voiceProfiles={guestMode ? guestProfiles.asVoiceProfiles : voiceProfiles}
               onOpenProject={guestMode ? () => setPage('workspace') : openProject}
               onGoProjects={() => setPage('projects')}
               onGoProfiles={() => setPage('profiles')}
+              onNewProject={() => setShowNewProject(true)}
             />
           )}
 
@@ -922,6 +963,9 @@ export default function App() {
       )}
       {showShortcuts && (
         <ShortcutsModal onClose={() => setShowShortcuts(false)} />
+      )}
+      {showActivityLog && (
+        <ActivityLogPanel onClose={() => setShowActivityLog(false)} />
       )}
       {guestGateType && (
         <GuestUpgradeModal
