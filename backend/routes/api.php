@@ -3,6 +3,7 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\EngineConfigController;
+use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\EngineCapabilitiesController;
 use App\Http\Controllers\EngineProxyController;
 use App\Http\Controllers\EngineSynthesisProxyController;
@@ -53,6 +54,12 @@ Route::middleware('auth:sanctum')->group(function () {
             'script'  => 'id',
             'project' => 'id',
         ]);
+
+    // Activity logs
+    Route::get(   'activity-logs',      [ActivityLogController::class, 'index']);
+    Route::post(  'activity-logs',      [ActivityLogController::class, 'store']);
+    Route::patch( 'activity-logs/{activityLog}', [ActivityLogController::class, 'update']);
+    Route::delete('activity-logs',      [ActivityLogController::class, 'destroy']);
 
     // Voice profiles
     // GET  /api/voice-profiles        → list user's profiles
