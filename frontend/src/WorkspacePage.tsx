@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useReducer, useCallback } from 'react'
 import { api, ApiError } from './api'
 import { toast } from './toast'
+import { activityLog } from './activityLog'
 import { icons, LANGUAGES, TONE_PRESETS, BUILT_IN_VOICES, type TonePreset } from './constants'
 import { loadAudioBlob, saveAudioBlob, deleteAudioBlob, historyReducer, fmt, trimSilence, enhanceAudio, audioBufferToWav } from './audio'
 import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
@@ -668,9 +669,8 @@ export function WorkspacePage({
     if (!source.trim()) { toast.err('Nothing to translate — add content first.'); return }
     setShowTranslateMenu(false)
     setTranslating(true)
+    const logEntry = activityLog.start(`Translating "${activeScript.title}"`, `→ ${targetLang.toUpperCase()}`)
     try {
-      // Quota is enforced + recorded server-side by the /engine/translate proxy
-      // (returns 429 when exhausted), so no separate record call is needed.
       const result = await api.engineJsonPost('/translate', {
         text: source,
         source_lang: activeScript.language || 'en',
@@ -679,9 +679,11 @@ export function WorkspacePage({
 
       dispatch({ type: 'SET', value: result.translated_text })
       onUpdateScript(activeScript.id, { language: targetLang })
+      logEntry.done('Complete')
       toast.ok('Translation complete')
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Translation failed'
+      logEntry.fail(msg)
       toast.err(msg)
     } finally {
       setTranslating(false)
@@ -734,19 +736,22 @@ export function WorkspacePage({
 
     setSynthesizing(true)
     setSynthErr('')
+    const logEntry = activityLog.start(`Synthesising "${activeScript.title}"`, engine.toUpperCase())
 
     try {
       const ok = await generateVoiceover(activeScript, histState.present, controller.signal, engine)
       if (ok) {
         const url = await loadAudioBlob(`audio_${activeScript.id}`)
         setAudioUrl(url)
-        // Usage is recorded server-side by the synthesis proxy (deduped per
-        // batch_id); just refresh the quota display here.
         api.get('/synthesis/quota').then(q => setSynthQuota(q as typeof synthQuota)).catch(() => {})
+        logEntry.done('Audio ready')
+      } else {
+        logEntry.fail('Cancelled')
       }
-      // ok === false means user cancelled — no error to show
     } catch (e) {
-      setSynthErr((e as Error).message)
+      const msg = (e as Error).message
+      setSynthErr(msg)
+      logEntry.fail(msg)
     } finally {
       setSynthesizing(false)
     }
@@ -787,16 +792,17 @@ export function WorkspacePage({
     setBulkTotal(pending.length)
     setBulkProgress(0)
     setBulkErrors([])
+    const bulkLog = activityLog.start(`Bulk synthesis: ${pending.length} scripts`, engine.toUpperCase())
 
     for (const script of pending) {
       if (controller.signal.aborted) break
       setBulkActiveId(script.id)
+      bulkLog.update(`Synthesising "${script.title}"`, engine.toUpperCase())
       try {
         const ok = await generateVoiceover(script, script.content, controller.signal, engine)
         if (!ok && !controller.signal.aborted) setBulkErrors(prev => [...prev, script.title])
       } catch (e) {
         setBulkErrors(prev => [...prev, script.title])
-        // Engine is unreachable — no point continuing the batch
         if ((e as Error).message.includes('multiple attempts')) break
       }
       setBulkProgress(p => p + 1)
@@ -806,6 +812,7 @@ export function WorkspacePage({
     setBulkGenerating(false)
     setBulkTotal(0)
     setBulkProgress(0)
+    bulkLog.done(`${pending.length} scripts processed`)
   }
 
   // ── Audio transcription ───────────────────────────────────────────
