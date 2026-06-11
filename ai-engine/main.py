@@ -103,7 +103,7 @@ _BUILTIN_REF_TEXT = (
     "Welcome to Voxora. I can bring any script to life with a natural, expressive voice."
 )
 
-_builtin_ref_lock = __import__("threading").Lock()
+_builtin_ref_lock = threading.Lock()
 
 def get_builtin_ref_wav(speaker_name: str) -> str:
     """Return the path to a reference WAV for the named XTTS built-in speaker.
@@ -860,19 +860,34 @@ _synth_jobs_lock = threading.Lock()
 
 
 def _cleanup_synth_jobs() -> None:
-    """Drop finished/abandoned jobs older than the TTL and delete their WAVs."""
+    """Drop finished/abandoned jobs older than the TTL and delete their WAVs.
+
+    To avoid deleting a file while synthesize_result() is streaming it, we
+    only clean up jobs that are NOT currently in 'downloading' status. The
+    result endpoint marks jobs 'downloading' before returning the FileResponse
+    and resets to 'done' once the file has been handed off to the ASGI layer.
+    """
     now = time.time()
+    paths_to_delete = []
     with _synth_jobs_lock:
-        stale = [jid for jid, j in _synth_jobs.items()
-                 if now - j["created_at"] > JOB_TTL_SECONDS]
+        stale = [
+            jid for jid, j in _synth_jobs.items()
+            if now - j["created_at"] > JOB_TTL_SECONDS
+            and j.get("status") != "downloading"
+        ]
         for jid in stale:
             job = _synth_jobs.pop(jid)
             p = job.get("result_path")
-            if p and os.path.exists(p):
-                try:
-                    os.remove(p)
-                except OSError:
-                    pass
+            if p:
+                paths_to_delete.append(p)
+
+    # Delete files outside the lock so we don't stall other threads.
+    for p in paths_to_delete:
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
 
 
 def _run_synth_job(job_id: str, params: dict) -> None:
@@ -1173,10 +1188,17 @@ async def synthesize_result(job_id: str, _key: None = Depends(verify_api_key)):
         result_path = job.get("result_path")
         if status == "error":
             raise HTTPException(job.get("code", 500), job.get("error", "Synthesis failed."))
-        if status != "done":
+        if status not in ("done", "downloading"):
             raise HTTPException(409, "Synthesis not finished yet.")
+        # Mark downloading so cleanup won't delete the file mid-transfer.
+        job["status"] = "downloading"
+
     if not result_path or not os.path.exists(result_path):
+        with _synth_jobs_lock:
+            if job_id in _synth_jobs:
+                _synth_jobs[job_id]["status"] = "done"
         raise HTTPException(410, "Result expired.")
+
     return FileResponse(
         result_path,
         media_type="audio/wav",

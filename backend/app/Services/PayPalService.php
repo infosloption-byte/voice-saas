@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -20,22 +21,33 @@ class PayPalService
         $this->secret   = config('services.paypal.secret', '');
     }
 
+    /** Base URL for a specific subscription resource. */
+    public function subscriptionsUrl(string $subscriptionId): string
+    {
+        return "{$this->baseUrl}/v1/billing/subscriptions/{$subscriptionId}";
+    }
+
     /**
-     * Obtain a Bearer access token from PayPal OAuth endpoint.
+     * Return a valid Bearer token, reusing the cached one until it nears expiry.
+     * PayPal tokens live for 9 hours; we cache for 8 to stay safely ahead.
      */
     public function getAccessToken(): string
     {
-        $response = Http::withBasicAuth($this->clientId, $this->secret)
-            ->asForm()
-            ->post("{$this->baseUrl}/v1/oauth2/token", [
-                'grant_type' => 'client_credentials',
-            ]);
+        $cacheKey = 'paypal_access_token_' . md5($this->clientId);
 
-        if (!$response->successful()) {
-            throw new RuntimeException('PayPal: failed to obtain access token — ' . $response->body());
-        }
+        return Cache::remember($cacheKey, 8 * 3600, function () {
+            $response = Http::withBasicAuth($this->clientId, $this->secret)
+                ->asForm()
+                ->post("{$this->baseUrl}/v1/oauth2/token", [
+                    'grant_type' => 'client_credentials',
+                ]);
 
-        return $response->json('access_token');
+            if (! $response->successful()) {
+                throw new RuntimeException('PayPal: failed to obtain access token — ' . $response->body());
+            }
+
+            return $response->json('access_token');
+        });
     }
 
     /**
@@ -45,9 +57,7 @@ class PayPalService
      */
     public function createSubscription(string $planId, string $returnUrl, string $cancelUrl): array
     {
-        $token = $this->getAccessToken();
-
-        $response = Http::withToken($token)
+        $response = Http::withToken($this->getAccessToken())
             ->post("{$this->baseUrl}/v1/billing/subscriptions", [
                 'plan_id' => $planId,
                 'application_context' => [
@@ -56,7 +66,7 @@ class PayPalService
                 ],
             ]);
 
-        if (!$response->successful()) {
+        if (! $response->successful()) {
             throw new RuntimeException('PayPal: failed to create subscription — ' . $response->body());
         }
 
@@ -80,12 +90,10 @@ class PayPalService
      */
     public function getSubscription(string $subscriptionId): array
     {
-        $token = $this->getAccessToken();
-
-        $response = Http::withToken($token)
+        $response = Http::withToken($this->getAccessToken())
             ->get("{$this->baseUrl}/v1/billing/subscriptions/{$subscriptionId}");
 
-        if (!$response->successful()) {
+        if (! $response->successful()) {
             throw new RuntimeException('PayPal: failed to get subscription — ' . $response->body());
         }
 
@@ -97,9 +105,7 @@ class PayPalService
      */
     public function cancelSubscription(string $subscriptionId, string $reason = 'User cancelled'): bool
     {
-        $token = $this->getAccessToken();
-
-        $response = Http::withToken($token)
+        $response = Http::withToken($this->getAccessToken())
             ->post("{$this->baseUrl}/v1/billing/subscriptions/{$subscriptionId}/cancel", [
                 'reason' => $reason,
             ]);
@@ -113,9 +119,7 @@ class PayPalService
      */
     public function verifyWebhook(array $headers, string $body): bool
     {
-        $token = $this->getAccessToken();
-
-        $response = Http::withToken($token)
+        $response = Http::withToken($this->getAccessToken())
             ->post("{$this->baseUrl}/v1/notifications/verify-webhook-signature", [
                 'auth_algo'         => $headers['paypal-auth-algo']         ?? $headers['PAYPAL-AUTH-ALGO']         ?? '',
                 'cert_url'          => $headers['paypal-cert-url']          ?? $headers['PAYPAL-CERT-URL']          ?? '',
@@ -126,7 +130,7 @@ class PayPalService
                 'webhook_event'     => json_decode($body, true),
             ]);
 
-        if (!$response->successful()) {
+        if (! $response->successful()) {
             return false;
         }
 
