@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { api } from './api'
 import { toast } from './toast'
 import { icons, EMOJIS } from './constants'
@@ -360,45 +360,250 @@ const EVENT_LABELS: Record<string, string> = {
   task:        'Task',
 }
 
-export function ActivityLogPanel({ onClose, projects, activeProjectId }: {
+const EVENT_ICONS: Record<string, React.ReactNode> = {
+  synthesis: (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 13, height: 13 }}>
+      <path d="M3 8h2l2-5 2 10 2-5h2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  translation: (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 13, height: 13 }}>
+      <path d="M2 4h6M5 2v2M3 4c0 2 1.5 4 4 4" strokeLinecap="round" />
+      <path d="M8 12l2-5 2 5M9.5 10.5h3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  voice_clone: (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 13, height: 13 }}>
+      <path d="M8 2a3 3 0 0 1 3 3v3a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" />
+      <path d="M4 9v1a4 4 0 0 0 8 0V9" strokeLinecap="round" />
+    </svg>
+  ),
+  export: (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 13, height: 13 }}>
+      <path d="M8 2v8M5 7l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 12h10" strokeLinecap="round" />
+    </svg>
+  ),
+}
+
+function LogEntryCard({ e, showProject, projectName }: {
+  e: LogEntry
+  showProject: boolean
+  projectName: string | null
+}) {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    if (e.status !== 'running') return
+    const id = setInterval(() => setNow(Date.now()), 500)
+    return () => clearInterval(id)
+  }, [e.status])
+
+  function elapsed() {
+    const ms = (e.endedAt ?? now) - e.startedAt
+    if (ms < 1000) return `${ms}ms`
+    if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
+    return `${Math.floor(ms / 60000)}m ${((ms % 60000) / 1000).toFixed(0)}s`
+  }
+
+  function fmtTime(ts: number) {
+    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+
+  // Parse structured detail: "key:value|key:value"
+  const meta: Record<string, string> = {}
+  if (e.detail) {
+    if (e.detail.includes('|') || e.detail.includes(':')) {
+      e.detail.split('|').forEach(part => {
+        const [k, ...rest] = part.split(':')
+        if (rest.length) meta[k.trim()] = rest.join(':').trim()
+      })
+    }
+  }
+  const hasStructuredMeta = Object.keys(meta).length > 0
+  const plainDetail = hasStructuredMeta ? null : e.detail
+
+  const eventIcon = EVENT_ICONS[e.eventType ?? ''] ?? null
+  const eventLabel = e.eventType && e.eventType !== 'task' ? (EVENT_LABELS[e.eventType] ?? e.eventType) : null
+
+  const statusColor = e.status === 'done' ? 'var(--ok)' : e.status === 'failed' ? 'var(--err)' : 'var(--accent)'
+
+  return (
+    <div style={{
+      margin: '6px 10px',
+      borderRadius: 8,
+      border: `1px solid ${e.status === 'running' ? 'color-mix(in srgb, var(--accent) 30%, var(--border))' : 'var(--border-1)'}`,
+      background: e.status === 'running'
+        ? 'color-mix(in srgb, var(--accent) 5%, var(--surface))'
+        : 'var(--bg)',
+      overflow: 'hidden',
+    }}>
+      {/* Card header row */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '9px 11px 7px' }}>
+        {/* Status dot / spinner */}
+        <div style={{ marginTop: 2, flexShrink: 0 }}>
+          {e.status === 'running' && (
+            <span style={{
+              width: 12, height: 12, border: '2px solid var(--accent)',
+              borderTopColor: 'transparent', borderRadius: '50%',
+              display: 'inline-block', animation: 'spin 0.7s linear infinite',
+            }} />
+          )}
+          {e.status === 'done' && (
+            <svg viewBox="0 0 14 14" fill="none" style={{ width: 14, height: 14, color: 'var(--ok)' }}>
+              <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M4.5 7l2 2 3-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+          {e.status === 'failed' && (
+            <svg viewBox="0 0 14 14" fill="none" style={{ width: 14, height: 14, color: 'var(--err)' }}>
+              <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M5 5l4 4M9 5l-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          )}
+        </div>
+
+        {/* Title + type badge */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-1)', lineHeight: 1.3 }}>
+              {e.message}
+            </span>
+            {eventLabel && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+                fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em',
+                color: statusColor,
+                background: `color-mix(in srgb, ${statusColor} 12%, transparent)`,
+                borderRadius: 4, padding: '1px 5px',
+              }}>
+                {eventIcon}{eventLabel.toUpperCase()}
+              </span>
+            )}
+          </div>
+          {plainDetail && (
+            <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2, lineHeight: 1.4 }}>{plainDetail}</div>
+          )}
+        </div>
+
+        {/* Time */}
+        <div style={{ fontSize: 10, color: 'var(--text-3)', flexShrink: 0, textAlign: 'right', marginTop: 1 }}>
+          {fmtTime(e.startedAt)}
+        </div>
+      </div>
+
+      {/* Meta chips row */}
+      <div style={{
+        display: 'flex', flexWrap: 'wrap', gap: 4,
+        padding: '0 11px 8px',
+        borderTop: (hasStructuredMeta || e.status !== 'running') ? '1px solid var(--border-1)' : undefined,
+        paddingTop: (hasStructuredMeta || e.status !== 'running') ? 6 : 0,
+      }}>
+        {/* Elapsed time chip */}
+        <span style={{
+          fontSize: 10, color: 'var(--text-3)', background: 'var(--bg-2)',
+          borderRadius: 4, padding: '2px 6px', display: 'inline-flex', alignItems: 'center', gap: 3,
+        }}>
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" style={{ width: 9, height: 9 }}>
+            <circle cx="6" cy="6" r="5" />
+            <path d="M6 3.5V6l1.5 1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          {elapsed()}
+        </span>
+
+        {/* Status chip */}
+        <span style={{
+          fontSize: 10, fontWeight: 600,
+          color: statusColor,
+          background: `color-mix(in srgb, ${statusColor} 10%, transparent)`,
+          borderRadius: 4, padding: '2px 6px',
+        }}>
+          {e.status === 'running' ? 'Running' : e.status === 'done' ? 'Completed' : 'Failed'}
+        </span>
+
+        {/* Structured meta chips */}
+        {meta['model'] && (
+          <span style={{ fontSize: 10, color: 'var(--text-3)', background: 'var(--bg-2)', borderRadius: 4, padding: '2px 6px' }}>
+            {meta['model']}
+          </span>
+        )}
+        {meta['words'] && (
+          <span style={{ fontSize: 10, color: 'var(--text-3)', background: 'var(--bg-2)', borderRadius: 4, padding: '2px 6px' }}>
+            {meta['words']} words
+          </span>
+        )}
+        {meta['voice'] && (
+          <span style={{ fontSize: 10, color: 'var(--text-3)', background: 'var(--bg-2)', borderRadius: 4, padding: '2px 6px' }}>
+            🎤 {meta['voice']}
+          </span>
+        )}
+        {meta['chars'] && (
+          <span style={{ fontSize: 10, color: 'var(--text-3)', background: 'var(--bg-2)', borderRadius: 4, padding: '2px 6px' }}>
+            {meta['chars']} chars
+          </span>
+        )}
+        {meta['langs'] && (
+          <span style={{ fontSize: 10, color: 'var(--text-3)', background: 'var(--bg-2)', borderRadius: 4, padding: '2px 6px' }}>
+            {meta['langs']}
+          </span>
+        )}
+
+        {/* Project chip (when showing all projects) */}
+        {showProject && projectName && (
+          <span style={{ fontSize: 10, color: 'var(--accent)', background: 'var(--accent-lt)', borderRadius: 4, padding: '2px 6px', fontWeight: 500, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {projectName}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export function ActivityLogPanel({ open, onClose, projects, lockedProjectId }: {
+  open: boolean
   onClose: () => void
   projects: Project[]
-  activeProjectId?: string | null
+  lockedProjectId?: string | null
 }) {
-  const [entries, setEntries]       = useState<LogEntry[]>([])
-  const [filterId, setFilterId]     = useState<string | 'all'>('all')
-  const [loading, setLoading]       = useState(false)
-  const runningCount = entries.filter(e => e.status === 'running').length
+  const [entries, setEntries] = useState<LogEntry[]>([])
+  const [tabId, setTabId]     = useState<string | 'all'>('all')
+  const [loading, setLoading] = useState(false)
+  const filterId = lockedProjectId ?? tabId
+  const lockedProject = lockedProjectId ? projects.find(p => p.id === lockedProjectId) : null
 
-  // Initial load + subscribe to in-memory changes
-  useEffect(() => {
-    setLoading(true)
-    activityLog.fetch().finally(() => setLoading(false))
-    return activityLog.subscribe(setEntries)
-  }, [])
+  useEffect(() => activityLog.subscribe(setEntries), [])
 
-  // When filter changes re-fetch scoped data
   useEffect(() => {
+    if (!open) return
     setLoading(true)
     activityLog.fetch(filterId === 'all' ? undefined : filterId)
       .finally(() => setLoading(false))
-  }, [filterId])
+  }, [open, filterId])
 
-  // Poll every 15 s while panel is open so running tasks update
   useEffect(() => {
+    if (!open) return
     const id = setInterval(() => {
       activityLog.fetch(filterId === 'all' ? undefined : filterId)
     }, 15_000)
     return () => clearInterval(id)
-  }, [filterId])
+  }, [open, filterId])
+
+  async function handleClear() {
+    const ok = await activityLog.clear(filterId === 'all' ? undefined : filterId)
+    if (!ok) toast.err('Failed to clear activity log — try again')
+  }
 
   const visible = filterId === 'all'
     ? entries
-    : entries.filter(e => e.projectId === filterId || (!e.projectId && filterId === 'all'))
+    : entries.filter(e => e.projectId === filterId)
 
-  function fmtTime(ts: number) {
-    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  const running  = visible.filter(e => e.status === 'running')
+  const finished = visible.filter(e => e.status !== 'running')
+
+  function projectName(id?: string) {
+    if (!id) return null
+    return projects.find(p => p.id === id)?.name ?? null
   }
+
   function fmtDate(ts: number) {
     const d = new Date(ts)
     const today = new Date()
@@ -407,158 +612,129 @@ export function ActivityLogPanel({ onClose, projects, activeProjectId }: {
     if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
   }
-  function elapsed(e: LogEntry) {
-    const ms = (e.endedAt ?? Date.now()) - e.startedAt
-    if (ms < 1000) return `${ms}ms`
-    return `${(ms / 1000).toFixed(1)}s`
-  }
 
-  function projectName(id?: string) {
-    if (!id) return null
-    return projects.find(p => p.id === id)?.name ?? null
-  }
-
-  // Group entries by date
+  // Group finished entries by date
   type Group = { label: string; entries: LogEntry[] }
-  const groups = visible.reduce<Group[]>((acc, e) => {
+  const finishedGroups = finished.reduce<Group[]>((acc, e) => {
     const label = fmtDate(e.startedAt)
     const last = acc[acc.length - 1]
-    if (last && last.label === label) { last.entries.push(e) }
+    if (last && last.label === label) last.entries.push(e)
     else acc.push({ label, entries: [e] })
     return acc
   }, [])
 
+  const sectionLabel = { fontSize: 10.5, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase' as const, letterSpacing: '0.07em', padding: '10px 12px 4px' }
+
   return (
-    <div style={{
-      position: 'fixed', top: 0, right: 0, bottom: 0, width: 340,
-      background: 'var(--surface)', borderLeft: '1px solid var(--border)',
-      display: 'flex', flexDirection: 'column', zIndex: 900,
-      boxShadow: '-4px 0 32px rgba(0,0,0,0.22)',
-      animation: 'slide-in-right 0.2s ease',
-    }}>
+    <div className={`log-drawer${open ? ' log-drawer--open' : ''}`}>
       {/* Header */}
-      <div style={{ padding: '14px 16px 0', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+      <div style={{ padding: '13px 14px 0', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+          {/* Icon */}
+          <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ width: 15, height: 15, color: 'var(--text-3)', flexShrink: 0 }}>
+            <rect x="2" y="2" width="14" height="14" rx="2.5" />
+            <path d="M5.5 6h7M5.5 9h7M5.5 12h4" strokeLinecap="round" />
+          </svg>
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              Activity Log
-              {runningCount > 0 && (
-                <span style={{ background: 'var(--accent)', color: '#fff', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff', opacity: 0.8, animation: 'pulse 1.2s infinite' }} />
-                  {runningCount} running
+            <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-1)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              Background tasks
+              {running.length > 0 && (
+                <span style={{ background: 'var(--accent)', color: '#fff', borderRadius: 10, padding: '1px 7px', fontSize: 9.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'rgba(255,255,255,0.8)', animation: 'pulse 1.2s infinite', display: 'inline-block' }} />
+                  {running.length}
                 </span>
               )}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
-              Real-time task history · synced to backend
+            <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 1 }}>
+              {lockedProject
+                ? <>{lockedProject.emoji} <strong style={{ color: 'var(--text-2)' }}>{lockedProject.name}</strong></>
+                : 'Synthesis · Translation · Voice Clone'}
             </div>
           </div>
-          <button
-            className="btn btn--ghost btn--sm"
-            onClick={() => activityLog.clear(filterId === 'all' ? undefined : filterId)}
-            title="Clear log"
-            style={{ fontSize: 11, padding: '4px 8px' }}
-          >
-            Clear
-          </button>
-          <button className="btn btn--ghost btn--sm" onClick={onClose} title="Close">{icons.close}</button>
+          <button className="btn btn--ghost btn--sm" onClick={onClose} title="Close" style={{ padding: '4px 6px' }}>{icons.close}</button>
         </div>
 
         {/* Project filter tabs */}
-        <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 10 }}>
-          <button
-            className={`btn btn--sm ${filterId === 'all' ? 'btn--primary' : 'btn--ghost'}`}
-            onClick={() => setFilterId('all')}
-            style={{ fontSize: 11, flexShrink: 0 }}
-          >
-            All Projects
-          </button>
-          {projects.slice(0, 6).map(p => (
+        {!lockedProjectId && projects.length > 0 && (
+          <div style={{ display: 'flex', gap: 3, overflowX: 'auto', paddingBottom: 10 }}>
             <button
-              key={p.id}
-              className={`btn btn--sm ${filterId === p.id ? 'btn--primary' : 'btn--ghost'}`}
-              onClick={() => setFilterId(p.id)}
-              title={p.name}
-              style={{ fontSize: 11, flexShrink: 0, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-            >
-              {p.emoji} {p.name}
-            </button>
-          ))}
-        </div>
+              className={`btn btn--sm ${tabId === 'all' ? 'btn--primary' : 'btn--ghost'}`}
+              onClick={() => setTabId('all')}
+              style={{ fontSize: 10.5, flexShrink: 0, padding: '3px 8px' }}
+            >All</button>
+            {projects.slice(0, 6).map(p => (
+              <button
+                key={p.id}
+                className={`btn btn--sm ${tabId === p.id ? 'btn--primary' : 'btn--ghost'}`}
+                onClick={() => setTabId(p.id)}
+                title={p.name}
+                style={{ fontSize: 10.5, flexShrink: 0, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '3px 8px' }}
+              >{p.emoji} {p.name}</button>
+            ))}
+          </div>
+        )}
+        {lockedProjectId && <div style={{ paddingBottom: 10 }} />}
       </div>
 
-      {/* Entries */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      {/* Body */}
+      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 12 }}>
         {loading && entries.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-3)', fontSize: 13 }}>
-            <span className="spinner" style={{ width: 20, height: 20, marginBottom: 10 }} />
-            <p style={{ margin: 0 }}>Loading…</p>
+          <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-3)', fontSize: 12 }}>
+            <span className="spinner" style={{ width: 18, height: 18, marginBottom: 10, display: 'block', margin: '0 auto 10px' }} />
+            Loading…
           </div>
         ) : visible.length === 0 ? (
-          <div style={{ textAlign: 'center', color: 'var(--text-3)', fontSize: 13, padding: '40px 20px' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 30, height: 30, marginBottom: 10, opacity: 0.35, display: 'block', margin: '0 auto 10px' }}>
-              <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" strokeLinecap="round" strokeLinejoin="round" />
+          <div style={{ textAlign: 'center', color: 'var(--text-3)', fontSize: 12.5, padding: '44px 20px' }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" style={{ width: 28, height: 28, opacity: 0.3, display: 'block', margin: '0 auto 10px' }}>
+              <rect x="3" y="3" width="18" height="18" rx="3" />
+              <path d="M8 8h8M8 12h8M8 16h5" strokeLinecap="round" />
             </svg>
-            <p style={{ margin: 0, fontWeight: 500 }}>No activity yet</p>
-            <p style={{ margin: '4px 0 0', fontSize: 11, lineHeight: 1.5 }}>
-              Synthesis, translation and voice<br />clone tasks will appear here
-            </p>
+            <div style={{ fontWeight: 500, color: 'var(--text-2)' }}>No tasks yet</div>
+            <div style={{ marginTop: 4, fontSize: 11, lineHeight: 1.5 }}>Synthesis, translation and voice<br />clone tasks appear here</div>
           </div>
-        ) : groups.map(g => (
-          <div key={g.label}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '10px 16px 4px', background: 'var(--bg-2)', borderBottom: '1px solid var(--border-1)' }}>
-              {g.label}
-            </div>
-            {g.entries.map(e => {
-              const pName = projectName(e.projectId)
-              return (
-                <div key={e.id} style={{
-                  padding: '11px 16px', borderBottom: '1px solid var(--border-1)',
-                  display: 'flex', alignItems: 'flex-start', gap: 10,
-                  background: e.status === 'running' ? 'color-mix(in srgb, var(--accent) 4%, var(--surface))' : 'var(--surface)',
-                }}>
-                  {/* Status icon */}
-                  <div style={{ marginTop: 2, flexShrink: 0, width: 16, display: 'flex', justifyContent: 'center' }}>
-                    {e.status === 'running' && (
-                      <span style={{ width: 13, height: 13, border: '2px solid var(--accent)', borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />
-                    )}
-                    {e.status === 'done' && (
-                      <svg viewBox="0 0 16 16" fill="none" style={{ width: 15, height: 15, color: 'var(--ok)', flexShrink: 0 }}>
-                        <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
-                        <path d="M5 8l2 2 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
-                    {e.status === 'failed' && (
-                      <svg viewBox="0 0 16 16" fill="none" style={{ width: 15, height: 15, color: 'var(--err)', flexShrink: 0 }}>
-                        <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
-                        <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                      </svg>
-                    )}
-                  </div>
-                  {/* Content */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
-                      <span style={{ fontSize: 13, color: 'var(--text-1)', fontWeight: 500 }}>{e.message}</span>
-                      {e.eventType && e.eventType !== 'task' && (
-                        <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--accent)', background: 'var(--accent-lt)', borderRadius: 4, padding: '1px 6px' }}>
-                          {EVENT_LABELS[e.eventType] ?? e.eventType}
-                        </span>
-                      )}
-                    </div>
-                    {e.detail && <div style={{ fontSize: 11.5, color: 'var(--text-2)', marginBottom: 3 }}>{e.detail}</div>}
-                    <div style={{ fontSize: 10.5, color: 'var(--text-3)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <span>{fmtTime(e.startedAt)}</span>
-                      {e.status !== 'running' && e.endedAt && <span>· {elapsed(e)}</span>}
-                      {filterId === 'all' && pName && (
-                        <span style={{ color: 'var(--accent)', fontWeight: 500 }}>· {pName}</span>
-                      )}
-                    </div>
-                  </div>
+        ) : (
+          <>
+            {/* ── Running section ── */}
+            {running.length > 0 && (
+              <div>
+                <div style={sectionLabel}>Running</div>
+                {running.map(e => (
+                  <LogEntryCard
+                    key={e.id} e={e}
+                    showProject={filterId === 'all'}
+                    projectName={projectName(e.projectId)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* ── Finished section ── */}
+            {finishedGroups.length > 0 && (
+              <div>
+                <div style={{ ...sectionLabel, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ flex: 1 }}>Finished</span>
+                  <button
+                    className="btn btn--ghost btn--sm"
+                    onClick={handleClear}
+                    style={{ fontSize: 10, padding: '2px 7px', marginRight: 10, textTransform: 'none', letterSpacing: 0 }}
+                  >Clear</button>
                 </div>
-              )
-            })}
-          </div>
-        ))}
+                {finishedGroups.map(g => (
+                  <div key={g.label}>
+                    <div style={{ fontSize: 10, color: 'var(--text-3)', padding: '6px 12px 2px', opacity: 0.7 }}>{g.label}</div>
+                    {g.entries.map(e => (
+                      <LogEntryCard
+                        key={e.id} e={e}
+                        showProject={filterId === 'all'}
+                        projectName={projectName(e.projectId)}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   )
