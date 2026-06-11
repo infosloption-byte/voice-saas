@@ -814,15 +814,17 @@ export function WorkspacePage({
       { projectId: project.id, eventType: 'synthesis' },
     )
 
+    let failedCount = 0
     for (const script of pending) {
       if (controller.signal.aborted) break
       setBulkActiveId(script.id)
       bulkLog.update(`Synthesising "${script.title}"`, engine.toUpperCase())
       try {
         const ok = await generateVoiceover(script, script.content, controller.signal, engine)
-        if (!ok && !controller.signal.aborted) setBulkErrors(prev => [...prev, script.title])
+        if (!ok && !controller.signal.aborted) { failedCount++; setBulkErrors(prev => [...prev, script.title]) }
       } catch (e) {
-        setBulkErrors(prev => [...prev, script.title])
+        failedCount++; setBulkErrors(prev => [...prev, script.title])
+        // Engine is unreachable — no point continuing the batch
         if ((e as Error).message.includes('multiple attempts')) break
       }
       setBulkProgress(p => p + 1)
@@ -833,6 +835,12 @@ export function WorkspacePage({
     setBulkTotal(0)
     setBulkProgress(0)
     bulkLog.done(`${pending.length} scripts processed`)
+
+    api.post('/notifications/bulk-synthesis-complete', {
+      project_name: project.name,
+      total: pending.length,
+      failed: failedCount + (controller.signal.aborted ? 1 : 0),
+    }).catch(() => {}) // non-fatal
   }
 
   // ── Audio transcription ───────────────────────────────────────────

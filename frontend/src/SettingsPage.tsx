@@ -553,6 +553,37 @@ function ApiSettings({ onSave }: { onSave: () => void }) {
   )
 }
 
+// ── Usage bar (billing section) ──────────────────────────────────────
+
+interface QuotaData { limit: number; used: number; remaining: number; period: string }
+
+function UsageBar({ label, quota, loading }: { label: string; quota: QuotaData | null; loading: boolean }) {
+  const pct = quota && quota.limit > 0 ? Math.min(100, Math.round((quota.used / quota.limit) * 100)) : 0
+  const barColor = pct >= 100 ? 'var(--err)' : pct >= 80 ? 'var(--warn)' : 'var(--accent)'
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text-1)' }}>{label}</span>
+        {loading ? (
+          <span className="spinner" style={{ width: 10, height: 10 }} />
+        ) : quota ? (
+          quota.limit === 0
+            ? <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>Unlimited</span>
+            : <span style={{ fontSize: 11.5, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>
+                {quota.used} / {quota.limit} <span style={{ color: 'var(--text-3)', fontFamily: 'inherit' }}>per {quota.period}</span>
+              </span>
+        ) : null}
+      </div>
+      {!loading && quota && quota.limit > 0 && (
+        <div style={{ height: 5, borderRadius: 99, background: 'var(--bg-3)', overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${pct}%`, borderRadius: 99, background: barColor, transition: 'width 0.3s ease' }} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Billing & Plan ───────────────────────────────────────────────────
 
 const PLAN_LABELS: Record<string, { label: string; color: string; bg: string }> = {
@@ -575,6 +606,16 @@ function BillingSettings({ currentPlan, onGoPricing }: { currentPlan: Plan; onGo
   const [cancelling, setCancelling] = useState(false)
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [exporting, setExporting]   = useState(false)
+  const [synthQuota, setSynthQuota]   = useState<QuotaData | null>(null)
+  const [transQuota, setTransQuota]   = useState<QuotaData | null>(null)
+  const [quotaLoading, setQuotaLoading] = useState(true)
+
+  useEffect(() => {
+    Promise.all([
+      api.get('/synthesis/quota').then(d => setSynthQuota(d as QuotaData)).catch(() => {}),
+      api.get('/translation/quota').then(d => setTransQuota(d as QuotaData)).catch(() => {}),
+    ]).finally(() => setQuotaLoading(false))
+  }, [])
 
   useEffect(() => {
     api.get('/subscription')
@@ -697,6 +738,15 @@ function BillingSettings({ currentPlan, onGoPricing }: { currentPlan: Plan; onGo
           )}
         </div>
       )}
+
+      {/* Usage dashboard */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', marginBottom: 12 }}>Usage</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '14px 16px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+          <UsageBar label="Synthesis" quota={synthQuota} loading={quotaLoading} />
+          <UsageBar label="Translation" quota={transQuota} loading={quotaLoading} />
+        </div>
+      </div>
 
       <SettingsRow label="View all plans" hint="Compare features across Free, Starter, and Pro.">
         <button className="btn btn--ghost btn--sm" onClick={onGoPricing} style={{ gap: 6 }}>{icons.externalLink} View pricing</button>

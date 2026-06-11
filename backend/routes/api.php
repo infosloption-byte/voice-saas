@@ -10,6 +10,7 @@ use App\Http\Controllers\EngineSynthesisProxyController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GuestLimitsController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PlanLimitsController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\ProjectController;
@@ -165,4 +166,9 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
 
     // Activity logs (all users)
     Route::get('/admin/activity-logs', [ActivityLogController::class, 'adminIndex']);
+});
+
+// ── Notifications (authenticated) ────────────────────────────────────
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('notifications/bulk-synthesis-complete', [NotificationController::class, 'bulkSynthesisComplete']);
 });
