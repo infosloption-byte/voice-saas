@@ -13,3 +13,8 @@ Schedule::command('audio:prune', ['--days' => (int) env('AUDIO_PRUNE_DAYS', 90)]
     ->daily()
     ->withoutOverlapping()
     ->runInBackground();
+
+// Check that a database backup exists from the last 25 hours.
+Schedule::command('backup:check')
+    ->daily()
+    ->withoutOverlapping();

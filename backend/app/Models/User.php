@@ -13,11 +13,11 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-#[Fillable(['name', 'email', 'password', 'bio'])]
+#[Fillable(['name', 'email', 'password', 'bio', 'role'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements MustVerifyEmail
 {
-    protected $appends = ['plan_name'];
+    protected $appends = ['plan_name', 'is_admin'];
 
     protected $with = ['subscription'];
 
@@ -57,6 +57,26 @@ class User extends Authenticatable implements MustVerifyEmail
     public function subscription()
     {
         return $this->hasOne(Subscription::class);
+    }
+
+    public function getIsAdminAttribute(): bool
+    {
+        // Role-based (post-migration) or legacy ADMIN_EMAIL fallback
+        if (in_array($this->role ?? 'user', ['admin', 'super_admin'], true)) {
+            return true;
+        }
+        $adminEmail = config('app.admin_email', '');
+        return $adminEmail && $this->email === $adminEmail;
+    }
+
+    public function isAdmin(): bool
+    {
+        return in_array($this->role, ['admin', 'super_admin'], true);
+    }
+
+    public function isSuperAdmin(): bool
+    {
+        return $this->role === 'super_admin';
     }
 
     public function getPlanNameAttribute(): string
