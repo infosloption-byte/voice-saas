@@ -134,17 +134,23 @@ export const activityLog = {
     } catch { /* unauthenticated or offline */ }
   },
 
-  /** Delete entries from the backend (+ clear local mirror). */
-  async clear(projectId?: string): Promise<void> {
+  /** Delete entries from the backend (+ clear local mirror). Returns false on backend failure. */
+  async clear(projectId?: string): Promise<boolean> {
+    let ok = true
     try {
       const qs = projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''
       await api.delete(`/activity-logs${qs}`)
-    } catch {}
+    } catch (e) {
+      // Guests have no backend log — clearing locally is fine. Authed users
+      // should see the failure, otherwise the poll resurrects the entries.
+      if (e instanceof ApiError && e.status !== 401) ok = false
+    }
     if (projectId) {
       _entries = _entries.filter(e => e.projectId !== projectId)
     } else {
       _entries = []
     }
     _notify()
+    return ok
   },
 }
