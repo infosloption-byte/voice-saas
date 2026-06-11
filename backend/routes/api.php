@@ -58,7 +58,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // POST /api/voice-profiles        → save profile (with optional audio file forwarded to engine)
     // DELETE /api/voice-profiles/{id} → delete profile
     Route::get(   'voice-profiles',      [VoiceProfileController::class, 'index']);
-    Route::post(  'voice-profiles',      [VoiceProfileController::class, 'store']);
+    // Uploads forward a file to the engine + S3; throttle to curb storage/bandwidth abuse.
+    Route::post(  'voice-profiles',      [VoiceProfileController::class, 'store'])->middleware('throttle:10,1');
     Route::delete('voice-profiles/{id}', [VoiceProfileController::class, 'destroy']);
 });
 
