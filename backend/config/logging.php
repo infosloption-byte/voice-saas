@@ -73,6 +73,16 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // Security-relevant events (auth, payments, admin, account deletion).
+        // Kept separate and retained longer for forensics / compliance.
+        'audit' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/audit.log'),
+            'level' => 'info',
+            'days' => env('AUDIT_LOG_DAYS', 365),
+            'replace_placeholders' => true,
+        ],
+
         'slack' => [
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),

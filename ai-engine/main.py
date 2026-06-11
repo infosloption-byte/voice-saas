@@ -730,7 +730,7 @@ async def save_voice_profile(
 
 # ── FEATURE 3: LIST VOICE PROFILES ───────────────────────────────
 @app.get("/voice-profile/list")
-async def list_voice_profiles():
+async def list_voice_profiles(_key: None = Depends(verify_api_key)):
     profiles = []
     for f in os.listdir(VOICES_DIR):
         if f.endswith(".wav"):

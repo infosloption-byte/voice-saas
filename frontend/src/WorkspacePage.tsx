@@ -618,6 +618,7 @@ export function WorkspacePage({
       fd.append('text', text)
       fd.append('file', voiceBlob, 'voice.wav')
       fd.append('tts_engine', engine)
+      fd.append('purpose', 'generate')
 
       let blob = await api.enginePost('/clone-voice', fd) as Blob
       blob = await trimSilence(blob)
@@ -668,18 +669,8 @@ export function WorkspacePage({
     setShowTranslateMenu(false)
     setTranslating(true)
     try {
-      // Check & record quota before running (guests skip — no DB tracking)
-      if (!isGuest) {
-        try {
-          await api.post('/translation/record')
-        } catch (quotaErr: unknown) {
-          const msg = quotaErr instanceof Error ? quotaErr.message : 'Translation quota reached'
-          toast.err(msg)
-          setTranslating(false)
-          return
-        }
-      }
-
+      // Quota is enforced + recorded server-side by the /engine/translate proxy
+      // (returns 429 when exhausted), so no separate record call is needed.
       const result = await api.engineJsonPost('/translate', {
         text: source,
         source_lang: activeScript.language || 'en',

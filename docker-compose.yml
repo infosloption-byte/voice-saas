@@ -55,8 +55,10 @@ services:
       dockerfile: Dockerfile
       args:
         - VITE_API_URL=${VITE_API_URL:-https://usevoxora.online/api}
-        - VITE_ENGINE_URL=${VITE_ENGINE_URL:-https://usevoxora.online/ai}
-        - VITE_ENGINE_API_KEY=${VITE_ENGINE_API_KEY:-}
+        # Engine is reached via the backend proxy now; this stays only to satisfy
+        # the legacy fallback in api.ts. The engine API key is NO LONGER built
+        # into the frontend bundle — it lives server-side on the backend.
+        - VITE_ENGINE_URL=${VITE_ENGINE_URL:-https://usevoxora.online/api/engine}
         - VITE_ADMIN_EMAIL=${VITE_ADMIN_EMAIL:-}
         - VITE_PAYPAL_CLIENT_ID=${VITE_PAYPAL_CLIENT_ID:-}
         - VITE_PAYPAL_PLAN_STARTER=${VITE_PAYPAL_PLAN_STARTER:-}
@@ -75,8 +77,12 @@ services:
       dockerfile: Dockerfile
     container_name: voice_ai
     restart: unless-stopped
-    ports:
-      - "8000:8000"
+    # No public ports: the engine is reachable only on the internal Docker
+    # network (the backend calls it at http://ai-engine:8000). Exposing it to
+    # the host reopens free-GPU / IDOR holes, since the engine key alone is not
+    # a sufficient authorization boundary.
+    expose:
+      - "8000"
     volumes:
       - ./ai-engine:/app
       - voice_profiles:/app/voice_profiles
