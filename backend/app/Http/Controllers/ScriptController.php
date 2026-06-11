@@ -7,6 +7,7 @@ use App\Models\Script;
 use App\Services\PlanLimits;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class ScriptController extends Controller
@@ -185,12 +186,16 @@ class ScriptController extends Controller
 
         if ($ok) {
             $bytes = file_get_contents($tmpMp3);
-            @unlink($tmpMp3);
         } else {
             // ffmpeg unavailable — store WAV as-is
             $bytes     = $uploaded->get();
             $ext       = 'wav';
             $storePath = $request->user()->id . '/' . $id . '.' . $ext;
+        }
+
+        // Always clean up the temp file regardless of success or failure.
+        if (file_exists($tmpMp3)) {
+            @unlink($tmpMp3);
         }
 
         try {
@@ -244,9 +249,15 @@ class ScriptController extends Controller
             'scripts.*.order_index' => 'required|integer',
         ]);
 
-        foreach ($validated['scripts'] as $scriptData) {
-            $project->scripts()->where('id', $scriptData['id'])->update(['order_index' => $scriptData['order_index']]);
-        }
+        // Build one UPDATE … CASE statement instead of N separate queries.
+        $ids   = array_column($validated['scripts'], 'id');
+        $cases = collect($validated['scripts'])
+            ->map(fn($s) => 'WHEN ' . DB::connection()->getPdo()->quote($s['id']) . ' THEN ' . (int) $s['order_index'])
+            ->implode(' ');
+
+        $project->scripts()
+            ->whereIn('id', $ids)
+            ->update(['order_index' => DB::raw("CASE id {$cases} END")]);
 
         return response()->json(['message' => 'Scripts reordered successfully']);
     }
