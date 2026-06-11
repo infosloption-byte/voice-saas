@@ -77,6 +77,45 @@ class ActivityLogController extends Controller
         return response()->json($activityLog->fresh());
     }
 
+    // GET /admin/activity-logs (admin only — all users)
+    public function adminIndex(Request $request): JsonResponse
+    {
+        $query = ActivityLog::with(['user' => fn($q) => $q->select('id', 'name', 'email')])
+            ->orderBy('started_at', 'desc');
+
+        if ($request->filled('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
+        if ($request->filled('project_id')) {
+            $query->where('project_id', $request->project_id);
+        }
+        if ($request->filled('event_type')) {
+            $query->where('event_type', $request->event_type);
+        }
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+        if ($request->filled('from')) {
+            $query->where('started_at', '>=', $request->from);
+        }
+
+        $limit = min((int) ($request->query('limit', 100)), 500);
+
+        $logs = $query->limit($limit)->get();
+
+        return response()->json($logs->map(fn($log) => [
+            'id'         => $log->id,
+            'user'       => $log->user ? ['id' => $log->user->id, 'name' => $log->user->name, 'email' => $log->user->email] : null,
+            'project_id' => $log->project_id,
+            'event_type' => $log->event_type,
+            'message'    => $log->message,
+            'detail'     => $log->detail,
+            'status'     => $log->status,
+            'started_at' => $log->started_at,
+            'ended_at'   => $log->ended_at,
+        ]));
+    }
+
     // DELETE /activity-logs?project_id=
     public function destroy(Request $request): JsonResponse
     {

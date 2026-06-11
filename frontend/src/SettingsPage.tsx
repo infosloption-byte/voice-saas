@@ -927,6 +927,94 @@ function EngineSettings() {
       ) : (
         <button className="btn btn--ghost btn--sm" onClick={() => setShowAdd(true)}>+ Add engine</button>
       )}
+
+      {/* Activity Logs */}
+      <AdminActivityLogs />
+    </div>
+  )
+}
+
+// ── Admin Activity Logs ────────────────────────────────────────────────
+
+interface AdminActivityLog {
+  id: number
+  user: { id: number; name: string; email: string } | null
+  project_id: string | null
+  event_type: string
+  message: string
+  detail: string | null
+  status: 'running' | 'done' | 'failed'
+  started_at: string
+  ended_at: string | null
+}
+
+function AdminActivityLogs() {
+  const [logs, setLogs]       = useState<AdminActivityLog[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const load = () => {
+    setLoading(true)
+    api.get('/admin/activity-logs?limit=50')
+      .then(d => setLogs(d as AdminActivityLog[]))
+      .catch(() => toast.err('Failed to load activity logs'))
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [])
+
+  function duration(log: AdminActivityLog): string {
+    if (!log.ended_at) return '—'
+    const secs = Math.round((new Date(log.ended_at).getTime() - new Date(log.started_at).getTime()) / 1000)
+    return `${secs}s`
+  }
+
+  const statusBadge = (s: AdminActivityLog['status']) => {
+    if (s === 'done')    return <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: 'rgba(34,197,94,0.12)', color: '#16a34a' }}>done</span>
+    if (s === 'failed')  return <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: 'rgba(192,57,43,0.10)', color: 'var(--err)' }}>failed</span>
+    return (
+      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: 'rgba(66,120,201,0.10)', color: '#4278c9', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <span className="spinner" style={{ width: 8, height: 8 }} />running
+      </span>
+    )
+  }
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div className="settings-section-title" style={{ margin: 0 }}>Activity Logs</div>
+        <button className="btn btn--ghost btn--sm" onClick={load} disabled={loading}>
+          {loading ? <span className="spinner" style={{ width: 12, height: 12 }} /> : null} Refresh
+        </button>
+      </div>
+      {loading && logs.length === 0 ? (
+        <div style={{ color: 'var(--text-3)', fontSize: 13 }}><span className="spinner" style={{ width: 12, height: 12, marginRight: 6 }} />Loading…</div>
+      ) : logs.length === 0 ? (
+        <div style={{ fontSize: 13, color: 'var(--text-3)', padding: '12px 0' }}>No activity logs yet.</div>
+      ) : (
+        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: 'var(--bg-2)' }}>
+                {['Time', 'User', 'Event', 'Message', 'Status', 'Duration'].map(h => (
+                  <th key={h} style={{ padding: '7px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--text-3)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map((log, i) => (
+                <tr key={log.id} style={{ borderTop: '1px solid var(--border)', background: i % 2 === 0 ? 'var(--surface)' : 'var(--bg-2)' }}>
+                  <td style={{ padding: '8px 12px', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{new Date(log.started_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                  <td style={{ padding: '8px 12px', color: 'var(--text-1)', whiteSpace: 'nowrap' }}>{log.user ? log.user.email : '—'}</td>
+                  <td style={{ padding: '8px 12px', color: 'var(--text-2)', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>{log.event_type}</td>
+                  <td style={{ padding: '8px 12px', color: 'var(--text-1)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={log.message}>{log.message}</td>
+                  <td style={{ padding: '8px 12px' }}>{statusBadge(log.status)}</td>
+                  <td style={{ padding: '8px 12px', color: 'var(--text-3)', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>{duration(log)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
