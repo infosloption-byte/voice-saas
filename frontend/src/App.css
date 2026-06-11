@@ -526,7 +526,24 @@
 .dash-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  gap: 16px;
+}
+
+.dash-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  box-shadow: var(--shadow-sm);
+}
+
+.dash-panel .project-card {
+  background: var(--bg-2);
+  box-shadow: none;
+}
+
+@media (max-width: 860px) {
+  .dash-grid { grid-template-columns: 1fr }
 }
 
 /* ── Section header ──────────────────────────────────────────────── */
