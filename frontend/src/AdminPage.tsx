@@ -592,7 +592,7 @@ const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
   { id: 'audit',          label: 'Audit Log',      icon: '◷' },
 ]
 
-export function AdminPage({ user, onBack }: { user: User; onBack: () => void }) {
+export function AdminPage({ user, onBack, standalone }: { user: User; onBack?: () => void; standalone?: boolean }) {
   const [section, setSection] = useState<AdminSection>('overview')
 
   if (!user.is_admin) {
@@ -640,11 +640,13 @@ export function AdminPage({ user, onBack }: { user: User; onBack: () => void }) 
 
         <div style={{ flex: 1 }} />
 
-        <button className="btn btn--ghost btn--sm"
-          onClick={onBack}
-          style={{ fontSize: 11, justifyContent: 'flex-start', gap: 6 }}>
-          {icons.back} Back to app
-        </button>
+        {!standalone && onBack && (
+          <button className="btn btn--ghost btn--sm"
+            onClick={onBack}
+            style={{ fontSize: 11, justifyContent: 'flex-start', gap: 6 }}>
+            {icons.back} Back to app
+          </button>
+        )}
       </div>
 
       {/* Content */}

@@ -26,7 +26,6 @@ import {
 } from './AppPages'
 import { WorkspacePage } from './WorkspacePage'
 import { AssemblyPage } from './AssemblyPage'
-import { AdminPage } from './AdminPage'
 import type { Page, WorkspaceTab, VoiceProfile, EngineStatus, EngineCaps } from './types'
 
 // ── Cookie consent ────────────────────────────────────────────────
@@ -605,18 +604,6 @@ export default function App() {
             >
               {icons.light} Settings
             </button>
-            {user?.is_admin && (
-              <button
-                className={`nav-item ${page === 'admin' ? 'nav-item--active' : ''}`}
-                onClick={() => setPage('admin')}
-                style={{ color: page === 'admin' ? undefined : 'var(--warn)' }}
-              >
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ width: 15, height: 15, flexShrink: 0 }}>
-                  <path d="M10 2l1.5 4.5H16l-3.5 2.5 1.5 4.5L10 11l-4 2.5 1.5-4.5L4 6.5h4.5L10 2z" strokeLinejoin="round" />
-                </svg>
-                Admin
-              </button>
-            )}
           </div>
 
           {(guestMode ? guestProject.project != null : projects.length > 0) && (
@@ -750,7 +737,6 @@ export default function App() {
                 : page === 'projects'  ? 'Projects'
                 : page === 'profiles'  ? 'Voice Profiles'
                 : page === 'settings'  ? 'Settings'
-                : page === 'admin'     ? 'Admin Panel'
                 : ''}
             </span>
           )}
@@ -963,13 +949,6 @@ export default function App() {
               user={user
                 ? { name: user.name, email: user.email, email_verified_at: user.email_verified_at, plan_name: user.plan_name }
                 : { name: '', email: '' }}
-            />
-          )}
-
-          {page === 'admin' && user?.is_admin && (
-            <AdminPage
-              user={user}
-              onBack={() => setPage('dashboard')}
             />
           )}
 
