@@ -3,6 +3,10 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\EngineConfigController;
+use App\Http\Controllers\Admin\AdminUserController;
+use App\Http\Controllers\Admin\AdminStatsController;
+use App\Http\Controllers\Admin\AdminSubscriptionController;
+use App\Http\Controllers\Admin\AdminAuditLogController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\EngineCapabilitiesController;
 use App\Http\Controllers\EngineProxyController;
@@ -171,6 +175,22 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
 
     // Activity logs (all users)
     Route::get('/admin/activity-logs', [ActivityLogController::class, 'adminIndex']);
+
+    // Platform stats
+    Route::get('/admin/stats', [AdminStatsController::class, 'index']);
+
+    // User management
+    Route::get(   '/admin/users',             [AdminUserController::class, 'index']);
+    Route::get(   '/admin/users/{user}',      [AdminUserController::class, 'show']);
+    Route::put(   '/admin/users/{user}/role', [AdminUserController::class, 'updateRole']);
+    Route::delete('/admin/users/{user}',      [AdminUserController::class, 'destroy']);
+
+    // Subscription management
+    Route::get( '/admin/subscriptions',              [AdminSubscriptionController::class, 'index']);
+    Route::post('/admin/subscriptions/{id}/cancel',  [AdminSubscriptionController::class, 'cancel']);
+
+    // Admin audit log
+    Route::get('/admin/audit-log', [AdminAuditLogController::class, 'index']);
 });
 
 // ── Notifications (authenticated) ────────────────────────────────────
