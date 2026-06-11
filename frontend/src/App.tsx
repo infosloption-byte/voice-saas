@@ -559,7 +559,7 @@ export default function App() {
 
   // ── Main app shell ────────────────────────────────────────────────
   return (
-    <div className={`shell${sidebarCollapsed ? ' shell--sidebar-collapsed' : ''}`}>
+    <div className={`shell${sidebarCollapsed ? ' shell--sidebar-collapsed' : ''}${showActivityLog ? ' shell--log-open' : ''}`}>
       {sidebarOpen && (
         <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
       )}
@@ -973,13 +973,12 @@ export default function App() {
       {showShortcuts && (
         <ShortcutsModal onClose={() => setShowShortcuts(false)} />
       )}
-      {showActivityLog && (
-        <ActivityLogPanel
-          onClose={() => setShowActivityLog(false)}
-          projects={projects}
-          lockedProjectId={page === 'workspace' ? activeProjectId : null}
-        />
-      )}
+      <ActivityLogPanel
+        open={showActivityLog}
+        onClose={() => setShowActivityLog(false)}
+        projects={projects}
+        lockedProjectId={page === 'workspace' ? activeProjectId : null}
+      />
       {guestGateType && (
         <GuestUpgradeModal
           type={guestGateType}
