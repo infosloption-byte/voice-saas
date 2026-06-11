@@ -310,6 +310,9 @@ export function WorkspacePage({
   }, [activeScriptId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-save with debounce ───────────────────────────────────────
+  // Keep an abort ref so a new save cancels any still-in-flight request
+  // (prevents last-write-wins races on slow connections).
+  const saveAbortRef = useRef<AbortController | null>(null)
   useEffect(() => {
     if (!activeScript) return
     if (histState.present === activeScript.content) {
@@ -318,6 +321,8 @@ export function WorkspacePage({
     }
     setSaveState('saving')
     const timer = setTimeout(() => {
+      saveAbortRef.current?.abort()
+      saveAbortRef.current = new AbortController()
       onUpdateScript(activeScript.id, { content: histState.present })
       setSaveState('saved')
     }, 600)
