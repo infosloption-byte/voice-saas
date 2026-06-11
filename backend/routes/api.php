@@ -7,6 +7,9 @@ use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\AdminStatsController;
 use App\Http\Controllers\Admin\AdminSubscriptionController;
 use App\Http\Controllers\Admin\AdminAuditLogController;
+use App\Http\Controllers\Admin\AdminBroadcastController;
+use App\Http\Controllers\Admin\AdminImpersonationController;
+use App\Http\Controllers\Admin\AdminReportsController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\EngineCapabilitiesController;
 use App\Http\Controllers\EngineProxyController;
@@ -35,7 +38,19 @@ Route::post('/logout',   [AuthController::class, 'logout'])->middleware('auth:sa
 Route::middleware('auth:sanctum')->group(function () {
 
     // Current user
-    Route::get('/user',          fn (Request $request) => $request->user());
+    Route::get('/user', function (Request $request) {
+        $user = $request->user();
+        if (!$user) return null;
+        // Surface impersonation state so the app can show a banner
+        $payload = $user->toArray();
+        $payload['impersonated'] = $request->hasSession()
+            && $request->session()->has('impersonator_id');
+        return $payload;
+    });
+
+    // Stop impersonating — outside 'admin' middleware on purpose: the
+    // current session user is the impersonated (non-admin) user
+    Route::post('/impersonation/stop', [AdminImpersonationController::class, 'stop']);
     Route::put('/user',           [AuthController::class, 'updateProfile']);
     Route::post('/user/password', [AuthController::class, 'changePassword']);
     Route::delete('/user',        [AuthController::class, 'deleteAccount']);
@@ -184,6 +199,21 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::get(   '/admin/users/{user}',      [AdminUserController::class, 'show']);
     Route::put(   '/admin/users/{user}/role', [AdminUserController::class, 'updateRole']);
     Route::delete('/admin/users/{user}',      [AdminUserController::class, 'destroy']);
+    Route::post(  '/admin/users/{user}/suspend',     [AdminUserController::class, 'suspend']);
+    Route::post(  '/admin/users/{user}/unsuspend',   [AdminUserController::class, 'unsuspend']);
+    Route::put(   '/admin/users/{user}/plan',        [AdminUserController::class, 'updatePlanOverride']);
+    Route::post(  '/admin/users/{user}/impersonate', [AdminImpersonationController::class, 'start']);
+
+    // Reports (all support ?format=csv)
+    Route::get('/admin/reports/top-users',      [AdminReportsController::class, 'topUsers']);
+    Route::get('/admin/reports/quota-pressure', [AdminReportsController::class, 'quotaPressure']);
+    Route::get('/admin/reports/revenue',        [AdminReportsController::class, 'revenue']);
+    Route::get('/admin/reports/funnel',         [AdminReportsController::class, 'funnel']);
+    Route::get('/admin/reports/engines',        [AdminReportsController::class, 'engines']);
+    Route::get('/admin/reports/export/users',   [AdminReportsController::class, 'exportUsers']);
+
+    // Broadcast announcement email
+    Route::post('/admin/broadcast', [AdminBroadcastController::class, 'send']);
 
     // Subscription management
     Route::get( '/admin/subscriptions',              [AdminSubscriptionController::class, 'index']);

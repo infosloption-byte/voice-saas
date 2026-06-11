@@ -23,6 +23,9 @@ export interface User {
   plan_name?: Plan
   role?: 'user' | 'admin' | 'super_admin'
   is_admin?: boolean
+  impersonated?: boolean
+  suspended_at?: string | null
+  plan_override?: 'starter' | 'pro' | null
 }
 
 export interface Subscription {
