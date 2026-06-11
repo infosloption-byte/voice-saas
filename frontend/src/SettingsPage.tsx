@@ -17,7 +17,6 @@ type SettingsSection =
   | 'appearance'
   | 'notifications'
   | 'api'
-  | 'engines'
   | 'danger'
 
 interface SettingsPageProps {
@@ -33,8 +32,6 @@ interface SettingsPageProps {
   onToggleSidebar?: () => void
 }
 
-const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL as string | undefined
-
 export function SettingsPage({
   darkMode = false,
   onToggleDark,
@@ -47,7 +44,6 @@ export function SettingsPage({
   sidebarCollapsed,
   onToggleSidebar,
 }: SettingsPageProps) {
-  const isAdmin = !!(ADMIN_EMAIL && user.email === ADMIN_EMAIL)
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768)
   // null = "menu view" on mobile; on desktop always has a section selected
   const [section, setSection] = useState<SettingsSection | null>(
@@ -74,7 +70,6 @@ export function SettingsPage({
     { id: 'appearance',    label: 'Appearance',          hint: 'Theme, layout density',         icon: icons.light   },
     { id: 'notifications', label: 'Notifications',       hint: 'Alerts and reminders',          icon: icons.bell    },
     { id: 'api',           label: 'API & Engine',        hint: 'Engine endpoint, timeout',      icon: icons.api     },
-    ...(isAdmin ? [{ id: 'engines' as SettingsSection, label: 'AI Engines', hint: 'Switch local ↔ RunPod', icon: icons.bolt }] : []),
     { id: 'danger',        label: 'Danger Zone',         hint: 'Delete account, clear cache',   icon: icons.trash   },
   ]
 
@@ -212,7 +207,6 @@ export function SettingsPage({
             {section === 'appearance'    && <AppearanceSettings     darkMode={darkMode} onToggleDark={onToggleDark} onSave={handleSave} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={onToggleSidebar} />}
             {section === 'notifications' && <NotificationSettings                   onSave={handleSave} />}
             {section === 'api'           && <ApiSettings                            onSave={handleSave} />}
-            {section === 'engines'       && isAdmin && <EngineSettings />}
             {section === 'danger'        && <DangerSettings         onSignOut={onSignOut} onDeleteAccount={onDeleteAccount} />}
           </div>
         )}
@@ -822,249 +816,6 @@ function DangerSettings({ onSignOut, onDeleteAccount }: { onSignOut?: () => void
           </div>
         </div>
       </div>
-    </div>
-  )
-}
-
-// ── EngineSettings (admin only) ───────────────────────────────────
-interface EngineConfig {
-  id: number
-  name: string
-  url: string
-  is_active: boolean
-  status: 'unknown' | 'online' | 'offline'
-  latency_ms: number | null
-  last_tested_at: string | null
-}
-
-function EngineSettings() {
-  const [engines, setEngines]     = useState<EngineConfig[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [testingId, setTestingId] = useState<number | null>(null)
-  const [activatingId, setActivatingId] = useState<number | null>(null)
-  const [showAdd, setShowAdd]     = useState(false)
-  const [addName, setAddName]     = useState('')
-  const [addUrl, setAddUrl]       = useState('')
-  const [adding, setAdding]       = useState(false)
-
-  const load = () => {
-    setLoading(true)
-    api.get('/admin/engines')
-      .then(d => setEngines(d as EngineConfig[]))
-      .catch(() => toast.err('Failed to load engine configs'))
-      .finally(() => setLoading(false))
-  }
-
-  useEffect(() => { load() }, [])
-
-  const handleTest = async (eng: EngineConfig) => {
-    setTestingId(eng.id)
-    try {
-      const updated = await api.post(`/admin/engines/${eng.id}/test`, {}) as EngineConfig
-      setEngines(prev => prev.map(e => e.id === eng.id ? updated : e))
-    } catch { toast.err('Test failed') }
-    finally { setTestingId(null) }
-  }
-
-  const handleActivate = async (eng: EngineConfig) => {
-    if (eng.is_active) return
-    setActivatingId(eng.id)
-    try {
-      await api.post(`/admin/engines/${eng.id}/activate`, {})
-      toast.ok(`Switched to "${eng.name}"`)
-      load()
-    } catch { toast.err('Activation failed') }
-    finally { setActivatingId(null) }
-  }
-
-  const handleDelete = async (eng: EngineConfig) => {
-    if (!confirm(`Delete "${eng.name}"?`)) return
-    try {
-      await api.delete(`/admin/engines/${eng.id}`)
-      setEngines(prev => prev.filter(e => e.id !== eng.id))
-    } catch { toast.err('Delete failed') }
-  }
-
-  const handleAdd = async () => {
-    if (!addName.trim() || !addUrl.trim()) return
-    setAdding(true)
-    try {
-      const created = await api.post('/admin/engines', { name: addName.trim(), url: addUrl.trim() }) as EngineConfig
-      setEngines(prev => [...prev, created])
-      setAddName(''); setAddUrl(''); setShowAdd(false)
-    } catch { toast.err('Failed to add engine') }
-    finally { setAdding(false) }
-  }
-
-  const statusDot = (s: EngineConfig['status']) => ({
-    unknown: { color: 'var(--text-3)', label: 'Not tested' },
-    online:  { color: 'var(--ok)',     label: 'Online' },
-    offline: { color: 'var(--err)',    label: 'Offline' },
-  }[s])
-
-  if (loading) return <div className="settings-section"><span className="spinner" /> Loading…</div>
-
-  return (
-    <div className="settings-section">
-      <div className="settings-section-title">AI Engine Routing</div>
-      <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 20, lineHeight: 1.6 }}>
-        Switch the active AI engine between your local server and RunPod (or any external host) without redeployment.
-        Changes take effect within 30 seconds.
-      </p>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
-        {engines.map(eng => {
-          const dot = statusDot(eng.status)
-          return (
-            <div key={eng.id} style={{
-              padding: '14px 16px', borderRadius: 'var(--radius)',
-              border: `1px solid ${eng.is_active ? 'var(--accent)' : 'var(--border-2)'}`,
-              background: eng.is_active ? 'var(--accent-lt)' : 'var(--surface-2)',
-              display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-            }}>
-              {/* active indicator */}
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: eng.is_active ? 'var(--accent)' : 'var(--border-2)', flexShrink: 0 }} />
-
-              {/* info */}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                  <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-1)' }}>{eng.name}</span>
-                  {eng.is_active && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', background: 'rgba(124,58,237,0.12)', padding: '2px 7px', borderRadius: 10 }}>ACTIVE</span>}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--mono)', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{eng.url}</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: dot.color, display: 'inline-block' }} />
-                  <span style={{ color: dot.color }}>{dot.label}</span>
-                  {eng.latency_ms !== null && <span style={{ color: 'var(--text-3)' }}>· {eng.latency_ms}ms</span>}
-                  {eng.last_tested_at && <span style={{ color: 'var(--text-3)' }}>· tested {new Date(eng.last_tested_at).toLocaleTimeString()}</span>}
-                </div>
-              </div>
-
-              {/* actions */}
-              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                <button className="btn btn--ghost btn--sm" onClick={() => handleTest(eng)} disabled={testingId === eng.id}>
-                  {testingId === eng.id ? <span className="spinner" /> : null} Test
-                </button>
-                {!eng.is_active && (
-                  <button className="btn btn--primary btn--sm" onClick={() => handleActivate(eng)} disabled={!!activatingId}>
-                    {activatingId === eng.id ? <span className="spinner" /> : null} Activate
-                  </button>
-                )}
-                {!eng.is_active && (
-                  <button className="btn btn--ghost btn--sm" style={{ color: 'var(--err)' }} onClick={() => handleDelete(eng)}>
-                    {icons.trash}
-                  </button>
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Add engine */}
-      {showAdd ? (
-        <div style={{ padding: '14px 16px', border: '1px solid var(--border-2)', borderRadius: 'var(--radius)', background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>Add engine</div>
-          <input className="full-input" placeholder="Name (e.g. RunPod GPU)" value={addName} onChange={e => setAddName(e.target.value)} />
-          <input className="full-input" placeholder="URL (e.g. https://abc123-8000.proxy.runpod.net)" value={addUrl} onChange={e => setAddUrl(e.target.value)} />
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn--primary btn--sm" onClick={handleAdd} disabled={adding || !addName.trim() || !addUrl.trim()}>
-              {adding ? <span className="spinner" /> : null} Add
-            </button>
-            <button className="btn btn--ghost btn--sm" onClick={() => { setShowAdd(false); setAddName(''); setAddUrl('') }}>Cancel</button>
-          </div>
-        </div>
-      ) : (
-        <button className="btn btn--ghost btn--sm" onClick={() => setShowAdd(true)}>+ Add engine</button>
-      )}
-
-      {/* Activity Logs */}
-      <AdminActivityLogs />
-    </div>
-  )
-}
-
-// ── Admin Activity Logs ────────────────────────────────────────────────
-
-interface AdminActivityLog {
-  id: number
-  user: { id: number; name: string; email: string } | null
-  project_id: string | null
-  event_type: string
-  message: string
-  detail: string | null
-  status: 'running' | 'done' | 'failed'
-  started_at: string
-  ended_at: string | null
-}
-
-function AdminActivityLogs() {
-  const [logs, setLogs]       = useState<AdminActivityLog[]>([])
-  const [loading, setLoading] = useState(true)
-
-  const load = () => {
-    setLoading(true)
-    api.get('/admin/activity-logs?limit=50')
-      .then(d => setLogs(d as AdminActivityLog[]))
-      .catch(() => toast.err('Failed to load activity logs'))
-      .finally(() => setLoading(false))
-  }
-
-  useEffect(() => { load() }, [])
-
-  function duration(log: AdminActivityLog): string {
-    if (!log.ended_at) return '—'
-    const secs = Math.round((new Date(log.ended_at).getTime() - new Date(log.started_at).getTime()) / 1000)
-    return `${secs}s`
-  }
-
-  const statusBadge = (s: AdminActivityLog['status']) => {
-    if (s === 'done')    return <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: 'rgba(34,197,94,0.12)', color: '#16a34a' }}>done</span>
-    if (s === 'failed')  return <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: 'rgba(192,57,43,0.10)', color: 'var(--err)' }}>failed</span>
-    return (
-      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: 'rgba(66,120,201,0.10)', color: '#4278c9', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-        <span className="spinner" style={{ width: 8, height: 8 }} />running
-      </span>
-    )
-  }
-
-  return (
-    <div style={{ marginTop: 32 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <div className="settings-section-title" style={{ margin: 0 }}>Activity Logs</div>
-        <button className="btn btn--ghost btn--sm" onClick={load} disabled={loading}>
-          {loading ? <span className="spinner" style={{ width: 12, height: 12 }} /> : null} Refresh
-        </button>
-      </div>
-      {loading && logs.length === 0 ? (
-        <div style={{ color: 'var(--text-3)', fontSize: 13 }}><span className="spinner" style={{ width: 12, height: 12, marginRight: 6 }} />Loading…</div>
-      ) : logs.length === 0 ? (
-        <div style={{ fontSize: 13, color: 'var(--text-3)', padding: '12px 0' }}>No activity logs yet.</div>
-      ) : (
-        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead>
-              <tr style={{ background: 'var(--bg-2)' }}>
-                {['Time', 'User', 'Event', 'Message', 'Status', 'Duration'].map(h => (
-                  <th key={h} style={{ padding: '7px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--text-3)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {logs.map((log, i) => (
-                <tr key={log.id} style={{ borderTop: '1px solid var(--border)', background: i % 2 === 0 ? 'var(--surface)' : 'var(--bg-2)' }}>
-                  <td style={{ padding: '8px 12px', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{new Date(log.started_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
-                  <td style={{ padding: '8px 12px', color: 'var(--text-1)', whiteSpace: 'nowrap' }}>{log.user ? log.user.email : '—'}</td>
-                  <td style={{ padding: '8px 12px', color: 'var(--text-2)', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>{log.event_type}</td>
-                  <td style={{ padding: '8px 12px', color: 'var(--text-1)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={log.message}>{log.message}</td>
-                  <td style={{ padding: '8px 12px' }}>{statusBadge(log.status)}</td>
-                  <td style={{ padding: '8px 12px', color: 'var(--text-3)', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>{duration(log)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   )
 }

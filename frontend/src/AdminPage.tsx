@@ -43,6 +43,78 @@ function Badge({ text, style }: { text: string; style: string }) {
   )
 }
 
+// ── Dropdown (popup-style select, matches workspace menus) ─────────
+function Dropdown({ value, options, onChange, disabled, minWidth = 130 }: {
+  value: string
+  options: { value: string; label: string }[]
+  onChange: (v: string) => void
+  disabled?: boolean
+  minWidth?: number
+}) {
+  const [open, setOpen] = useState(false)
+  const current = options.find(o => o.value === value) ?? options[0]
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen(v => !v)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8, minWidth,
+          padding: '7px 10px', borderRadius: 'var(--radius-sm)',
+          border: `1px solid ${open ? 'var(--accent)' : 'var(--border-2)'}`,
+          background: 'var(--bg-2)', color: 'var(--text-1)',
+          fontSize: 12.5, fontFamily: 'var(--font)', cursor: disabled ? 'default' : 'pointer',
+          opacity: disabled ? 0.5 : 1, transition: 'border-color 0.12s',
+        }}
+      >
+        <span style={{ flex: 1, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{current?.label}</span>
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"
+          style={{ width: 11, height: 11, opacity: 0.5, flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
+          <path d="M5 8l5 5 5-5" />
+        </svg>
+      </button>
+      {open && (
+        <>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 199 }} onClick={() => setOpen(false)} />
+          <div style={{
+            position: 'absolute', top: '100%', left: 0, marginTop: 6, minWidth: '100%',
+            background: 'var(--surface)', border: '1px solid var(--border-2)',
+            borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)',
+            zIndex: 200, overflow: 'hidden', padding: '4px 0',
+            animation: 'modal-in 0.15s ease',
+          }}>
+            {options.map(o => {
+              const active = o.value === value
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => { onChange(o.value); setOpen(false) }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                    padding: '7px 12px', border: 'none', textAlign: 'left',
+                    fontSize: 12.5, fontFamily: 'var(--font)', whiteSpace: 'nowrap',
+                    background: active ? 'var(--accent-lt)' : 'transparent',
+                    color: active ? 'var(--accent)' : 'var(--text-1)',
+                    fontWeight: active ? 600 : 400, cursor: 'pointer',
+                    borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent',
+                    transition: 'background 0.1s',
+                  }}
+                  onMouseEnter={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-2)' }}
+                  onMouseLeave={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+                >
+                  {o.label}
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ── KPI Card ───────────────────────────────────────────────────────
 function KpiCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
   return (
@@ -217,26 +289,24 @@ function UsersSection({ currentUser }: { currentUser: User }) {
         {/* Filters */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
           <input
-            className="input"
+            className="full-input"
             placeholder="Search name or email…"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            style={{ flex: 1, minWidth: 160, fontSize: 12, padding: '6px 10px' }}
+            style={{ flex: 1, minWidth: 160, fontSize: 12.5, padding: '7px 11px', width: 'auto' }}
           />
-          <select className="input" value={roleFilter} onChange={e => setRoleFilter(e.target.value)}
-            style={{ fontSize: 12, padding: '6px 8px' }}>
-            <option value="">All roles</option>
-            <option value="user">User</option>
-            <option value="admin">Admin</option>
-            <option value="super_admin">Super Admin</option>
-          </select>
-          <select className="input" value={planFilter} onChange={e => setPlanFilter(e.target.value)}
-            style={{ fontSize: 12, padding: '6px 8px' }}>
-            <option value="">All plans</option>
-            <option value="free">Free</option>
-            <option value="starter">Starter</option>
-            <option value="pro">Pro</option>
-          </select>
+          <Dropdown value={roleFilter} onChange={setRoleFilter} options={[
+            { value: '',            label: 'All roles' },
+            { value: 'user',        label: 'User' },
+            { value: 'admin',       label: 'Admin' },
+            { value: 'super_admin', label: 'Super Admin' },
+          ]} />
+          <Dropdown value={planFilter} onChange={setPlanFilter} options={[
+            { value: '',        label: 'All plans' },
+            { value: 'free',    label: 'Free' },
+            { value: 'starter', label: 'Starter' },
+            { value: 'pro',     label: 'Pro' },
+          ]} />
         </div>
 
         {/* Table */}
@@ -276,17 +346,17 @@ function UsersSection({ currentUser }: { currentUser: User }) {
                   <td style={{ padding: '8px 10px', color: 'var(--text-3)' }}>{fmtDate(u.created_at)}</td>
                   <td style={{ padding: '8px 10px' }} onClick={e => e.stopPropagation()}>
                     <div style={{ display: 'flex', gap: 4 }}>
-                      <select
-                        className="input"
+                      <Dropdown
                         value={u.role ?? 'user'}
-                        onChange={e => changeRole(u.id, e.target.value)}
+                        onChange={role => changeRole(u.id, role)}
                         disabled={roleChanging === u.id || u.id === currentUser.id}
-                        style={{ fontSize: 11, padding: '3px 6px' }}
-                      >
-                        <option value="user">User</option>
-                        <option value="admin">Admin</option>
-                        {isSuperAdmin && <option value="super_admin">Super Admin</option>}
-                      </select>
+                        minWidth={96}
+                        options={[
+                          { value: 'user',  label: 'User' },
+                          { value: 'admin', label: 'Admin' },
+                          ...(isSuperAdmin ? [{ value: 'super_admin', label: 'Super Admin' }] : []),
+                        ]}
+                      />
                       {isSuperAdmin && u.id !== currentUser.id && (
                         <button
                           className="btn btn--sm"
@@ -376,21 +446,19 @@ function ActivitySection() {
     <div>
       <SectionHeader title="Activity Monitor" onRefresh={load} loading={loading} />
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <select className="input" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-          style={{ fontSize: 12, padding: '6px 8px' }}>
-          <option value="">All statuses</option>
-          <option value="running">Running</option>
-          <option value="done">Done</option>
-          <option value="failed">Failed</option>
-        </select>
-        <select className="input" value={eventFilter} onChange={e => setEventFilter(e.target.value)}
-          style={{ fontSize: 12, padding: '6px 8px' }}>
-          <option value="">All events</option>
-          <option value="synthesis">Synthesis</option>
-          <option value="translation">Translation</option>
-          <option value="voice_clone">Voice Clone</option>
-          <option value="export">Export</option>
-        </select>
+        <Dropdown value={statusFilter} onChange={setStatusFilter} options={[
+          { value: '',        label: 'All statuses' },
+          { value: 'running', label: 'Running' },
+          { value: 'done',    label: 'Done' },
+          { value: 'failed',  label: 'Failed' },
+        ]} />
+        <Dropdown value={eventFilter} onChange={setEventFilter} options={[
+          { value: '',            label: 'All events' },
+          { value: 'synthesis',   label: 'Synthesis' },
+          { value: 'translation', label: 'Translation' },
+          { value: 'voice_clone', label: 'Voice Clone' },
+          { value: 'export',      label: 'Export' },
+        ]} />
       </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -465,19 +533,17 @@ function SubscriptionsSection() {
     <div>
       <SectionHeader title={`Subscriptions (${subs.length})`} onRefresh={load} loading={loading} />
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <select className="input" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-          style={{ fontSize: 12, padding: '6px 8px' }}>
-          <option value="">All statuses</option>
-          <option value="active">Active</option>
-          <option value="cancelled">Cancelled</option>
-          <option value="suspended">Suspended</option>
-        </select>
-        <select className="input" value={planFilter} onChange={e => setPlanFilter(e.target.value)}
-          style={{ fontSize: 12, padding: '6px 8px' }}>
-          <option value="">All plans</option>
-          <option value="starter">Starter</option>
-          <option value="pro">Pro</option>
-        </select>
+        <Dropdown value={statusFilter} onChange={setStatusFilter} options={[
+          { value: '',          label: 'All statuses' },
+          { value: 'active',    label: 'Active' },
+          { value: 'cancelled', label: 'Cancelled' },
+          { value: 'suspended', label: 'Suspended' },
+        ]} />
+        <Dropdown value={planFilter} onChange={setPlanFilter} options={[
+          { value: '',        label: 'All plans' },
+          { value: 'starter', label: 'Starter' },
+          { value: 'pro',     label: 'Pro' },
+        ]} />
       </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -581,14 +647,168 @@ function AuditLogSection() {
   )
 }
 
+// ── AI Engine routing (moved from user Settings) ───────────────────
+interface EngineConfig {
+  id: number
+  name: string
+  url: string
+  is_active: boolean
+  status: 'unknown' | 'online' | 'offline'
+  latency_ms: number | null
+  last_tested_at: string | null
+}
+
+function EnginesSection() {
+  const [engines, setEngines]     = useState<EngineConfig[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [testingId, setTestingId] = useState<number | null>(null)
+  const [activatingId, setActivatingId] = useState<number | null>(null)
+  const [showAdd, setShowAdd]     = useState(false)
+  const [addName, setAddName]     = useState('')
+  const [addUrl, setAddUrl]       = useState('')
+  const [adding, setAdding]       = useState(false)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    api.get('/admin/engines')
+      .then(d => setEngines(d as EngineConfig[]))
+      .catch(() => toast.err('Failed to load engine configs'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const handleTest = async (eng: EngineConfig) => {
+    setTestingId(eng.id)
+    try {
+      const updated = await api.post(`/admin/engines/${eng.id}/test`, {}) as EngineConfig
+      setEngines(prev => prev.map(e => e.id === eng.id ? updated : e))
+    } catch { toast.err('Test failed') }
+    finally { setTestingId(null) }
+  }
+
+  const handleActivate = async (eng: EngineConfig) => {
+    if (eng.is_active) return
+    setActivatingId(eng.id)
+    try {
+      await api.post(`/admin/engines/${eng.id}/activate`, {})
+      toast.ok(`Switched to "${eng.name}"`)
+      load()
+    } catch { toast.err('Activation failed') }
+    finally { setActivatingId(null) }
+  }
+
+  const handleDelete = async (eng: EngineConfig) => {
+    if (!confirm(`Delete "${eng.name}"?`)) return
+    try {
+      await api.delete(`/admin/engines/${eng.id}`)
+      setEngines(prev => prev.filter(e => e.id !== eng.id))
+    } catch { toast.err('Delete failed') }
+  }
+
+  const handleAdd = async () => {
+    if (!addName.trim() || !addUrl.trim()) return
+    setAdding(true)
+    try {
+      const created = await api.post('/admin/engines', { name: addName.trim(), url: addUrl.trim() }) as EngineConfig
+      setEngines(prev => [...prev, created])
+      setAddName(''); setAddUrl(''); setShowAdd(false)
+    } catch { toast.err('Failed to add engine') }
+    finally { setAdding(false) }
+  }
+
+  const statusDot = (s: EngineConfig['status']) => ({
+    unknown: { color: 'var(--text-3)', label: 'Not tested' },
+    online:  { color: 'var(--ok)',     label: 'Online' },
+    offline: { color: 'var(--err)',    label: 'Offline' },
+  }[s])
+
+  return (
+    <div>
+      <SectionHeader title="AI Engine Routing" onRefresh={load} loading={loading} />
+      <p style={{ fontSize: 13, color: 'var(--text-2)', margin: '0 0 18px', lineHeight: 1.6, maxWidth: 640 }}>
+        Switch the active AI engine between your local server and RunPod (or any external host) without redeployment.
+        Changes take effect within 30 seconds.
+      </p>
+
+      {loading && engines.length === 0 ? (
+        <div style={{ padding: 30, color: 'var(--text-3)', fontSize: 13 }}>
+          <span className="spinner" style={{ width: 13, height: 13, marginRight: 8 }} />Loading…
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20, maxWidth: 720 }}>
+          {engines.map(eng => {
+            const dot = statusDot(eng.status)
+            return (
+              <div key={eng.id} style={{
+                padding: '14px 16px', borderRadius: 'var(--radius)',
+                border: `1px solid ${eng.is_active ? 'var(--accent)' : 'var(--border-2)'}`,
+                background: eng.is_active ? 'var(--accent-lt)' : 'var(--surface-2)',
+                display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+              }}>
+                <div style={{ width: 10, height: 10, borderRadius: '50%', background: eng.is_active ? 'var(--accent)' : 'var(--border-2)', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                    <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-1)' }}>{eng.name}</span>
+                    {eng.is_active && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', background: 'rgba(124,58,237,0.12)', padding: '2px 7px', borderRadius: 10 }}>ACTIVE</span>}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--mono)', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{eng.url}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: dot.color, display: 'inline-block' }} />
+                    <span style={{ color: dot.color }}>{dot.label}</span>
+                    {eng.latency_ms !== null && <span style={{ color: 'var(--text-3)' }}>· {eng.latency_ms}ms</span>}
+                    {eng.last_tested_at && <span style={{ color: 'var(--text-3)' }}>· tested {new Date(eng.last_tested_at).toLocaleTimeString()}</span>}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  <button className="btn btn--ghost btn--sm" onClick={() => handleTest(eng)} disabled={testingId === eng.id}>
+                    {testingId === eng.id ? <span className="spinner" /> : null} Test
+                  </button>
+                  {!eng.is_active && (
+                    <button className="btn btn--primary btn--sm" onClick={() => handleActivate(eng)} disabled={!!activatingId}>
+                      {activatingId === eng.id ? <span className="spinner" /> : null} Activate
+                    </button>
+                  )}
+                  {!eng.is_active && (
+                    <button className="btn btn--ghost btn--sm" style={{ color: 'var(--err)' }} onClick={() => handleDelete(eng)}>
+                      {icons.trash}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {showAdd ? (
+        <div style={{ padding: '14px 16px', border: '1px solid var(--border-2)', borderRadius: 'var(--radius)', background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 720 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>Add engine</div>
+          <input className="full-input" placeholder="Name (e.g. RunPod GPU)" value={addName} onChange={e => setAddName(e.target.value)} />
+          <input className="full-input" placeholder="URL (e.g. https://abc123-8000.proxy.runpod.net)" value={addUrl} onChange={e => setAddUrl(e.target.value)} />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn--primary btn--sm" onClick={handleAdd} disabled={adding || !addName.trim() || !addUrl.trim()}>
+              {adding ? <span className="spinner" /> : null} Add
+            </button>
+            <button className="btn btn--ghost btn--sm" onClick={() => { setShowAdd(false); setAddName(''); setAddUrl('') }}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <button className="btn btn--ghost btn--sm" onClick={() => setShowAdd(true)}>+ Add engine</button>
+      )}
+    </div>
+  )
+}
+
 // ── Main AdminPage ─────────────────────────────────────────────────
-type AdminSection = 'overview' | 'users' | 'activity' | 'subscriptions' | 'audit'
+type AdminSection = 'overview' | 'users' | 'activity' | 'subscriptions' | 'engines' | 'audit'
 
 const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
   { id: 'overview',       label: 'Overview',       icon: '◈' },
   { id: 'users',          label: 'Users',          icon: '⊞' },
   { id: 'activity',       label: 'Activity',       icon: '◉' },
   { id: 'subscriptions',  label: 'Subscriptions',  icon: '◎' },
+  { id: 'engines',        label: 'AI Engines',     icon: '⚡' },
   { id: 'audit',          label: 'Audit Log',      icon: '◷' },
 ]
 
@@ -655,6 +875,7 @@ export function AdminPage({ user, onBack, standalone }: { user: User; onBack?: (
         {section === 'users'         && <UsersSection currentUser={user} />}
         {section === 'activity'      && <ActivitySection />}
         {section === 'subscriptions' && <SubscriptionsSection />}
+        {section === 'engines'       && <EnginesSection />}
         {section === 'audit'         && <AuditLogSection />}
       </div>
     </div>
