@@ -7,7 +7,7 @@ import { PrivacyPage, TermsPage } from './LegalPages'
 import { PricingPage } from './PricingPage'
 import { StudioPage, VoicesPage, TranslationPage, TimelinePage, AudiobooksPage } from './MarketingPages'
 import { EmailVerifiedPage } from './EmailVerifiedPage'
-import { api } from './api'
+import { api, ApiError } from './api'
 import { toast, subscribeToast, type ToastItem } from './toast'
 import { useAuth } from './hooks/useAuth'
 import { useProjects, notifyPlanLimit } from './hooks/useProjects'
@@ -291,7 +291,16 @@ export default function App() {
             await saveAudioBlob(`audio_${s.id}`, blob)
             hydratedAudioRef.current.add(s.id) // only mark done on success
           }
-        } catch { /* non-critical; retried on next change; user can re-synthesize */ }
+        } catch (e) {
+          // 404 = the server has no file for this script even though has_audio
+          // was set (stale flag). Clear it so the UI shows the script needs
+          // re-synthesis, and stop re-requesting it on every load.
+          if (e instanceof ApiError && e.status === 404) {
+            hydratedAudioRef.current.add(s.id)
+            updateScript(p.id, s.id, { hasAudio: false, duration: null })
+          }
+          // other errors: non-critical; retried on next change
+        }
       })
     })
   }, [user?.id, audioHydrationKey]) // eslint-disable-line react-hooks/exhaustive-deps
