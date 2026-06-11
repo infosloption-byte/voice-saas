@@ -5,7 +5,7 @@ export type Plan = 'free' | 'starter' | 'pro'
 export type Page =
   | 'landing' | 'signin' | 'signup'
   | 'forgot-password' | 'reset-password'
-  | 'dashboard' | 'projects' | 'workspace' | 'profiles' | 'settings'
+  | 'dashboard' | 'projects' | 'workspace' | 'profiles' | 'settings' | 'admin'
   | 'pricing' | 'privacy' | 'terms'
   | 'email-verified'
   | 'feature-studio' | 'feature-voices' | 'feature-translation'
@@ -21,6 +21,8 @@ export interface User {
   email: string
   email_verified_at?: string | null
   plan_name?: Plan
+  role?: 'user' | 'admin' | 'super_admin'
+  is_admin?: boolean
 }
 
 export interface Subscription {

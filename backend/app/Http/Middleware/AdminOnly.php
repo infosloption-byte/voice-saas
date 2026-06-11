@@ -7,19 +7,31 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Restrict a route to the admin email defined in ADMIN_EMAIL env var.
- * If the variable is not set, the route is inaccessible to everyone.
+ * Restrict a route to users with role admin or super_admin.
+ * Falls back to ADMIN_EMAIL check so existing deployments keep working
+ * before the migration has run.
  */
 class AdminOnly
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $adminEmail = config('app.admin_email', '');
+        $user = $request->user();
 
-        if (! $adminEmail || $request->user()?->email !== $adminEmail) {
+        if (! $user) {
             return response()->json(['message' => 'Forbidden.'], 403);
         }
 
-        return $next($request);
+        // Role-based check (post-migration)
+        if ($user->isAdmin()) {
+            return $next($request);
+        }
+
+        // Legacy fallback: ADMIN_EMAIL env still works if role column isn't set yet
+        $adminEmail = config('app.admin_email', '');
+        if ($adminEmail && $user->email === $adminEmail) {
+            return $next($request);
+        }
+
+        return response()->json(['message' => 'Forbidden.'], 403);
     }
 }
