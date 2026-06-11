@@ -162,4 +162,7 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::delete('/admin/engines/{engineConfig}',         [EngineConfigController::class, 'destroy']);
     Route::post(  '/admin/engines/{engineConfig}/activate',[EngineConfigController::class, 'activate']);
     Route::post(  '/admin/engines/{engineConfig}/test',    [EngineConfigController::class, 'test']);
+
+    // Activity logs (all users)
+    Route::get('/admin/activity-logs', [ActivityLogController::class, 'adminIndex']);
 });
