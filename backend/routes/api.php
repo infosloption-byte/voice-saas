@@ -130,6 +130,11 @@ Route::middleware('throttle:120,1')->group(function () {
         ->where('jobId', '[A-Za-z0-9\-]{1,64}');
 });
 
+// Authenticated: queue a bulk synthesis job that runs server-side.
+Route::middleware(['auth:sanctum', 'throttle:10,1'])->group(function () {
+    Route::post('/engine/synthesize/bulk-queue', [EngineSynthesisProxyController::class, 'queueBulk']);
+});
+
 // ── Engine proxy: endpoints the frontend used to call directly (/ai/...) ──
 // The engine is no longer publicly exposed; everything routes through here so
 // the engine API key stays server-side. clone-voice/translate/voice-preview

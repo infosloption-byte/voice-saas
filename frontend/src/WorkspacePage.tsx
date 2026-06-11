@@ -843,6 +843,24 @@ export function WorkspacePage({
     }).catch(() => {}) // non-fatal
   }
 
+  // ── Queue bulk synthesis server-side ─────────────────────────────
+  async function handleQueueBulk() {
+    const pending = project.scripts.filter(s => s.content.trim() && !s.hasAudio)
+    if (!pending.length) { toast.info('All scripts already have audio.'); return }
+    if (isGuest) { toast.err('Sign in to use background synthesis.'); return }
+
+    try {
+      await api.post('/engine/synthesize/bulk-queue', {
+        script_ids: pending.map(s => s.id),
+        engine,
+        project_id: project.id,
+      })
+      toast.ok('Bulk synthesis queued — you\'ll get an email when done. Close this tab safely.')
+    } catch (e) {
+      toast.err((e as Error).message || 'Failed to queue bulk synthesis.')
+    }
+  }
+
   // ── Audio transcription ───────────────────────────────────────────
   async function handleAudioTranscribe(file: File) {
     if (!ENGINE_URL) { toast.err('Engine URL is not configured. Check your .env file.'); return }
@@ -1234,6 +1252,17 @@ export function WorkspacePage({
                 <>{icons.bolt} Generate All ({pendingCount})</>
               )}
             </button>
+
+            {!bulkGenerating && (
+              <button
+                className="btn btn--sm btn--ghost"
+                style={{ width: '100%', justifyContent: 'center', marginTop: 6 }}
+                onClick={handleQueueBulk}
+                title="Run synthesis on the server — safe to close this tab"
+              >
+                Queue in background
+              </button>
+            )}
 
             {!bulkGenerating && bulkErrors.length > 0 && (
               <div className="msg msg--err" style={{ marginTop: 8, fontSize: 11, lineHeight: 1.5 }}>
