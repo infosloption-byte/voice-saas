@@ -669,7 +669,12 @@ export function WorkspacePage({
     if (!source.trim()) { toast.err('Nothing to translate — add content first.'); return }
     setShowTranslateMenu(false)
     setTranslating(true)
-    const logEntry = await activityLog.start(`Translating "${activeScript.title}"`, `→ ${targetLang.toUpperCase()}`, { projectId: project.id, eventType: 'translation' })
+    const wordCount = source.trim().split(/\s+/).length
+    const logEntry = await activityLog.start(
+      `Translating "${activeScript.title}"`,
+      `words:${wordCount}|langs:${(activeScript.language || 'EN').toUpperCase()} → ${targetLang.toUpperCase()}`,
+      { projectId: project.id, eventType: 'translation' },
+    )
     try {
       const result = await api.engineJsonPost('/translate', {
         text: source,
@@ -736,7 +741,17 @@ export function WorkspacePage({
 
     setSynthesizing(true)
     setSynthErr('')
-    const logEntry = await activityLog.start(`Synthesising "${activeScript.title}"`, engine.toUpperCase(), { projectId: project.id, eventType: 'synthesis' })
+    const voiceProfile = isBuiltinVoice ? null : voiceProfiles.find(vp => vp.profile_id === selectedVoiceId)
+    const voiceName = isBuiltinVoice
+      ? selectedVoiceId.replace('builtin:', '')
+      : (voiceProfile?.name ?? selectedVoiceId)
+    const synthWordCount = histState.present.trim().split(/\s+/).length
+    const modelLabel = engine === 'f5' ? 'F5-TTS' : 'XTTS v2'
+    const logEntry = await activityLog.start(
+      `Synthesising "${activeScript.title}"`,
+      `model:${modelLabel}|words:${synthWordCount}|voice:${voiceName}`,
+      { projectId: project.id, eventType: 'synthesis' },
+    )
 
     try {
       const ok = await generateVoiceover(activeScript, histState.present, controller.signal, engine)
@@ -792,7 +807,12 @@ export function WorkspacePage({
     setBulkTotal(pending.length)
     setBulkProgress(0)
     setBulkErrors([])
-    const bulkLog = await activityLog.start(`Bulk synthesis: ${pending.length} scripts`, engine.toUpperCase(), { projectId: project.id, eventType: 'synthesis' })
+    const bulkModelLabel = engine === 'f5' ? 'F5-TTS' : 'XTTS v2'
+    const bulkLog = await activityLog.start(
+      `Bulk synthesis: ${pending.length} scripts`,
+      `model:${bulkModelLabel}|words:${pending.reduce((acc, s) => acc + s.content.trim().split(/\s+/).length, 0)}`,
+      { projectId: project.id, eventType: 'synthesis' },
+    )
 
     for (const script of pending) {
       if (controller.signal.aborted) break
