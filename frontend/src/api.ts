@@ -6,8 +6,10 @@ if (!ENGINE_API_BASE || !LARAVEL_API_BASE) {
   throw new Error('[api] VITE_ENGINE_URL and VITE_API_URL must be set in .env')
 }
 
+// Kept only for the legacy non-/engine fetch fallback in request(); the engine
+// is otherwise reached through the backend proxy. The engine API key is no
+// longer referenced on the client — it lives server-side.
 const ENGINE_BASE = ENGINE_API_BASE ?? ''
-const ENGINE_API_KEY = (import.meta.env.VITE_ENGINE_API_KEY as string | undefined) ?? ''
 const LARAVEL_BASE = LARAVEL_API_BASE?.replace(/\/api\/?$/, '') ?? ''
 const LARAVEL_API = LARAVEL_API_BASE ?? ''
 
@@ -144,59 +146,30 @@ class ApiClient {
   }
 
   // ── Engine-specific helpers ────────────────────────────────────
+  // The AI engine is no longer publicly reachable. These helpers route every
+  // engine call through the Laravel backend proxy (which injects the engine
+  // API key server-side), mapping the old engine path to its /engine/* route.
+  private toBackendEnginePath(path: string): string {
+    const p = path.startsWith('/') ? path : '/' + path
+    if (p.startsWith('/engine/')) return p
+    if (p === '/export/mp3') return '/engine/export-mp3'
+    return '/engine' + p
+  }
+
   enginePost(path: string, formData: FormData, signal?: AbortSignal): Promise<unknown> {
-    const fullPath = path.startsWith('/') ? path : '/' + path
-    const engineHeaders: Record<string, string> = {}
-    if (ENGINE_API_KEY) engineHeaders['X-Engine-Key'] = ENGINE_API_KEY
-    return fetch(`${ENGINE_BASE}${fullPath}`, {
-      method: 'POST',
-      body: formData,
-      credentials: 'omit',
-      signal,
-      headers: engineHeaders,
-    }).then(async r => {
-      if (!r.ok) {
-        const text = await r.text().catch(() => '')
-        throw new ApiError(`Engine error: HTTP ${r.status}`, r.status, { body: text })
-      }
-      const ct = r.headers.get('Content-Type') ?? ''
-      return ct.includes('audio/') ? r.blob() : r.json()
-    })
+    return this.request(this.toBackendEnginePath(path), { method: 'POST', body: formData, signal })
   }
 
   engineJsonPost(path: string, data: unknown, signal?: AbortSignal): Promise<unknown> {
-    const fullPath = path.startsWith('/') ? path : '/' + path
-    const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json' }
-    if (ENGINE_API_KEY) headers['X-Engine-Key'] = ENGINE_API_KEY
-    return fetch(`${ENGINE_BASE}${fullPath}`, {
+    return this.request(this.toBackendEnginePath(path), {
       method: 'POST',
       body: JSON.stringify(data),
-      credentials: 'omit',
       signal,
-      headers,
-    }).then(async r => {
-      if (!r.ok) {
-        const text = await r.text().catch(() => '')
-        let msg = `Engine error: HTTP ${r.status}`
-        try { msg = (JSON.parse(text) as { detail?: string }).detail ?? msg } catch { /* ignore */ }
-        throw new ApiError(msg, r.status, { body: text })
-      }
-      return r.json()
     })
   }
 
   engineGet(path: string): Promise<unknown> {
-    const fullPath = path.startsWith('/') ? path : '/' + path
-    const engineHeaders: Record<string, string> = {}
-    if (ENGINE_API_KEY) engineHeaders['X-Engine-Key'] = ENGINE_API_KEY
-    return fetch(`${ENGINE_BASE}${fullPath}`, {
-      method: 'GET',
-      credentials: 'omit',
-      headers: engineHeaders,
-    }).then(r => {
-      if (!r.ok) throw new ApiError(`Engine error: HTTP ${r.status}`, r.status)
-      return r.json()
-    })
+    return this.request(this.toBackendEnginePath(path), { method: 'GET' })
   }
 
   /**
@@ -209,9 +182,6 @@ class ApiClient {
     signal?: AbortSignal,
     pollMs = 2000,
   ): Promise<Blob> {
-    const headers: Record<string, string> = {}
-    if (ENGINE_API_KEY) headers['X-Engine-Key'] = ENGINE_API_KEY
-
     // 1. Submit — routed through backend so it uses the active engine
     const csrfToken = getCookie('XSRF-TOKEN')
     const submitHeaders: Record<string, string> = {}
@@ -282,18 +252,10 @@ class ApiClient {
     return r.blob()
   }
 
-  engineFetchBlob(path: string): Promise<Blob> {
-    const fullPath = path.startsWith('/') ? path : '/' + path
-    const engineHeaders: Record<string, string> = {}
-    if (ENGINE_API_KEY) engineHeaders['X-Engine-Key'] = ENGINE_API_KEY
-    return fetch(`${ENGINE_BASE}${fullPath}`, {
-      method: 'GET',
-      credentials: 'omit',
-      headers: engineHeaders,
-    }).then(r => {
-      if (!r.ok) throw new ApiError(`Engine error: HTTP ${r.status}`, r.status)
-      return r.blob()
-    })
+  async engineFetchBlob(path: string): Promise<Blob> {
+    const result = await this.request(this.toBackendEnginePath(path), { method: 'GET' })
+    if (result instanceof Blob) return result
+    throw new ApiError('Expected audio response from engine', 502)
   }
 }
 

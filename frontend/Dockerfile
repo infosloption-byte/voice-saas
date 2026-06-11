@@ -4,9 +4,11 @@ WORKDIR /app
 
 # Optional build-arg overrides (from docker-compose build.args / root .env).
 # When not passed, values in frontend/.env are used as the source of truth.
+# NOTE: VITE_ENGINE_API_KEY is intentionally NOT a build arg. The engine key
+# must never be embedded in the client bundle — the backend injects it when
+# proxying to the (now internal-only) AI engine.
 ARG VITE_API_URL
 ARG VITE_ENGINE_URL
-ARG VITE_ENGINE_API_KEY
 ARG VITE_ADMIN_EMAIL
 ARG VITE_PAYPAL_CLIENT_ID
 ARG VITE_PAYPAL_PLAN_STARTER
@@ -24,7 +26,6 @@ COPY . .
 RUN set -e; \
     _api="$VITE_API_URL"; \
     _engine="$VITE_ENGINE_URL"; \
-    _key="$VITE_ENGINE_API_KEY"; \
     _admin="$VITE_ADMIN_EMAIL"; \
     _paypal="$VITE_PAYPAL_CLIENT_ID"; \
     _plan_starter="$VITE_PAYPAL_PLAN_STARTER"; \
@@ -32,7 +33,6 @@ RUN set -e; \
     if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
     [ -n "$_api" ]          && export VITE_API_URL="$_api"                     || true; \
     [ -n "$_engine" ]       && export VITE_ENGINE_URL="$_engine"               || true; \
-    [ -n "$_key" ]          && export VITE_ENGINE_API_KEY="$_key"              || true; \
     [ -n "$_admin" ]        && export VITE_ADMIN_EMAIL="$_admin"               || true; \
     [ -n "$_paypal" ]       && export VITE_PAYPAL_CLIENT_ID="$_paypal"         || true; \
     [ -n "$_plan_starter" ] && export VITE_PAYPAL_PLAN_STARTER="$_plan_starter" || true; \

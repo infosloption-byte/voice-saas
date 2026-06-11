@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\AuditLog;
 use App\Services\PlanLimits;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -64,6 +65,11 @@ class PlanLimitsController extends Controller
 
         PlanLimits::flushCache();
         \Illuminate\Support\Facades\Cache::forget('guest_limits');
+
+        AuditLog::record('admin.plan_limits.updated', [
+            'plan'    => $plan,
+            'changes' => $validated,
+        ], $request->user()->id);
 
         return response()->json([
             'message' => "Plan limits for '{$plan}' updated successfully.",
