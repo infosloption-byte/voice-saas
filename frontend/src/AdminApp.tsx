@@ -92,13 +92,12 @@ function AdminLogin({ onLogin }: { onLogin: (user: User) => void }) {
             </label>
             <input
               type="email"
-              className="input"
+              className="full-input"
               value={email}
               onChange={e => setEmail(e.target.value)}
               placeholder="admin@example.com"
               required
               autoFocus
-              style={{ width: '100%', fontSize: 13 }}
             />
           </div>
           <div>
@@ -107,12 +106,11 @@ function AdminLogin({ onLogin }: { onLogin: (user: User) => void }) {
             </label>
             <input
               type="password"
-              className="input"
+              className="full-input"
               value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder="••••••••"
               required
-              style={{ width: '100%', fontSize: 13 }}
             />
           </div>
 
