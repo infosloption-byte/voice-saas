@@ -570,6 +570,8 @@ export function ActivityLogPanel({ open, onClose, projects, lockedProjectId }: {
   const filterId = lockedProjectId ?? tabId
   const lockedProject = lockedProjectId ? projects.find(p => p.id === lockedProjectId) : null
 
+  useEscapeKey(onClose, open)
+
   useEffect(() => activityLog.subscribe(setEntries), [])
 
   useEffect(() => {
