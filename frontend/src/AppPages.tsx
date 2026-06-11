@@ -254,10 +254,13 @@ export function DashboardPage({ user, projects, voiceProfiles, onOpenProject, on
 
       <div className="dash-grid">
         {/* ── Recent projects ── */}
-        <div>
+        <div className="dash-panel">
           <div className="section-head">
-            <div><h2>Recent Projects</h2></div>
-            <button className="btn btn--ghost btn--sm" onClick={onGoProjects}>View all</button>
+            <div>
+              <h2>Recent Projects</h2>
+              <p>Your latest voiceover workspaces</p>
+            </div>
+            <button className="btn btn--ghost btn--sm" onClick={onGoProjects}>View all →</button>
           </div>
           {projects.length === 0
             ? (
@@ -271,22 +274,31 @@ export function DashboardPage({ user, projects, voiceProfiles, onOpenProject, on
               const pAudio = p.scripts.filter(s => s.hasAudio).length
               const pDur   = p.scripts.reduce((a, s) => a + (s.duration ?? 0), 0)
               const pPct   = pTotal > 0 ? Math.round((pAudio / pTotal) * 100) : 0
+              const status = pTotal === 0 ? 'empty' : pPct === 100 ? 'complete' : 'progress'
               return (
                 <div key={p.id} className="project-card" onClick={() => onOpenProject(p.id)} style={{ marginBottom: 10, cursor: 'pointer' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div className="project-card__icon">{p.emoji}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="project-card__name">{p.name}</div>
-                      <div className="project-card__meta">
+                      <div className="project-card__meta" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                         <span>{pTotal} script{pTotal !== 1 ? 's' : ''}</span>
-                        <span>{pAudio} audio</span>
-                        {pDur > 0 && <span>{fmtDur(pDur)}</span>}
+                        <span>·</span>
+                        <span>{pAudio} voiceover{pAudio !== 1 ? 's' : ''}</span>
+                        {pDur > 0 && <><span>·</span><span>{fmtDur(pDur)} audio</span></>}
                       </div>
                     </div>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: pPct === 100 ? 'var(--ok)' : 'var(--accent)', minWidth: 32, textAlign: 'right' }}>{pPct}%</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                      {status === 'complete' && <span className="tag tag--ok">Complete</span>}
+                      {status === 'progress' && <span className="tag tag--info">{pPct}% done</span>}
+                      {status === 'empty'    && <span className="tag tag--warn">Empty</span>}
+                      <span style={{ fontSize: 10.5, color: 'var(--text-3)' }}>
+                        {new Date(p.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                      </span>
+                    </div>
                   </div>
                   {pTotal > 0 && (
-                    <div style={{ height: 3, background: 'var(--bg-3)', borderRadius: 2, marginTop: 8, overflow: 'hidden' }}>
+                    <div style={{ height: 3, background: 'var(--bg-3)', borderRadius: 2, marginTop: 10, overflow: 'hidden' }}>
                       <div style={{ width: `${pPct}%`, height: '100%', background: pPct === 100 ? 'var(--ok)' : 'var(--accent)', borderRadius: 2, transition: 'width 0.4s' }} />
                     </div>
                   )}
@@ -297,10 +309,13 @@ export function DashboardPage({ user, projects, voiceProfiles, onOpenProject, on
         </div>
 
         {/* ── Voice Profiles ── */}
-        <div>
+        <div className="dash-panel">
           <div className="section-head">
-            <div><h2>Voice Profiles</h2></div>
-            <button className="btn btn--ghost btn--sm" onClick={onGoProfiles}>Manage</button>
+            <div>
+              <h2>Voice Profiles</h2>
+              <p>Cloned voices ready for synthesis</p>
+            </div>
+            <button className="btn btn--ghost btn--sm" onClick={onGoProfiles}>Manage →</button>
           </div>
           {voiceProfiles.length === 0
             ? (
@@ -314,13 +329,14 @@ export function DashboardPage({ user, projects, voiceProfiles, onOpenProject, on
                 a + p.scripts.filter(s => s.profileId === vp.profile_id && s.hasAudio).length, 0)
               return (
                 <div key={vp.profile_id} className="project-card" style={{ marginBottom: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div className="profile-avatar" style={{ width: 36, height: 36, fontSize: 14 }}>{vp.name[0]?.toUpperCase() ?? '?'}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 500, fontSize: 14 }}>{vp.name}</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
-                        {vp.duration ? `${vp.duration.toFixed(1)}s sample` : 'Voice profile'}
-                        {usedBy > 0 && ` · ${usedBy} voiceover${usedBy !== 1 ? 's' : ''}`}
+                      <div style={{ fontSize: 12, color: 'var(--text-3)', display: 'flex', gap: 10 }}>
+                        {vp.duration && <span>{vp.duration.toFixed(1)}s voice sample</span>}
+                        {usedBy > 0 && <span>· used in {usedBy} voiceover{usedBy !== 1 ? 's' : ''}</span>}
+                        {!vp.duration && usedBy === 0 && <span>Not used yet</span>}
                       </div>
                     </div>
                     <span className="tag tag--ok">Ready</span>
@@ -450,17 +466,74 @@ export function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
   onNew: () => void
 }) {
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState<'recent' | 'name' | 'progress'>('recent')
   const confirmProject = projects.find(p => p.id === confirmId)
   useEscapeKey(() => setConfirmId(null), confirmId !== null)
+
+  const totalScripts = projects.reduce((a, p) => a + p.scripts.length, 0)
+  const totalAudio   = projects.reduce((a, p) => a + p.scripts.filter(s => s.hasAudio).length, 0)
+  const totalDurSec  = projects.reduce((a, p) => a + p.scripts.reduce((x, s) => x + (s.duration ?? 0), 0), 0)
+
+  const visible = projects
+    .filter(p => !search.trim() || (p.name + ' ' + p.description).toLowerCase().includes(search.trim().toLowerCase()))
+    .sort((a, b) => {
+      if (sortBy === 'name') return a.name.localeCompare(b.name)
+      if (sortBy === 'progress') {
+        const pa = a.scripts.length ? a.scripts.filter(s => s.hasAudio).length / a.scripts.length : -1
+        const pb = b.scripts.length ? b.scripts.filter(s => s.hasAudio).length / b.scripts.length : -1
+        return pb - pa
+      }
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    })
 
   return (
     <div>
       <div className="proj-page-head">
         <div>
           <h2 className="proj-page-head__title">All Projects</h2>
-          <p className="proj-page-head__sub">Manage your voiceover workspaces</p>
+          <p className="proj-page-head__sub">
+            {projects.length} project{projects.length !== 1 ? 's' : ''} · {totalScripts} script{totalScripts !== 1 ? 's' : ''} · {totalAudio} voiceover{totalAudio !== 1 ? 's' : ''}{totalDurSec > 0 ? ` · ${fmtDur(totalDurSec)} of audio` : ''}
+          </p>
         </div>
       </div>
+
+      {/* Search + sort toolbar */}
+      {projects.length > 1 && (
+        <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 320 }}>
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"
+              style={{ width: 14, height: 14, position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }}>
+              <circle cx="9" cy="9" r="6" /><line x1="13.5" y1="13.5" x2="17" y2="17" strokeLinecap="round" />
+            </svg>
+            <input
+              className="full-input"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search projects…"
+              style={{ paddingLeft: 32, fontSize: 13 }}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {([['recent', 'Recent'], ['name', 'Name'], ['progress', 'Progress']] as const).map(([key, label]) => (
+              <button
+                key={key}
+                className={`btn btn--sm ${sortBy === key ? 'btn--primary' : 'btn--ghost'}`}
+                onClick={() => setSortBy(key)}
+                style={{ fontSize: 12 }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {search.trim() && visible.length === 0 && (
+        <div className="empty-state" style={{ padding: '30px 0' }}>
+          <p>No projects match “{search.trim()}”</p>
+        </div>
+      )}
 
       <div className="project-grid">
         {/* New project card */}
@@ -472,7 +545,7 @@ export function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
           </div>
         </button>
 
-        {projects.map(p => {
+        {visible.map(p => {
           const { total, withAudio, totalDur, assemblyClips } = projectStats(p)
           const ready = withAudio > 0
           const empty = total === 0
