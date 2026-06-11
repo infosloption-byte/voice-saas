@@ -974,7 +974,11 @@ export default function App() {
         <ShortcutsModal onClose={() => setShowShortcuts(false)} />
       )}
       {showActivityLog && (
-        <ActivityLogPanel onClose={() => setShowActivityLog(false)} />
+        <ActivityLogPanel
+          onClose={() => setShowActivityLog(false)}
+          projects={projects}
+          activeProjectId={activeProjectId}
+        />
       )}
       {guestGateType && (
         <GuestUpgradeModal
