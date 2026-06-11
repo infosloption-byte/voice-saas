@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\AuditLog;
 use App\Services\EngineResolver;
 use App\Mail\AccountDeletedMail;
 use App\Mail\WelcomeMail;
@@ -31,6 +32,7 @@ class AuthController extends Controller
         ]);
 
         Auth::login($user);
+        AuditLog::record('user.registered', ['email' => $user->email], $user->id);
 
         // Send welcome email and verification email (non-fatal if mail fails)
         try {
@@ -53,6 +55,7 @@ class AuthController extends Controller
 
         if (Auth::attempt($request->only('email', 'password'))) {
             $request->session()->regenerate();
+            AuditLog::record('auth.login.success', ['email' => $request->input('email')], Auth::id());
 
             return response()->json([
                 'user' => Auth::user(),
@@ -60,6 +63,7 @@ class AuthController extends Controller
             ]);
         }
 
+        AuditLog::record('auth.login.failed', ['email' => $request->input('email')]);
         throw ValidationException::withMessages([
             'email' => ['Invalid email or password.'],
         ]);
@@ -67,6 +71,7 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
+        AuditLog::record('auth.logout', [], $request->user()?->id);
         Auth::guard('web')->logout();
 
         $request->session()->invalidate();
@@ -110,6 +115,7 @@ class AuthController extends Controller
         $userName  = $user->name;
         $userEmail = $user->email;
 
+        AuditLog::record('account.deleted', ['email' => $userEmail], $user->id);
         $user->delete(); // cascades to projects, scripts, voice_profiles
 
         // Send farewell email after deletion (use captured values — model is gone)
@@ -136,6 +142,7 @@ class AuthController extends Controller
         $request->user()->update([
             'password' => Hash::make($request->password),
         ]);
+        AuditLog::record('auth.password_changed', [], $request->user()->id);
 
         return response()->json(['message' => 'Password updated successfully']);
     }

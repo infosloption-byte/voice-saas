@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\EngineConfigController;
 use App\Http\Controllers\EngineCapabilitiesController;
+use App\Http\Controllers\EngineProxyController;
 use App\Http\Controllers\EngineSynthesisProxyController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\EmailVerificationController;
@@ -58,7 +59,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // POST /api/voice-profiles        → save profile (with optional audio file forwarded to engine)
     // DELETE /api/voice-profiles/{id} → delete profile
     Route::get(   'voice-profiles',      [VoiceProfileController::class, 'index']);
-    Route::post(  'voice-profiles',      [VoiceProfileController::class, 'store']);
+    // Uploads forward a file to the engine + S3; throttle to curb storage/bandwidth abuse.
+    Route::post(  'voice-profiles',      [VoiceProfileController::class, 'store'])->middleware('throttle:10,1');
     Route::delete('voice-profiles/{id}', [VoiceProfileController::class, 'destroy']);
 });
 
@@ -118,6 +120,24 @@ Route::middleware('throttle:120,1')->group(function () {
         ->where('jobId', '[A-Za-z0-9\-]{1,64}');
     Route::get('/engine/synthesize/result/{jobId}', [EngineSynthesisProxyController::class, 'result'])
         ->where('jobId', '[A-Za-z0-9\-]{1,64}');
+});
+
+// ── Engine proxy: endpoints the frontend used to call directly (/ai/...) ──
+// The engine is no longer publicly exposed; everything routes through here so
+// the engine API key stays server-side. clone-voice/translate/voice-preview
+// stay public (guests use them) but are throttled; the rest require auth.
+Route::middleware('throttle:20,1')->group(function () {
+    Route::post('/engine/clone-voice',          [EngineProxyController::class, 'cloneVoice']);
+    Route::post('/engine/translate',            [EngineProxyController::class, 'translate']);
+    Route::get ('/engine/voice-preview/{speaker}', [EngineProxyController::class, 'voicePreview'])
+        ->where('speaker', '[A-Za-z0-9 %_\-]{1,100}');
+});
+
+Route::middleware(['auth:sanctum', 'throttle:30,1'])->group(function () {
+    Route::post('/engine/transcribe', [EngineProxyController::class, 'transcribe']);
+    Route::post('/engine/export-mp3', [EngineProxyController::class, 'exportMp3']);
+    Route::get ('/engine/voice-profile/{id}/preview', [EngineProxyController::class, 'voiceProfilePreview'])
+        ->where('id', '[A-Za-z0-9_\-]{1,100}');
 });
 
 // ── Guest limits (public — used before login) ─────────────────────────
