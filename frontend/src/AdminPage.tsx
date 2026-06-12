@@ -199,6 +199,9 @@ function OverviewSection() {
         <KpiCard label="Stickiness" value={`${stats.users.stickiness}%`} sub="DAU ÷ MAU" />
         <KpiCard label="Verified Emails" value={stats.users.verified}
           sub={stats.users.unverified > 0 ? `${stats.users.unverified} unverified` : 'all verified'} />
+        {stats.users.retention != null && (
+          <KpiCard label="Retention" value={`${stats.users.retention}%`} sub="signed up 1-5 weeks ago, active this week" />
+        )}
       </div>
 
       {groupLabel('Revenue')}
@@ -225,6 +228,21 @@ function OverviewSection() {
             value={Object.entries(split).map(([m, c]) => `${m} ${Math.round((c as number) / splitTotal * 100)}%`).join(' · ')}
             sub={`${splitTotal} jobs`} />
         )}
+        <KpiCard label="Voice Clones (7d)" value={stats.activity.clones_week} />
+        {Object.keys(stats.activity.lang_pairs ?? {}).length > 0 && (
+          <div style={{
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 10, padding: '14px 18px', flex: '1 1 200px',
+          }}>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 6, fontWeight: 500 }}>Top Language Pairs (30d)</div>
+            {Object.entries(stats.activity.lang_pairs).slice(0, 3).map(([pair, count]) => (
+              <div key={pair} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0' }}>
+                <span style={{ color: 'var(--text-1)', fontWeight: 600 }}>{pair}</span>
+                <span style={{ color: 'var(--text-3)' }}>{count as number}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {groupLabel('System Health')}
@@ -233,6 +251,17 @@ function OverviewSection() {
           color={stats.system.queue_pending > 10 ? 'var(--warn)' : undefined} />
         <KpiCard label="Queue Failed" value={stats.system.queue_failed}
           color={stats.system.queue_failed > 0 ? 'var(--err)' : undefined} />
+        {stats.system.disk_used_pct != null && (
+          <KpiCard label="Disk Used" value={`${stats.system.disk_used_pct}%`}
+            color={stats.system.disk_used_pct > 85 ? 'var(--err)' : stats.system.disk_used_pct > 70 ? 'var(--warn)' : undefined} />
+        )}
+        {stats.system.db_size_mb != null && (
+          <KpiCard label="Database Size" value={stats.system.db_size_mb >= 1024
+            ? `${(stats.system.db_size_mb / 1024).toFixed(1)} GB` : `${stats.system.db_size_mb} MB`} />
+        )}
+        <KpiCard label="Last Backup"
+          value={stats.system.last_backup ? fmtTime(stats.system.last_backup) : 'None found'}
+          color={!stats.system.last_backup || (Date.now() - new Date(stats.system.last_backup).getTime()) > 25 * 3600_000 ? 'var(--err)' : 'var(--ok)'} />
         {eng && (
           <div style={{
             background: 'var(--surface)', border: '1px solid var(--border)',
