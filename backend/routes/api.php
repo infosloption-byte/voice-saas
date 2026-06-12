@@ -215,6 +215,9 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::get('/admin/reports/funnel',         [AdminReportsController::class, 'funnel']);
     Route::get('/admin/reports/engines',        [AdminReportsController::class, 'engines']);
     Route::get('/admin/reports/trends',         [AdminReportsController::class, 'trends']);
+    Route::get('/admin/reports/failures',       [AdminReportsController::class, 'failures']);
+    Route::get('/admin/reports/abuse',          [AdminReportsController::class, 'abuse']);
+    Route::get('/admin/reports/moderation',     [AdminReportsController::class, 'moderation']);
     Route::get('/admin/reports/export/users',   [AdminReportsController::class, 'exportUsers']);
 
     // Operational settings (API keys, plan IDs, webhooks)
