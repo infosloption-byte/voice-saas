@@ -377,13 +377,46 @@ function UsersSection({ currentUser }: { currentUser: User }) {
 
   useEffect(() => { load() }, [load])
 
+  const [noteDraft, setNoteDraft] = useState<string | null>(null)
+
   async function openDetail(userId: number) {
     setDetailLoading(true)
+    setNoteDraft(null)
     try {
       const res = await api.get(`/admin/users/${userId}`) as any
       setSelectedUser(res)
     } catch { toast.err('Failed to load user details') }
     finally { setDetailLoading(false) }
+  }
+
+  async function sendReset(u: any) {
+    if (!confirm(`Email a password reset link to ${u.email}?`)) return
+    setActionBusy(`reset-${u.id}`)
+    try {
+      await api.post(`/admin/users/${u.id}/send-reset`, {})
+      toast.ok(`Reset link sent to ${u.email}`)
+    } catch (e: any) { toast.err(e?.message ?? 'Failed to send reset link') }
+    finally { setActionBusy(null) }
+  }
+
+  async function resendVerification(u: any) {
+    setActionBusy(`verify-${u.id}`)
+    try {
+      await api.post(`/admin/users/${u.id}/resend-verification`, {})
+      toast.ok(`Verification email sent to ${u.email}`)
+    } catch (e: any) { toast.err(e?.message ?? 'Failed to send verification email') }
+    finally { setActionBusy(null) }
+  }
+
+  async function saveNote(userId: number) {
+    setActionBusy(`note-${userId}`)
+    try {
+      await api.put(`/admin/users/${userId}/note`, { note: noteDraft })
+      toast.ok('Note saved')
+      setNoteDraft(null)
+      openDetail(userId)
+    } catch (e: any) { toast.err(e?.message ?? 'Failed to save note') }
+    finally { setActionBusy(null) }
   }
 
   async function changeRole(userId: number, role: string) {
@@ -628,6 +661,16 @@ function UsersSection({ currentUser }: { currentUser: User }) {
                       Impersonate
                     </button>
                   )}
+                  <button className="btn btn--ghost btn--sm" disabled={!!actionBusy}
+                    style={{ fontSize: 11 }} onClick={() => sendReset(selectedUser.user)}>
+                    Send password reset
+                  </button>
+                  {!selectedUser.user.email_verified_at && (
+                    <button className="btn btn--ghost btn--sm" disabled={!!actionBusy}
+                      style={{ fontSize: 11 }} onClick={() => resendVerification(selectedUser.user)}>
+                      Resend verification
+                    </button>
+                  )}
                   {isSuperAdmin && (
                     <button className="btn btn--sm" disabled={!!actionBusy}
                       style={{ fontSize: 11, color: 'var(--err)', borderColor: 'rgba(192,57,43,0.3)' }}
@@ -637,6 +680,23 @@ function UsersSection({ currentUser }: { currentUser: User }) {
                   )}
                 </div>
               )}
+
+              {/* Admin note */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-2)', marginBottom: 6 }}>Admin Note</div>
+                <textarea className="full-input" rows={3} maxLength={5000}
+                  value={noteDraft ?? selectedUser.user.admin_note ?? ''}
+                  onChange={e => setNoteDraft(e.target.value)}
+                  placeholder="Internal note about this user — visible to admins only"
+                  style={{ resize: 'vertical', fontSize: 11.5, lineHeight: 1.5 }} />
+                {noteDraft !== null && noteDraft !== (selectedUser.user.admin_note ?? '') && (
+                  <button className="btn btn--primary btn--sm" disabled={!!actionBusy}
+                    style={{ fontSize: 11, marginTop: 6 }}
+                    onClick={() => saveNote(selectedUser.user.id)}>
+                    Save note
+                  </button>
+                )}
+              </div>
 
               {selectedUser.recent_activity?.length > 0 && (
                 <>
@@ -833,21 +893,44 @@ function SubscriptionsSection() {
 function AuditLogSection() {
   const [logs, setLogs]       = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [actionFilter, setActionFilter] = useState('')
+  const [actorFilter, setActorFilter]   = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate]     = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await api.get('/admin/audit-log') as any
+      const params = new URLSearchParams()
+      if (actionFilter) params.set('action', actionFilter)
+      if (actorFilter)  params.set('actor', actorFilter)
+      if (fromDate)     params.set('from', fromDate)
+      if (toDate)       params.set('to', toDate)
+      const res = await api.get(`/admin/audit-log?${params}`) as any
       setLogs(res.logs)
     } catch { toast.err('Failed to load audit log') }
     finally { setLoading(false) }
-  }, [])
+  }, [actionFilter, actorFilter, fromDate, toDate])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t) }, [load])
 
   return (
     <div>
       <SectionHeader title="Admin Audit Log" onRefresh={load} loading={loading} />
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        <input className="full-input" placeholder="Filter by action…" value={actionFilter}
+          onChange={e => setActionFilter(e.target.value)}
+          style={{ flex: 1, minWidth: 140, fontSize: 12, padding: '6px 10px', width: 'auto' }} />
+        <input className="full-input" placeholder="Filter by actor…" value={actorFilter}
+          onChange={e => setActorFilter(e.target.value)}
+          style={{ flex: 1, minWidth: 140, fontSize: 12, padding: '6px 10px', width: 'auto' }} />
+        <input className="full-input" type="date" value={fromDate} title="From date"
+          onChange={e => setFromDate(e.target.value)}
+          style={{ fontSize: 12, padding: '6px 10px', width: 'auto' }} />
+        <input className="full-input" type="date" value={toDate} title="To date"
+          onChange={e => setToDate(e.target.value)}
+          style={{ fontSize: 12, padding: '6px 10px', width: 'auto' }} />
+      </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
@@ -1078,20 +1161,24 @@ function ReportTable({ columns, rows = [] }: { columns: { key: string; label: st
   )
 }
 
-type ReportTab = 'trends' | 'top-users' | 'quota' | 'revenue' | 'funnel' | 'engines'
+type ReportTab = 'trends' | 'top-users' | 'quota' | 'revenue' | 'funnel' | 'engines' | 'failures' | 'abuse' | 'moderation'
 
 function ReportsSection() {
   const [tab, setTab]         = useState<ReportTab>('top-users')
   const [data, setData]       = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [range, setRange]     = useState('30')
 
   const ENDPOINTS: Record<ReportTab, string> = {
-    trends:      '/admin/reports/trends?days=30',
-    'top-users': '/admin/reports/top-users?days=30',
+    trends:      `/admin/reports/trends?days=${range}`,
+    'top-users': `/admin/reports/top-users?days=${range}`,
     quota:       '/admin/reports/quota-pressure?threshold=80',
-    revenue:     '/admin/reports/revenue?months=12',
+    revenue:     `/admin/reports/revenue?months=${range === '7' ? 6 : range === '30' ? 12 : 24}`,
     funnel:      '/admin/reports/funnel',
-    engines:     '/admin/reports/engines?days=14',
+    engines:     `/admin/reports/engines?days=${Math.min(Number(range), 90)}`,
+    failures:    `/admin/reports/failures?days=${Math.min(Number(range), 90)}`,
+    abuse:       '/admin/reports/abuse',
+    moderation:  '/admin/reports/moderation',
   }
 
   const load = useCallback(async () => {
@@ -1100,7 +1187,7 @@ function ReportsSection() {
     catch { toast.err('Failed to load report') }
     finally { setLoading(false) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab])
+  }, [tab, range])
 
   useEffect(() => { setData(null); load() }, [load])
 
@@ -1111,6 +1198,9 @@ function ReportsSection() {
     { id: 'revenue',   label: 'Revenue',            csv: ENDPOINTS.revenue },
     { id: 'funnel',    label: 'Funnel' },
     { id: 'engines',   label: 'Engine Performance', csv: ENDPOINTS.engines },
+    { id: 'failures',  label: 'Failures',           csv: ENDPOINTS.failures },
+    { id: 'abuse',     label: 'Abuse Flags',        csv: ENDPOINTS.abuse },
+    { id: 'moderation',label: 'Moderation',         csv: ENDPOINTS.moderation },
   ]
   const active = TABS.find(t => t.id === tab)!
 
@@ -1132,6 +1222,13 @@ function ReportsSection() {
           </button>
         ))}
         <div style={{ flex: 1 }} />
+        {(tab === 'trends' || tab === 'top-users' || tab === 'revenue' || tab === 'engines' || tab === 'failures') && (
+          <Dropdown value={range} onChange={setRange} minWidth={110} options={[
+            { value: '7',  label: 'Last 7 days' },
+            { value: '30', label: 'Last 30 days' },
+            { value: '90', label: 'Last 90 days' },
+          ]} />
+        )}
         {active.csv && <CsvButton path={active.csv} />}
         <button className="btn btn--ghost btn--sm" style={{ fontSize: 11 }}
           onClick={() => window.open(csvUrl('/admin/reports/export/users'), '_blank')}>
@@ -1148,7 +1245,7 @@ function ReportsSection() {
             const series = (key: string) => rows.map(r => ({ label: r.day.slice(5), value: r[key] as number }))
             return (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                <ChartCard title="Signups / day (30d)"       data={series('signups')}      color="var(--accent)" />
+                <ChartCard title={`Signups / day (${range}d)`} data={series('signups')}    color="var(--accent)" />
                 <ChartCard title="Active users / day"        data={series('active_users')} color="#10b981" />
                 <ChartCard title="Jobs / day"                data={series('jobs')}         color="#6366f1" />
                 <ChartCard title="Failed jobs / day"         data={series('failed')}       color="var(--err, #ef4444)" />
@@ -1251,6 +1348,57 @@ function ReportsSection() {
               </>
             )
           })()}
+
+          {tab === 'failures' && (
+            <ReportTable rows={data.rows} columns={[
+              { key: 'started_at', label: 'Time', render: v => `${fmtDate(v)} ${fmtTime(v)}` },
+              { key: 'name',       label: 'User', render: (_, r) => (<><div style={{ fontWeight: 500, color: 'var(--text-1)' }}>{r.name ?? '(deleted)'}</div><div style={{ fontSize: 10, color: 'var(--text-3)' }}>{r.email ?? '—'}</div></>) },
+              { key: 'event_type', label: 'Type' },
+              { key: 'message',    label: 'Message', render: v => <span style={{ whiteSpace: 'normal' }}>{v}</span> },
+              { key: 'detail',     label: 'Detail', render: v => <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-3)', whiteSpace: 'normal', wordBreak: 'break-all' }}>{v ?? '—'}</span> },
+            ]} />
+          )}
+
+          {tab === 'abuse' && (
+            <>
+              <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 0, marginBottom: 12 }}>
+                Flags: ≥100 jobs in 24h · ≥50% failure rate (with ≥20 jobs) · ≥100k words in 7 days.
+              </p>
+              <ReportTable rows={data.rows} columns={[
+                { key: 'name',     label: 'User', render: (_, r) => (<><div style={{ fontWeight: 500, color: 'var(--text-1)' }}>{r.name}</div><div style={{ fontSize: 10, color: 'var(--text-3)' }}>{r.email}</div></>) },
+                { key: 'plan',     label: 'Plan', render: v => <Badge text={v} style={PLAN_BADGE[v] ?? PLAN_BADGE.free} /> },
+                { key: 'reasons',  label: 'Flags', render: v => <span style={{ color: 'var(--warn)', fontWeight: 600, whiteSpace: 'normal' }}>{v}</span> },
+                { key: 'jobs_24h', label: 'Jobs 24h' },
+                { key: 'fail_pct', label: 'Fail %', render: v => `${v}%` },
+                { key: 'words_7d', label: 'Words 7d', render: v => (v as number).toLocaleString() },
+                { key: 'suspended', label: 'Status', render: v => v
+                  ? <Badge text="SUSPENDED" style="background:rgba(192,57,43,0.12);color:var(--err)" />
+                  : <span style={{ color: 'var(--text-3)' }}>active</span> },
+              ]} />
+            </>
+          )}
+
+          {tab === 'moderation' && (
+            (data.keywords ?? []).length === 0 ? (
+              <p style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                No flagged keywords configured. Add comma-separated keywords under
+                Settings → Moderation to enable this report.
+              </p>
+            ) : (
+              <>
+                <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 0, marginBottom: 12 }}>
+                  Scanning for: {(data.keywords as string[]).join(', ')}
+                </p>
+                <ReportTable rows={data.rows} columns={[
+                  { key: 'updated_at', label: 'Updated', render: v => fmtDate(v) },
+                  { key: 'name',     label: 'User', render: (_, r) => (<><div style={{ fontWeight: 500, color: 'var(--text-1)' }}>{r.name}</div><div style={{ fontSize: 10, color: 'var(--text-3)' }}>{r.email}</div></>) },
+                  { key: 'title',    label: 'Script' },
+                  { key: 'keywords', label: 'Matched', render: v => <span style={{ color: 'var(--err)', fontWeight: 600 }}>{v}</span> },
+                  { key: 'excerpt',  label: 'Excerpt', render: v => <span style={{ whiteSpace: 'normal', fontSize: 11, color: 'var(--text-3)' }}>{v}</span> },
+                ]} />
+              </>
+            )
+          )}
         </>
       )}
     </div>
@@ -1443,8 +1591,110 @@ function BroadcastSection() {
   )
 }
 
+// ── Operational settings (API keys, plan IDs, webhooks) ───────────
+type SettingField = {
+  key: string; label: string; help: string; secret: boolean
+  is_set: boolean; value: string | null; has_fallback: boolean
+}
+
+function AppSettingsSection({ currentUser }: { currentUser: User }) {
+  const [groups, setGroups]   = useState<Record<string, SettingField[]> | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving]   = useState(false)
+  const [edits, setEdits]     = useState<Record<string, string>>({})
+  const isSuper = currentUser.role === 'super_admin'
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await api.get('/admin/settings') as any
+      setGroups(data.groups)
+      setEdits({})
+    }
+    catch { toast.err('Failed to load settings') }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  async function save() {
+    if (Object.keys(edits).length === 0) return
+    setSaving(true)
+    try {
+      await api.put('/admin/settings', { settings: edits })
+      toast.ok('Settings saved')
+      load()
+    }
+    catch (e: any) { toast.err(e?.message ?? 'Failed to save settings') }
+    finally { setSaving(false) }
+  }
+
+  if (loading && !groups) return <div style={{ padding: 30, color: 'var(--text-3)' }}>Loading…</div>
+  if (!groups) return null
+
+  return (
+    <div style={{ maxWidth: 640 }}>
+      <SectionHeader title="Settings" onRefresh={load} loading={loading} />
+      <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: -6, marginBottom: 18 }}>
+        Operational keys stored encrypted in the database — rotate them here without redeploying.
+        Bootstrap secrets (database, mail, storage) stay in .env on the server.
+        {!isSuper && ' Only super admins can change these values.'}
+      </p>
+
+      {Object.entries(groups).map(([group, fields]) => (
+        <div key={group} style={{
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 10, padding: '16px 18px', marginBottom: 14,
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-1)', marginBottom: 12 }}>{group}</div>
+          {fields.map(f => {
+            const edited = f.key in edits
+            return (
+              <div key={f.key} style={{ marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>{f.label}</label>
+                  {f.is_set
+                    ? <Badge text="set" style="background:rgba(16,185,129,0.12);color:#10b981" />
+                    : f.has_fallback
+                      ? <Badge text="from .env" style="background:rgba(245,158,11,0.12);color:#f59e0b" />
+                      : <Badge text="not set" style="background:var(--bg-2);color:var(--text-3)" />}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    className="full-input"
+                    type={f.secret ? 'password' : 'text'}
+                    disabled={!isSuper}
+                    value={edited ? edits[f.key] : (f.value ?? '')}
+                    placeholder={f.secret && f.is_set ? '•••••••• (enter new value to replace)' : f.label}
+                    onChange={e => setEdits(prev => ({ ...prev, [f.key]: e.target.value }))}
+                    autoComplete="off"
+                  />
+                  {isSuper && f.is_set && (
+                    <button className="btn btn--ghost btn--sm" style={{ fontSize: 11, flexShrink: 0 }}
+                      title="Clear this setting (falls back to .env if configured)"
+                      onClick={() => setEdits(prev => ({ ...prev, [f.key]: '' }))}>
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>{f.help}</div>
+              </div>
+            )
+          })}
+        </div>
+      ))}
+
+      {isSuper && (
+        <button className="btn btn--primary btn--sm" disabled={saving || Object.keys(edits).length === 0} onClick={save}>
+          {saving ? <span className="spinner" /> : null} Save changes
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ── Main AdminPage ─────────────────────────────────────────────────
-type AdminSection = 'overview' | 'users' | 'activity' | 'subscriptions' | 'engines' | 'reports' | 'plans' | 'broadcast' | 'audit'
+type AdminSection = 'overview' | 'users' | 'activity' | 'subscriptions' | 'engines' | 'reports' | 'plans' | 'broadcast' | 'settings' | 'audit'
 
 const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
   { id: 'overview',      label: 'Overview',       icon: '◈' },
@@ -1455,6 +1705,7 @@ const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
   { id: 'plans',         label: 'Plan Limits',    icon: '◧' },
   { id: 'engines',       label: 'AI Engines',     icon: '⚡' },
   { id: 'broadcast',     label: 'Broadcast',      icon: '◳' },
+  { id: 'settings',      label: 'Settings',       icon: '⚙' },
   { id: 'audit',         label: 'Audit Log',      icon: '◷' },
 ]
 
@@ -1559,6 +1810,7 @@ export function AdminPage({ user, onBack, standalone }: { user: User; onBack?: (
         {section === 'plans'         && <PlansSection />}
         {section === 'engines'       && <EnginesSection />}
         {section === 'broadcast'     && <BroadcastSection />}
+        {section === 'settings'      && <AppSettingsSection currentUser={user} />}
         {section === 'audit'         && <AuditLogSection />}
       </div>
     </div>

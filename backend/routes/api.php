@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\AdminAuditLogController;
 use App\Http\Controllers\Admin\AdminBroadcastController;
 use App\Http\Controllers\Admin\AdminImpersonationController;
 use App\Http\Controllers\Admin\AdminReportsController;
+use App\Http\Controllers\Admin\AdminSettingsController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\EngineCapabilitiesController;
 use App\Http\Controllers\EngineProxyController;
@@ -203,6 +204,9 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::post(  '/admin/users/{user}/unsuspend',   [AdminUserController::class, 'unsuspend']);
     Route::put(   '/admin/users/{user}/plan',        [AdminUserController::class, 'updatePlanOverride']);
     Route::post(  '/admin/users/{user}/impersonate', [AdminImpersonationController::class, 'start']);
+    Route::post(  '/admin/users/{user}/send-reset',          [AdminUserController::class, 'sendPasswordReset']);
+    Route::post(  '/admin/users/{user}/resend-verification', [AdminUserController::class, 'resendVerification']);
+    Route::put(   '/admin/users/{user}/note',                [AdminUserController::class, 'updateNote']);
 
     // Reports (all support ?format=csv)
     Route::get('/admin/reports/top-users',      [AdminReportsController::class, 'topUsers']);
@@ -211,7 +215,14 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::get('/admin/reports/funnel',         [AdminReportsController::class, 'funnel']);
     Route::get('/admin/reports/engines',        [AdminReportsController::class, 'engines']);
     Route::get('/admin/reports/trends',         [AdminReportsController::class, 'trends']);
+    Route::get('/admin/reports/failures',       [AdminReportsController::class, 'failures']);
+    Route::get('/admin/reports/abuse',          [AdminReportsController::class, 'abuse']);
+    Route::get('/admin/reports/moderation',     [AdminReportsController::class, 'moderation']);
     Route::get('/admin/reports/export/users',   [AdminReportsController::class, 'exportUsers']);
+
+    // Operational settings (API keys, plan IDs, webhooks)
+    Route::get('/admin/settings', [AdminSettingsController::class, 'index']);
+    Route::put('/admin/settings', [AdminSettingsController::class, 'update']);
 
     // Broadcast announcement email
     Route::post('/admin/broadcast', [AdminBroadcastController::class, 'send']);

@@ -323,6 +323,172 @@ class AdminReportsController extends Controller
     }
 
     /**
+     * GET /admin/reports/failures?days=14
+     * Individual failed jobs with user context, for drill-down.
+     */
+    public function failures(Request $request)
+    {
+        $days = min(max((int) $request->input('days', 14), 1), 90);
+
+        $rows = DB::table('activity_logs')
+            ->leftJoin('users', 'activity_logs.user_id', '=', 'users.id')
+            ->where('activity_logs.status', 'failed')
+            ->where('activity_logs.started_at', '>=', now()->subDays($days))
+            ->select(
+                'activity_logs.started_at',
+                'activity_logs.event_type',
+                'activity_logs.message',
+                'activity_logs.detail',
+                'users.id as user_id',
+                'users.name',
+                'users.email',
+            )
+            ->orderByDesc('activity_logs.started_at')
+            ->limit(300)
+            ->get()
+            ->map(fn($r) => (array) $r)
+            ->toArray();
+
+        if ($request->input('format') === 'csv') {
+            return $this->csv($rows, "failures-{$days}d.csv");
+        }
+        return response()->json(['days' => $days, 'rows' => $rows]);
+    }
+
+    /**
+     * GET /admin/reports/abuse
+     * Heuristic flags: extreme volume, high failure rate, word abuse.
+     */
+    public function abuse(Request $request)
+    {
+        // Per-user activity over the last 24h and 7d
+        $day = DB::table('activity_logs')
+            ->selectRaw("user_id, COUNT(*) as jobs, SUM(status = 'failed') as failed")
+            ->where('started_at', '>=', now()->subDay())
+            ->groupBy('user_id')->get()->keyBy('user_id');
+
+        $words7d = [];
+        DB::table('activity_logs')
+            ->select('user_id', 'detail')
+            ->where('event_type', 'synthesis')
+            ->where('started_at', '>=', now()->subDays(7))
+            ->whereNotNull('detail')
+            ->orderBy('id')
+            ->chunk(2000, function ($chunk) use (&$words7d) {
+                foreach ($chunk as $row) {
+                    if (preg_match('/(?:^|\|)words:(\d+)/', $row->detail, $m)) {
+                        $words7d[$row->user_id] = ($words7d[$row->user_id] ?? 0) + (int) $m[1];
+                    }
+                }
+            });
+
+        $flagged = [];
+        $userIds = collect($day->keys())->merge(array_keys($words7d))->unique();
+        foreach ($userIds as $uid) {
+            $jobs   = (int) ($day[$uid]->jobs ?? 0);
+            $failed = (int) ($day[$uid]->failed ?? 0);
+            $words  = $words7d[$uid] ?? 0;
+            $rate   = $jobs > 0 ? round($failed / $jobs * 100, 1) : 0.0;
+
+            $reasons = [];
+            if ($jobs >= 100)                 $reasons[] = "{$jobs} jobs in 24h";
+            if ($jobs >= 20 && $rate >= 50)   $reasons[] = "{$rate}% failure rate";
+            if ($words >= 100000)             $reasons[] = number_format($words) . ' words in 7d';
+            if (!$reasons) continue;
+
+            $flagged[$uid] = [
+                'user_id'  => $uid,
+                'jobs_24h' => $jobs,
+                'fail_pct' => $rate,
+                'words_7d' => $words,
+                'reasons'  => implode(' · ', $reasons),
+            ];
+        }
+
+        // Attach identity + plan
+        $users = DB::table('users')
+            ->leftJoin('subscriptions', function ($j) {
+                $j->on('subscriptions.user_id', '=', 'users.id')
+                  ->where('subscriptions.status', 'active');
+            })
+            ->whereIn('users.id', array_keys($flagged))
+            ->select('users.id', 'users.name', 'users.email', 'users.suspended_at', 'subscriptions.plan')
+            ->get()->keyBy('id');
+
+        $rows = collect($flagged)->map(fn($f) => $f + [
+            'name'      => $users[$f['user_id']]->name ?? '(deleted)',
+            'email'     => $users[$f['user_id']]->email ?? '—',
+            'plan'      => $users[$f['user_id']]->plan ?? 'free',
+            'suspended' => (bool) ($users[$f['user_id']]->suspended_at ?? false),
+        ])->sortByDesc('jobs_24h')->values();
+
+        if ($request->input('format') === 'csv') {
+            return $this->csv($rows->toArray(), 'abuse-flags.csv');
+        }
+        return response()->json(['rows' => $rows]);
+    }
+
+    /**
+     * GET /admin/reports/moderation
+     * Recent scripts containing any admin-configured flagged keyword.
+     */
+    public function moderation(Request $request)
+    {
+        $raw = (string) \App\Services\Settings::get('moderation_keywords', '');
+        $keywords = collect(explode(',', $raw))
+            ->map(fn($k) => trim($k))->filter()->take(50)->values();
+
+        if ($keywords->isEmpty()) {
+            return response()->json(['rows' => [], 'keywords' => []]);
+        }
+
+        $q = DB::table('scripts')
+            ->join('projects', 'scripts.project_id', '=', 'projects.id')
+            ->join('users', 'projects.user_id', '=', 'users.id')
+            ->whereNotNull('scripts.content')
+            ->where(function ($q) use ($keywords) {
+                foreach ($keywords as $kw) {
+                    // escape LIKE wildcards in the keyword itself
+                    $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $kw) . '%';
+                    $q->orWhere('scripts.content', 'like', $like);
+                }
+            })
+            ->select(
+                'scripts.id as script_id', 'scripts.title', 'scripts.content',
+                'scripts.updated_at',
+                'users.id as user_id', 'users.name', 'users.email',
+            )
+            ->orderByDesc('scripts.updated_at')
+            ->limit(100)
+            ->get();
+
+        $rows = $q->map(function ($r) use ($keywords) {
+            $hits = $keywords->filter(fn($kw) => stripos($r->content, $kw) !== false)->values();
+            // excerpt around the first hit
+            $pos = $hits->isNotEmpty() ? stripos($r->content, $hits[0]) : 0;
+            $start = max(0, $pos - 60);
+            $excerpt = ($start > 0 ? '…' : '')
+                . mb_substr($r->content, $start, 160)
+                . (mb_strlen($r->content) > $start + 160 ? '…' : '');
+            return [
+                'script_id'  => $r->script_id,
+                'title'      => $r->title,
+                'user_id'    => $r->user_id,
+                'name'       => $r->name,
+                'email'      => $r->email,
+                'keywords'   => $hits->implode(', '),
+                'excerpt'    => $excerpt,
+                'updated_at' => $r->updated_at,
+            ];
+        });
+
+        if ($request->input('format') === 'csv') {
+            return $this->csv($rows->toArray(), 'moderation.csv');
+        }
+        return response()->json(['rows' => $rows, 'keywords' => $keywords]);
+    }
+
+    /**
      * GET /admin/reports/export/users — full user list as CSV.
      */
     public function exportUsers()
