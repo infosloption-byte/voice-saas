@@ -685,8 +685,31 @@ export default function App() {
       </aside>
 
       <div className="page">
+        {/* Admin impersonation banner */}
+        {user?.impersonated && (
+          <div style={{
+            background: 'rgba(245,158,11,0.12)', borderBottom: '1px solid rgba(245,158,11,0.35)',
+            padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5,
+          }}>
+            <span style={{ fontWeight: 700, color: '#f59e0b' }}>Impersonating:</span>
+            <span style={{ color: 'var(--text-2)' }}>{user.name} ({user.email})</span>
+            <div style={{ flex: 1 }} />
+            <button className="btn btn--sm" style={{ fontSize: 11, background: '#f59e0b', color: '#000', border: 'none' }}
+              onClick={async () => {
+                try {
+                  const { api } = await import('./api')
+                  const res = await api.post('/impersonation/stop', {}) as { user: any }
+                  window.location.href = '/admin'
+                  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                } catch (_) { window.location.reload() }
+              }}>
+              Stop impersonating
+            </button>
+          </div>
+        )}
+
         {/* Email verification banner */}
-        {user && !guestMode && !user.email_verified_at && (
+        {user && !guestMode && !user.email_verified_at && !user.impersonated && (
           <VerificationBanner email={user.email} onResent={() => {}} />
         )}
 

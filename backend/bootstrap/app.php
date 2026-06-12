@@ -32,6 +32,9 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias(['admin' => \App\Http\Middleware\AdminOnly::class]);
 
+        // Suspended accounts are rejected on every authenticated API call
+        $middleware->api(append: [\App\Http\Middleware\EnsureNotSuspended::class]);
+
         $middleware->trustHosts(array_filter([
             'localhost',
             '127.0.0.1',
