@@ -70,6 +70,71 @@ services:
     networks:
       - voice-network
 
+  # Laravel Queue Worker — processes mail, bulk synthesis, and other queued jobs
+  queue-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: voice_queue
+    restart: unless-stopped
+    command: php artisan queue:work --tries=3 --max-time=3600 --sleep=3
+    volumes:
+      - ./backend:/var/www/html
+    environment:
+      - DB_CONNECTION=mysql
+      - DB_HOST=172.17.0.1
+      - DB_PORT=3306
+      - DB_DATABASE=voice_saas
+      - DB_USERNAME=${DB_USERNAME:-root}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - AI_ENGINE_URL=http://ai-engine:8000
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
+      - AUDIO_DISK=${AUDIO_DISK:-local}
+      - AUDIO_PRUNE_DAYS=${AUDIO_PRUNE_DAYS:-90}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+      - AWS_BUCKET=${AWS_BUCKET:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - voice-network
+
+  # Laravel Scheduler — runs artisan schedule:run every minute
+  scheduler:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: voice_scheduler
+    restart: unless-stopped
+    # Sleep 60s, run the scheduler, repeat — no host cron needed
+    command: >
+      sh -c "while true; do php artisan schedule:run --no-interaction; sleep 60; done"
+    volumes:
+      - ./backend:/var/www/html
+    environment:
+      - DB_CONNECTION=mysql
+      - DB_HOST=172.17.0.1
+      - DB_PORT=3306
+      - DB_DATABASE=voice_saas
+      - DB_USERNAME=${DB_USERNAME:-root}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
+      - AUDIO_DISK=${AUDIO_DISK:-local}
+      - AUDIO_PRUNE_DAYS=${AUDIO_PRUNE_DAYS:-90}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+      - AWS_BUCKET=${AWS_BUCKET:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - voice-network
+
   # Python AI Engine (FastAPI)
   ai-engine:
     build:
