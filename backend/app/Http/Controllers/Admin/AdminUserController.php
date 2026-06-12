@@ -44,6 +44,8 @@ class AdminUserController extends Controller
                 'role'              => $u->role ?? 'user',
                 'plan_name'         => $u->plan_name,
                 'email_verified_at' => $u->email_verified_at,
+                'suspended_at'      => $u->suspended_at,
+                'plan_override'     => $u->plan_override,
                 'created_at'        => $u->created_at,
                 'projects_count'    => $u->projects_count,
             ]);
@@ -146,5 +148,80 @@ class AdminUserController extends Controller
         $user->delete();
 
         return response()->json(['message' => "User {$email} deleted."]);
+    }
+
+    /** POST /admin/users/{id}/suspend — soft, reversible block */
+    public function suspend(Request $request, User $user)
+    {
+        if ($request->user()->id === $user->id) {
+            return response()->json(['message' => 'You cannot suspend yourself.'], 422);
+        }
+        if ($user->isAdmin() && !$request->user()->isSuperAdmin()) {
+            return response()->json(['message' => 'Only a super admin can suspend an admin.'], 403);
+        }
+        if ($user->isSuspended()) {
+            return response()->json(['message' => 'User is already suspended.'], 422);
+        }
+
+        $user->forceFill(['suspended_at' => now()])->save();
+
+        DB::table('admin_audit_log')->insert([
+            'actor_id'       => $request->user()->id,
+            'target_user_id' => $user->id,
+            'action'         => 'user.suspended',
+            'after_value'    => now()->toDateTimeString(),
+            'ip'             => $request->ip(),
+        ]);
+        AuditLog::record('admin.user_suspended', ['target_email' => $user->email], $request->user()->id);
+
+        return response()->json(['user' => $user->fresh()]);
+    }
+
+    /** POST /admin/users/{id}/unsuspend */
+    public function unsuspend(Request $request, User $user)
+    {
+        if (!$user->isSuspended()) {
+            return response()->json(['message' => 'User is not suspended.'], 422);
+        }
+
+        $user->forceFill(['suspended_at' => null])->save();
+
+        DB::table('admin_audit_log')->insert([
+            'actor_id'       => $request->user()->id,
+            'target_user_id' => $user->id,
+            'action'         => 'user.unsuspended',
+            'ip'             => $request->ip(),
+        ]);
+        AuditLog::record('admin.user_unsuspended', ['target_email' => $user->email], $request->user()->id);
+
+        return response()->json(['user' => $user->fresh()]);
+    }
+
+    /** PUT /admin/users/{id}/plan — set/clear admin plan override */
+    public function updatePlanOverride(Request $request, User $user)
+    {
+        $data = $request->validate([
+            'plan_override' => ['nullable', Rule::in(['starter', 'pro'])],
+        ]);
+
+        $before = $user->plan_override;
+        $after  = $data['plan_override'] ?? null;
+        $user->forceFill(['plan_override' => $after])->save();
+
+        DB::table('admin_audit_log')->insert([
+            'actor_id'       => $request->user()->id,
+            'target_user_id' => $user->id,
+            'action'         => 'user.plan_override',
+            'before_value'   => $before ?? 'none',
+            'after_value'    => $after ?? 'none',
+            'ip'             => $request->ip(),
+        ]);
+        AuditLog::record('admin.plan_override', [
+            'target_email' => $user->email,
+            'before'       => $before,
+            'after'        => $after,
+        ], $request->user()->id);
+
+        return response()->json(['user' => $user->fresh()]);
     }
 }
