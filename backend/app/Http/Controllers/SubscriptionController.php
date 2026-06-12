@@ -49,9 +49,10 @@ class SubscriptionController extends Controller
         ]);
 
         $plan   = $validated['plan'];
+        // Admin-panel managed setting; falls back to .env via the registry
         $planId = match ($plan) {
-            'starter' => config('services.paypal.plan_starter'),
-            'pro'     => config('services.paypal.plan_pro'),
+            'starter' => \App\Services\Settings::get('paypal_plan_starter'),
+            'pro'     => \App\Services\Settings::get('paypal_plan_pro'),
         };
 
         $frontendUrl = config('services.paypal.frontend_url', 'http://localhost:5173');
@@ -93,8 +94,8 @@ class SubscriptionController extends Controller
         $nextBillingTime = $details['billing_info']['next_billing_time'] ?? null;
 
         $resolvedPlan = match (true) {
-            $details['plan_id'] === config('services.paypal.plan_starter') => 'starter',
-            $details['plan_id'] === config('services.paypal.plan_pro')     => 'pro',
+            $details['plan_id'] === \App\Services\Settings::get('paypal_plan_starter') => 'starter',
+            $details['plan_id'] === \App\Services\Settings::get('paypal_plan_pro')     => 'pro',
             default => null,
         };
 

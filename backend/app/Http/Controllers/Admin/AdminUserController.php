@@ -197,6 +197,58 @@ class AdminUserController extends Controller
         return response()->json(['user' => $user->fresh()]);
     }
 
+    /** POST /admin/users/{id}/send-reset — email a password reset link */
+    public function sendPasswordReset(Request $request, User $user)
+    {
+        $status = \Illuminate\Support\Facades\Password::sendResetLink(['email' => $user->email]);
+        if ($status !== \Illuminate\Support\Facades\Password::RESET_LINK_SENT) {
+            return response()->json(['message' => 'Could not send reset link (' . __($status) . ')'], 422);
+        }
+
+        DB::table('admin_audit_log')->insert([
+            'actor_id'       => $request->user()->id,
+            'target_user_id' => $user->id,
+            'action'         => 'user.reset_link_sent',
+            'ip'             => $request->ip(),
+        ]);
+
+        return response()->json(['message' => "Password reset link sent to {$user->email}."]);
+    }
+
+    /** POST /admin/users/{id}/resend-verification */
+    public function resendVerification(Request $request, User $user)
+    {
+        if ($user->hasVerifiedEmail()) {
+            return response()->json(['message' => 'Email is already verified.'], 422);
+        }
+        $user->sendEmailVerificationNotification();
+
+        DB::table('admin_audit_log')->insert([
+            'actor_id'       => $request->user()->id,
+            'target_user_id' => $user->id,
+            'action'         => 'user.verification_resent',
+            'ip'             => $request->ip(),
+        ]);
+
+        return response()->json(['message' => "Verification email sent to {$user->email}."]);
+    }
+
+    /** PUT /admin/users/{id}/note — free-text admin note */
+    public function updateNote(Request $request, User $user)
+    {
+        $data = $request->validate(['note' => ['nullable', 'string', 'max:5000']]);
+        $user->forceFill(['admin_note' => $data['note'] ?: null])->save();
+
+        DB::table('admin_audit_log')->insert([
+            'actor_id'       => $request->user()->id,
+            'target_user_id' => $user->id,
+            'action'         => 'user.note_updated',
+            'ip'             => $request->ip(),
+        ]);
+
+        return response()->json(['user' => $user->fresh()]);
+    }
+
     /** PUT /admin/users/{id}/plan — set/clear admin plan override */
     public function updatePlanOverride(Request $request, User $user)
     {

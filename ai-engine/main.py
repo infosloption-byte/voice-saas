@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Header
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Header, Request
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -603,10 +603,10 @@ def _http_post_json(url: str, payload: dict, headers: dict) -> dict:
             pass
         raise RuntimeError(f"HTTP {e.code}: {body or e.reason}") from None
 
-def _translate_gemini(model: str, user_msg: str) -> str:
+def _translate_gemini(model: str, user_msg: str, api_key: str) -> str:
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{model}:generateContent?key={_GEMINI_KEY}"
+        f"{model}:generateContent?key={api_key}"
     )
     data = _http_post_json(
         url,
@@ -621,10 +621,14 @@ def _translate_gemini(model: str, user_msg: str) -> str:
 @app.post("/translate")
 async def translate_text(
     body: TranslateRequest,
+    request: Request,
     _key: None = Depends(verify_api_key),
 ):
-    if not _GEMINI_KEY:
-        raise HTTPException(503, "Translation is not configured (set GEMINI_API_KEY).")
+    # Key supplied per-request by the backend (admin-panel managed,
+    # encrypted at rest in its DB); env var is the fallback.
+    gemini_key = request.headers.get("x-gemini-key") or _GEMINI_KEY
+    if not gemini_key:
+        raise HTTPException(503, "Translation is not configured (set the Gemini key in the admin panel).")
     if not body.text.strip():
         return {"translated_text": ""}
 
@@ -635,7 +639,7 @@ async def translate_text(
     errors: list[str] = []
     for model in GEMINI_MODELS:
         try:
-            return {"translated_text": _translate_gemini(model, user_msg), "provider": model}
+            return {"translated_text": _translate_gemini(model, user_msg, gemini_key), "provider": model}
         except Exception as e:
             errors.append(f"{model}: {e}")
 

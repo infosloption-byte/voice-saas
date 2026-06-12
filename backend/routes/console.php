@@ -18,3 +18,13 @@ Schedule::command('audio:prune', ['--days' => (int) env('AUDIO_PRUNE_DAYS', 90)]
 Schedule::command('backup:check')
     ->daily()
     ->withoutOverlapping();
+
+// Daily KPI digest emailed to admins.
+Schedule::command('admin:digest')
+    ->dailyAt('08:00')
+    ->withoutOverlapping();
+
+// System health alerts to Slack/Discord (webhooks set in admin panel).
+Schedule::command('admin:check-alerts')
+    ->everyFifteenMinutes()
+    ->withoutOverlapping();
