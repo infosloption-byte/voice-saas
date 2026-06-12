@@ -258,6 +258,71 @@ class AdminReportsController extends Controller
     }
 
     /**
+     * GET /admin/reports/trends?days=30
+     * Daily time-series for charting: signups, active users, jobs,
+     * failures, words synthesized, translations.
+     */
+    public function trends(Request $request)
+    {
+        $days = min(max((int) $request->input('days', 30), 7), 90);
+        $from = now()->subDays($days - 1)->startOfDay();
+
+        $signups = DB::table('users')
+            ->selectRaw('DATE(created_at) as day, COUNT(*) as c')
+            ->where('created_at', '>=', $from)
+            ->groupBy('day')->pluck('c', 'day');
+
+        $active = DB::table('activity_logs')
+            ->selectRaw('DATE(started_at) as day, COUNT(DISTINCT user_id) as c')
+            ->where('started_at', '>=', $from)
+            ->groupBy('day')->pluck('c', 'day');
+
+        $jobs = DB::table('activity_logs')
+            ->selectRaw("DATE(started_at) as day, COUNT(*) as total,
+                         SUM(status = 'failed') as failed,
+                         SUM(event_type = 'translation') as translations")
+            ->where('started_at', '>=', $from)
+            ->groupBy('day')->get()->keyBy('day');
+
+        // Words per day from the structured detail field
+        $words = [];
+        DB::table('activity_logs')
+            ->select('started_at', 'detail')
+            ->where('event_type', 'synthesis')
+            ->where('started_at', '>=', $from)
+            ->whereNotNull('detail')
+            ->orderBy('id')
+            ->chunk(2000, function ($chunk) use (&$words) {
+                foreach ($chunk as $row) {
+                    if (preg_match('/(?:^|\|)words:(\d+)/', $row->detail, $m)) {
+                        $day = substr($row->started_at, 0, 10);
+                        $words[$day] = ($words[$day] ?? 0) + (int) $m[1];
+                    }
+                }
+            });
+
+        $rows = [];
+        for ($i = $days - 1; $i >= 0; $i--) {
+            $day = now()->subDays($i)->toDateString();
+            $j   = $jobs[$day] ?? null;
+            $rows[] = [
+                'day'          => $day,
+                'signups'      => (int) ($signups[$day] ?? 0),
+                'active_users' => (int) ($active[$day] ?? 0),
+                'jobs'         => (int) ($j->total ?? 0),
+                'failed'       => (int) ($j->failed ?? 0),
+                'translations' => (int) ($j->translations ?? 0),
+                'words'        => (int) ($words[$day] ?? 0),
+            ];
+        }
+
+        if ($request->input('format') === 'csv') {
+            return $this->csv($rows, "trends-{$days}d.csv");
+        }
+        return response()->json(['days' => $days, 'rows' => $rows]);
+    }
+
+    /**
      * GET /admin/reports/export/users — full user list as CSV.
      */
     public function exportUsers()

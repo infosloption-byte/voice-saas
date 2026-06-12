@@ -147,6 +147,43 @@ function MiniChart({ data, color }: { data: { day: string; count: number }[]; co
   )
 }
 
+// ── Titled bar chart card (used by Reports) ────────────────────────
+function ChartCard({ title, data, color, format }: {
+  title: string
+  data: { label: string; value: number }[]
+  color: string
+  format?: (v: number) => string
+}) {
+  const max = Math.max(...data.map(d => d.value), 1)
+  const fmt = format ?? ((v: number) => v.toLocaleString())
+  const total = data.reduce((s, d) => s + d.value, 0)
+  return (
+    <div style={{
+      background: 'var(--surface)', border: '1px solid var(--border)',
+      borderRadius: 10, padding: '14px 18px', flex: '1 1 340px', minWidth: 280,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+        <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>{title}</span>
+        <span style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600 }}>{fmt(total)} total</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 72 }}>
+        {data.map((d, i) => (
+          <div key={i} title={`${d.label}: ${fmt(d.value)}`} style={{
+            flex: 1, borderRadius: 2,
+            background: d.value > 0 ? color : 'var(--bg-2)',
+            height: `${Math.max((d.value / max) * 100, d.value > 0 ? 6 : 3)}%`,
+            minHeight: 2, transition: 'height 0.3s ease',
+          }} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 9, color: 'var(--text-3)' }}>
+        <span>{data[0]?.label}</span>
+        <span>{data[data.length - 1]?.label}</span>
+      </div>
+    </div>
+  )
+}
+
 // ── Section header ─────────────────────────────────────────────────
 function SectionHeader({ title, onRefresh, loading }: { title: string; onRefresh: () => void; loading: boolean }) {
   return (
@@ -1041,7 +1078,7 @@ function ReportTable({ columns, rows = [] }: { columns: { key: string; label: st
   )
 }
 
-type ReportTab = 'top-users' | 'quota' | 'revenue' | 'funnel' | 'engines'
+type ReportTab = 'trends' | 'top-users' | 'quota' | 'revenue' | 'funnel' | 'engines'
 
 function ReportsSection() {
   const [tab, setTab]         = useState<ReportTab>('top-users')
@@ -1049,6 +1086,7 @@ function ReportsSection() {
   const [loading, setLoading] = useState(true)
 
   const ENDPOINTS: Record<ReportTab, string> = {
+    trends:      '/admin/reports/trends?days=30',
     'top-users': '/admin/reports/top-users?days=30',
     quota:       '/admin/reports/quota-pressure?threshold=80',
     revenue:     '/admin/reports/revenue?months=12',
@@ -1067,6 +1105,7 @@ function ReportsSection() {
   useEffect(() => { setData(null); load() }, [load])
 
   const TABS: { id: ReportTab; label: string; csv?: string }[] = [
+    { id: 'trends',    label: 'Trends',             csv: ENDPOINTS.trends },
     { id: 'top-users', label: 'Top Users',          csv: ENDPOINTS['top-users'] },
     { id: 'quota',     label: 'Quota Pressure',     csv: ENDPOINTS.quota },
     { id: 'revenue',   label: 'Revenue',            csv: ENDPOINTS.revenue },
@@ -1104,6 +1143,21 @@ function ReportsSection() {
         <div style={{ padding: 30, color: 'var(--text-3)' }}>Loading…</div>
       ) : !data ? null : (
         <>
+          {tab === 'trends' && (() => {
+            const rows: any[] = data.rows ?? []
+            const series = (key: string) => rows.map(r => ({ label: r.day.slice(5), value: r[key] as number }))
+            return (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                <ChartCard title="Signups / day (30d)"       data={series('signups')}      color="var(--accent)" />
+                <ChartCard title="Active users / day"        data={series('active_users')} color="#10b981" />
+                <ChartCard title="Jobs / day"                data={series('jobs')}         color="#6366f1" />
+                <ChartCard title="Failed jobs / day"         data={series('failed')}       color="var(--err, #ef4444)" />
+                <ChartCard title="Words synthesized / day"   data={series('words')}        color="#f59e0b" />
+                <ChartCard title="Translations / day"        data={series('translations')} color="#06b6d4" />
+              </div>
+            )
+          })()}
+
           {tab === 'top-users' && (
             <ReportTable rows={data.rows} columns={[
               { key: 'name',   label: 'User', render: (_, r) => (<><div style={{ fontWeight: 500, color: 'var(--text-1)' }}>{r.name}</div><div style={{ fontSize: 10, color: 'var(--text-3)' }}>{r.email}</div></>) },
@@ -1132,13 +1186,23 @@ function ReportsSection() {
           )}
 
           {tab === 'revenue' && (
-            <ReportTable rows={data.rows} columns={[
+            <>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+                <ChartCard title="MRR by month (est.)"
+                  data={(data.rows ?? []).map((r: any) => ({ label: r.month.slice(2), value: r.mrr }))}
+                  color="#10b981" format={v => `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
+                <ChartCard title="New subscriptions by month"
+                  data={(data.rows ?? []).map((r: any) => ({ label: r.month.slice(2), value: r.new_starter + r.new_pro }))}
+                  color="var(--accent)" />
+              </div>
+              <ReportTable rows={data.rows} columns={[
               { key: 'month',       label: 'Month' },
               { key: 'new_starter', label: 'New Starter' },
               { key: 'new_pro',     label: 'New Pro' },
               { key: 'cancelled',   label: 'Cancelled', render: v => <span style={{ color: v > 0 ? 'var(--err)' : 'var(--text-3)' }}>{v}</span> },
               { key: 'mrr',         label: 'MRR (est.)', render: v => <span style={{ fontWeight: 600, color: '#10b981' }}>${v}</span> },
-            ]} />
+              ]} />
+            </>
           )}
 
           {tab === 'funnel' && (
@@ -1161,15 +1225,32 @@ function ReportsSection() {
             </div>
           )}
 
-          {tab === 'engines' && (
-            <ReportTable rows={data.rows} columns={[
+          {tab === 'engines' && (() => {
+            const byDay: Record<string, { jobs: number; failed: number }> = {}
+            for (const r of (data.rows ?? []) as any[]) {
+              byDay[r.day] ??= { jobs: 0, failed: 0 }
+              byDay[r.day].jobs += r.jobs
+              byDay[r.day].failed += r.failed
+            }
+            const days = Object.keys(byDay).sort()
+            return (
+              <>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+                  <ChartCard title="Synthesis jobs / day (14d)"
+                    data={days.map(d => ({ label: d.slice(5), value: byDay[d].jobs }))} color="#6366f1" />
+                  <ChartCard title="Failed jobs / day (14d)"
+                    data={days.map(d => ({ label: d.slice(5), value: byDay[d].failed }))} color="var(--err, #ef4444)" />
+                </div>
+                <ReportTable rows={data.rows} columns={[
               { key: 'day',          label: 'Day' },
               { key: 'model',        label: 'Model', render: v => <span style={{ fontFamily: 'var(--mono)', color: 'var(--text-1)' }}>{v}</span> },
               { key: 'jobs',         label: 'Jobs' },
               { key: 'failure_rate', label: 'Failure %', render: v => <span style={{ color: v > 5 ? 'var(--err)' : 'var(--text-2)' }}>{v}%</span> },
               { key: 'avg_secs',     label: 'Avg Duration', render: v => `${v}s` },
-            ]} />
-          )}
+                ]} />
+              </>
+            )
+          })()}
         </>
       )}
     </div>
@@ -1379,6 +1460,14 @@ const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
 
 export function AdminPage({ user, onBack, standalone }: { user: User; onBack?: () => void; standalone?: boolean }) {
   const [section, setSection] = useState<AdminSection>('overview')
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('admin_sidebar') === 'collapsed')
+
+  function toggleSidebar() {
+    setCollapsed(c => {
+      localStorage.setItem('admin_sidebar', c ? 'open' : 'collapsed')
+      return !c
+    })
+  }
 
   if (!user.is_admin) {
     return (
@@ -1394,32 +1483,57 @@ export function AdminPage({ user, onBack, standalone }: { user: User; onBack?: (
     <div style={{ display: 'flex', height: '100%', minHeight: 'calc(100vh - var(--topbar-h))' }}>
       {/* Sidebar */}
       <div style={{
-        width: 180, flexShrink: 0, background: 'var(--bg-2)',
+        width: collapsed ? 52 : 180, flexShrink: 0, background: 'var(--bg-2)',
         borderRight: '1px solid var(--border)', padding: '16px 8px',
         display: 'flex', flexDirection: 'column', gap: 2,
+        transition: 'width 0.2s ease', overflow: 'hidden',
       }}>
-        <div style={{ padding: '4px 10px 14px', borderBottom: '1px solid var(--border)', marginBottom: 8 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Admin Panel</div>
-          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
-            {user.role === 'super_admin' ? '⭐ Super Admin' : '🛡 Admin'}
-          </div>
+        <div style={{
+          padding: collapsed ? '4px 0 14px' : '4px 10px 14px',
+          borderBottom: '1px solid var(--border)', marginBottom: 8,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
+        }}>
+          {!collapsed && (
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>Admin Panel</div>
+              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2, whiteSpace: 'nowrap' }}>
+                {user.role === 'super_admin' ? '⭐ Super Admin' : '🛡 Admin'}
+              </div>
+            </div>
+          )}
+          <button
+            onClick={toggleSidebar}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            style={{
+              border: '1px solid var(--border-2)', background: 'transparent',
+              color: 'var(--text-3)', borderRadius: 6, cursor: 'pointer',
+              width: 26, height: 26, fontSize: 12, flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: collapsed ? '0 auto' : undefined,
+            }}
+          >
+            {collapsed ? '»' : '«'}
+          </button>
         </div>
 
         {SECTIONS.map(s => (
           <button
             key={s.id}
             onClick={() => setSection(s.id)}
+            title={collapsed ? s.label : undefined}
             style={{
               display: 'flex', alignItems: 'center', gap: 8,
-              padding: '7px 10px', borderRadius: 6, border: 'none',
+              justifyContent: collapsed ? 'center' : 'flex-start',
+              padding: collapsed ? '7px 0' : '7px 10px', borderRadius: 6, border: 'none',
               cursor: 'pointer', width: '100%', textAlign: 'left', fontSize: 13,
+              whiteSpace: 'nowrap',
               background: section === s.id ? 'var(--accent-lt)' : 'transparent',
               color: section === s.id ? 'var(--accent)' : 'var(--text-2)',
               fontWeight: section === s.id ? 600 : 400,
             }}
           >
-            <span style={{ fontSize: 14, width: 16, textAlign: 'center' }}>{s.icon}</span>
-            {s.label}
+            <span style={{ fontSize: 14, width: 16, textAlign: 'center', flexShrink: 0 }}>{s.icon}</span>
+            {!collapsed && s.label}
           </button>
         ))}
 
@@ -1428,8 +1542,9 @@ export function AdminPage({ user, onBack, standalone }: { user: User; onBack?: (
         {!standalone && onBack && (
           <button className="btn btn--ghost btn--sm"
             onClick={onBack}
-            style={{ fontSize: 11, justifyContent: 'flex-start', gap: 6 }}>
-            {icons.back} Back to app
+            title={collapsed ? 'Back to app' : undefined}
+            style={{ fontSize: 11, justifyContent: collapsed ? 'center' : 'flex-start', gap: 6 }}>
+            {icons.back} {!collapsed && 'Back to app'}
           </button>
         )}
       </div>
