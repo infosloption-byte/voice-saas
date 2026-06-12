@@ -1693,8 +1693,114 @@ function AppSettingsSection({ currentUser }: { currentUser: User }) {
   )
 }
 
+// ── System check (live health probes) ─────────────────────────────
+type HealthCheck = { id: string; label: string; status: 'pass' | 'warn' | 'fail'; value: string; hint: string | null }
+
+const CHECK_STYLE: Record<string, { dot: string; bg: string; label: string }> = {
+  pass: { dot: '#10b981', bg: 'rgba(16,185,129,0.07)',  label: 'PASS' },
+  warn: { dot: '#f59e0b', bg: 'rgba(245,158,11,0.07)',  label: 'WARN' },
+  fail: { dot: '#ef4444', bg: 'rgba(239,68,68,0.07)',   label: 'FAIL' },
+}
+
+function SystemCheckSection() {
+  const [data, setData]       = useState<{ checks: HealthCheck[]; summary: any; ran_at: string } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy]       = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try { setData(await api.get('/admin/system-check') as any) }
+    catch { toast.err('Failed to run system checks') }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  async function fire(path: string, key: string) {
+    setBusy(key)
+    try {
+      const res = await api.post(path, {}) as any
+      toast.ok(res.message ?? 'Done')
+    } catch (e: any) { toast.err(e?.message ?? 'Failed') }
+    finally { setBusy(null) }
+  }
+
+  const s = data?.summary
+  const overall = !s ? null : s.fail > 0 ? 'fail' : s.warn > 0 ? 'warn' : 'pass'
+
+  return (
+    <div style={{ maxWidth: 760 }}>
+      <SectionHeader title="System Check" onRefresh={load} loading={loading} />
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+        {s && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px',
+            borderRadius: 8, background: CHECK_STYLE[overall!].bg,
+            border: `1px solid ${CHECK_STYLE[overall!].dot}33`, fontSize: 13, fontWeight: 700,
+            color: CHECK_STYLE[overall!].dot,
+          }}>
+            <span style={{ width: 9, height: 9, borderRadius: '50%', background: CHECK_STYLE[overall!].dot, flexShrink: 0 }} />
+            {overall === 'pass' ? 'All systems operational' : overall === 'warn' ? 'Operational with warnings' : 'Problems detected'}
+            <span style={{ fontWeight: 400, color: 'var(--text-3)', fontSize: 11 }}>
+              {s.pass} passed · {s.warn} warnings · {s.fail} failed
+            </span>
+          </div>
+        )}
+        <div style={{ flex: 1 }} />
+        <button className="btn btn--ghost btn--sm" style={{ fontSize: 11 }}
+          disabled={busy !== null}
+          onClick={() => fire('/admin/system-check/test-email', 'email')}>
+          {busy === 'email' ? <span className="spinner" /> : '✉'} Send test email
+        </button>
+        <button className="btn btn--ghost btn--sm" style={{ fontSize: 11 }}
+          disabled={busy !== null}
+          onClick={() => fire('/admin/system-check/test-alert', 'alert')}>
+          {busy === 'alert' ? <span className="spinner" /> : '🔔'} Send test alert
+        </button>
+      </div>
+
+      {loading && !data ? (
+        <div style={{ padding: 30, color: 'var(--text-3)' }}>Running live checks… (probes real services, can take a few seconds)</div>
+      ) : !data ? null : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {data.checks.map(c => {
+            const st = CHECK_STYLE[c.status]
+            return (
+              <div key={c.id} style={{
+                display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 14px',
+                borderRadius: 8, background: c.status === 'pass' ? 'var(--surface)' : st.bg,
+                border: `1px solid ${c.status === 'pass' ? 'var(--border)' : st.dot + '40'}`,
+              }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: st.dot, marginTop: 5, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-1)' }}>{c.label}</span>
+                    <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{c.value}</span>
+                  </div>
+                  {c.hint && c.status !== 'pass' && (
+                    <div style={{ fontSize: 11, color: st.dot, marginTop: 3, lineHeight: 1.5 }}>{c.hint}</div>
+                  )}
+                </div>
+                <span style={{
+                  fontSize: 9.5, fontWeight: 800, letterSpacing: '0.06em', color: st.dot,
+                  padding: '2px 7px', borderRadius: 99, background: st.bg,
+                  border: `1px solid ${st.dot}40`, flexShrink: 0,
+                }}>{st.label}</span>
+              </div>
+            )
+          })}
+          <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 6 }}>
+            Last run: {new Date(data.ran_at).toLocaleString()} · every check is a live probe (real query, HTTP call or file write), not a config read.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main AdminPage ─────────────────────────────────────────────────
-type AdminSection = 'overview' | 'users' | 'activity' | 'subscriptions' | 'engines' | 'reports' | 'plans' | 'broadcast' | 'settings' | 'audit'
+type AdminSection = 'overview' | 'users' | 'activity' | 'subscriptions' | 'engines' | 'reports' | 'plans' | 'broadcast' | 'settings' | 'system' | 'audit'
 
 const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
   { id: 'overview',      label: 'Overview',       icon: '◈' },
@@ -1706,6 +1812,7 @@ const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
   { id: 'engines',       label: 'AI Engines',     icon: '⚡' },
   { id: 'broadcast',     label: 'Broadcast',      icon: '◳' },
   { id: 'settings',      label: 'Settings',       icon: '⚙' },
+  { id: 'system',        label: 'System Check',   icon: '✚' },
   { id: 'audit',         label: 'Audit Log',      icon: '◷' },
 ]
 
@@ -1811,6 +1918,7 @@ export function AdminPage({ user, onBack, standalone }: { user: User; onBack?: (
         {section === 'engines'       && <EnginesSection />}
         {section === 'broadcast'     && <BroadcastSection />}
         {section === 'settings'      && <AppSettingsSection currentUser={user} />}
+        {section === 'system'        && <SystemCheckSection />}
         {section === 'audit'         && <AuditLogSection />}
       </div>
     </div>
