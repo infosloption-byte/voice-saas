@@ -357,6 +357,7 @@ const EVENT_LABELS: Record<string, string> = {
   translation: 'Translation',
   voice_clone: 'Voice Clone',
   export:      'Export',
+  delete:      'Deleted',
   task:        'Task',
 }
 
@@ -931,10 +932,23 @@ export function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
             <div className="modal__title">Delete project?</div>
             <div className="modal__body">
               <p style={{ fontSize: 14, color: 'var(--text-2)', marginBottom: 8 }}>
-                <strong>{confirmProject.emoji} {confirmProject.name}</strong> and all{' '}
-                {confirmProject.scripts.length} script{confirmProject.scripts.length !== 1 ? 's' : ''} will be
-                permanently deleted. This cannot be undone.
+                <strong>{confirmProject.emoji} {confirmProject.name}</strong> will be permanently deleted,
+                along with everything that belongs to it. This cannot be undone.
               </p>
+              {(() => {
+                const audioCount = confirmProject.scripts.filter(s => s.hasAudio).length
+                const clipCount  = (confirmProject.timelineClips ?? []).filter(c => !c.isGap).length
+                const items = [
+                  `${confirmProject.scripts.length} script${confirmProject.scripts.length !== 1 ? 's' : ''}`,
+                  audioCount > 0 ? `${audioCount} generated audio clip${audioCount !== 1 ? 's' : ''}` : null,
+                  clipCount  > 0 ? `${clipCount} assembly timeline clip${clipCount !== 1 ? 's' : ''}` : null,
+                ].filter(Boolean) as string[]
+                return (
+                  <ul style={{ margin: '0 0 8px', paddingLeft: 18, fontSize: 13, color: 'var(--text-2)', lineHeight: 1.7 }}>
+                    {items.map(it => <li key={it}>{it}</li>)}
+                  </ul>
+                )
+              })()}
             </div>
             <div className="modal__actions">
               <button className="btn btn--ghost" onClick={() => setConfirmId(null)}>Cancel</button>

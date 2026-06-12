@@ -165,6 +165,100 @@ function EngineBadge({ engine }: { engine: TTSEngine }) {
   )
 }
 
+// ── Upgrade popup shown when the synthesis quota is exhausted ──────
+const UPGRADE_PLANS = [
+  {
+    id: 'starter', name: 'Starter', price: '$9.99', period: '/month',
+    tagline: 'For creators and podcasters', featured: false,
+    features: ['100 voice syntheses / month', '50 translations / month', '5 voice profiles', '10 projects', 'Up to 5,000 words per script', 'Multi-voice & timeline assembly'],
+  },
+  {
+    id: 'pro', name: 'Pro', price: '$24.99', period: '/month',
+    tagline: 'Unlimited for power users', featured: true,
+    features: ['Unlimited voice syntheses', 'Unlimited translations', 'Unlimited voice profiles & projects', 'No word limit per script', 'Priority synthesis queue', 'Data export (GDPR)'],
+  },
+]
+
+function UpgradeQuotaModal({ quota, onClose, onGoPricing }: {
+  quota: { limit: number; period: string } | null
+  onClose: () => void
+  onGoPricing?: () => void
+}) {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Upgrade your plan" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 560 }}>
+        {/* Header */}
+        <div style={{ textAlign: 'center', marginBottom: 16 }}>
+          <div style={{
+            width: 46, height: 46, borderRadius: '50%', margin: '0 auto 10px',
+            background: 'var(--accent-lt)', border: '1px solid var(--accent-mid)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.8" style={{ width: 22, height: 22 }}>
+              <path d="M12 19V5M5 12l7-7 7 7" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+          <div className="modal__title" style={{ marginBottom: 4 }}>You've used today's free syntheses</div>
+          <p style={{ fontSize: 13, color: 'var(--text-2)', margin: 0, lineHeight: 1.5 }}>
+            {quota && quota.limit > 0
+              ? <>Your plan includes <strong>{quota.limit} syntheses per {quota.period}</strong>. Upgrade to keep generating without waiting.</>
+              : 'Upgrade your plan to keep generating voiceovers without waiting.'}
+          </p>
+        </div>
+
+        {/* Plan cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
+          {UPGRADE_PLANS.map(plan => (
+            <div key={plan.id} style={{
+              border: plan.featured ? '1.5px solid var(--accent)' : '1px solid var(--border-2)',
+              borderRadius: 10, padding: '14px 14px 12px', position: 'relative',
+              background: plan.featured ? 'var(--accent-lt)' : 'var(--bg-2)',
+              display: 'flex', flexDirection: 'column', gap: 8,
+            }}>
+              {plan.featured && (
+                <span style={{
+                  position: 'absolute', top: -9, right: 12, fontSize: 9, fontWeight: 700,
+                  letterSpacing: '0.5px', textTransform: 'uppercase', padding: '2px 8px',
+                  borderRadius: 99, background: 'var(--accent)', color: '#fff',
+                }}>Best value</span>
+              )}
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-1)' }}>{plan.name}</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginTop: 2 }}>
+                  <span style={{ fontSize: 22, fontWeight: 800, color: plan.featured ? 'var(--accent)' : 'var(--text-1)' }}>{plan.price}</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{plan.period}</span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{plan.tagline}</div>
+              </div>
+              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
+                {plan.features.map(f => (
+                  <li key={f} style={{ fontSize: 11.5, color: 'var(--text-2)', display: 'flex', gap: 6, alignItems: 'flex-start', lineHeight: 1.4 }}>
+                    <svg viewBox="0 0 10 10" fill="none" stroke="var(--ok)" strokeWidth="2" style={{ width: 9, height: 9, flexShrink: 0, marginTop: 3 }}>
+                      <path d="M1.5 5.5l2.5 2.5 4.5-5" />
+                    </svg>
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <button
+                className={`btn btn--sm ${plan.featured ? 'btn--primary' : ''}`}
+                style={{ width: '100%', justifyContent: 'center', marginTop: 2 }}
+                onClick={() => { onClose(); onGoPricing?.() }}
+              >
+                Upgrade to {plan.name}
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="modal__actions" style={{ justifyContent: 'center', marginTop: 12 }}>
+          <button className="btn btn--ghost btn--sm" onClick={onClose}>Maybe later</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function WorkspacePage({
   project,
   activeScriptId,
@@ -183,6 +277,9 @@ export function WorkspacePage({
   onGuestSynthesisUsed,
   onRecheckEngine,
   onUploadAudio,
+  onGoPricing,
+  onRemoveScriptClips,
+  openTemplateNonce = 0,
 }: {
   project: Project
   activeScriptId: string | null
@@ -201,6 +298,11 @@ export function WorkspacePage({
   onGuestSynthesisUsed?: () => void
   onRecheckEngine?: () => void
   onUploadAudio?: (scriptId: string, blob: Blob) => Promise<void>
+  onGoPricing?: () => void
+  /** Remove this script's clips from the assembly timeline (called before delete). */
+  onRemoveScriptClips?: (scriptId: string) => void
+  /** Bump this counter from the parent to open the New Script template modal. */
+  openTemplateNonce?: number
 }) {
   const activeScript = project.scripts.find(s => s.id === activeScriptId) ?? null
 
@@ -240,17 +342,24 @@ export function WorkspacePage({
   const [showTemplateModal, setShowTemplateModal] = useState(false)
   const [pendingTranscription, setPendingTranscription] = useState<string | null>(null)
   const [importParagraphs, setImportParagraphs] = useState<string[] | null>(null)
-  const [deleteScriptPending, setDeleteScriptPending] = useState(false)
+  const [deleteScriptId, setDeleteScriptId]     = useState<string | null>(null)
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const [translating, setTranslating]           = useState(false)
 
   // Escape closes whichever modal is open — highest-priority one wins
   useEscapeKey(() => {
-    if (deleteScriptPending)         { setDeleteScriptPending(false); return }
+    if (showUpgradeModal)            { setShowUpgradeModal(false);    return }
+    if (deleteScriptId)              { setDeleteScriptId(null);       return }
     if (importParagraphs)            { setImportParagraphs(null);     return }
     if (pendingTranscription !== null){ setPendingTranscription(null);return }
     if (showTemplateModal)           { setShowTemplateModal(false);   return }
     if (showTranslateMenu)           { setShowTranslateMenu(false);   return }
   })
+
+  // Parent (topbar "+ Script" button) requests the template modal
+  useEffect(() => {
+    if (openTemplateNonce > 0) setShowTemplateModal(true)
+  }, [openTemplateNonce])
 
   // TTS engine preference (persisted in localStorage)
   const { engine, setEngine } = useTTSEngine()
@@ -729,6 +838,7 @@ export function WorkspacePage({
       setSynthQuota(q)
       if (q.limit > 0 && q.remaining <= 0) {
         setSynthErr(`Synthesis quota reached (${q.limit} per ${q.period}). Upgrade your plan for more.`)
+        setShowUpgradeModal(true)
         return
       }
     } catch {
@@ -1120,24 +1230,67 @@ export function WorkspacePage({
         </div>
       )}
 
-      {/* Delete script confirm modal */}
-      {deleteScriptPending && activeScript && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete Script" onClick={() => setDeleteScriptPending(false)}>
-          <div className="modal" style={{ maxWidth: 380 }} onClick={e => e.stopPropagation()}>
-            <div className="modal__title">Delete script?</div>
-            <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 14 }}>
-              <strong>"{activeScript.title}"</strong> will be permanently deleted. This cannot be undone.
-            </p>
-            <div className="modal__actions">
-              <button className="btn btn--ghost" onClick={() => setDeleteScriptPending(false)}>Cancel</button>
-              <button className="btn btn--danger" onClick={() => {
-                onDeleteScript(activeScript.id)
-                setShowScriptList(true)
-                setDeleteScriptPending(false)
-              }}>{icons.trash} Delete</button>
+      {/* Delete script confirm modal — guards audio + assembly clip usage */}
+      {(() => {
+        const target = deleteScriptId ? project.scripts.find(s => s.id === deleteScriptId) : null
+        if (!target) return null
+        const clipsInUse = (project.timelineClips ?? []).filter(c => !c.isGap && c.scriptId === target.id)
+
+        const confirmDelete = async (removeClips: boolean) => {
+          if (removeClips && clipsInUse.length > 0) onRemoveScriptClips?.(target.id)
+          deleteAudioBlob(`audio_${target.id}`)
+          onDeleteScript(target.id)
+          if (activeScriptId === target.id) setShowScriptList(true)
+          setDeleteScriptId(null)
+          const parts = [target.hasAudio ? 'generated audio removed' : 'no audio']
+          if (removeClips && clipsInUse.length > 0) parts.push(`${clipsInUse.length} assembly clip${clipsInUse.length !== 1 ? 's' : ''} removed from timeline`)
+          const entry = await activityLog.start(
+            `Deleted script "${target.title}"`,
+            parts.join(' · '),
+            { projectId: project.id, eventType: 'delete' },
+          )
+          entry.done(parts.join(' · '))
+        }
+
+        return (
+          <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete Script" onClick={() => setDeleteScriptId(null)}>
+            <div className="modal" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
+              <div className="modal__title">Delete script?</div>
+              <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 10 }}>
+                <strong>"{target.title}"</strong> will be permanently deleted
+                {target.hasAudio ? <> along with its <strong>generated audio clip</strong></> : ''}. This cannot be undone.
+              </p>
+              {clipsInUse.length > 0 && (
+                <div className="msg msg--warn" style={{ marginBottom: 14, fontSize: 12.5, lineHeight: 1.5 }}>
+                  This script's audio is used in <strong>{clipsInUse.length} clip{clipsInUse.length !== 1 ? 's' : ''}</strong> on
+                  the Assembly timeline. The clip{clipsInUse.length !== 1 ? 's' : ''} must be removed from the timeline
+                  before the script can be deleted.
+                </div>
+              )}
+              <div className="modal__actions">
+                <button className="btn btn--ghost" onClick={() => setDeleteScriptId(null)}>Cancel</button>
+                {clipsInUse.length > 0 ? (
+                  <button className="btn btn--danger" onClick={() => confirmDelete(true)}>
+                    {icons.trash} Remove from timeline & delete
+                  </button>
+                ) : (
+                  <button className="btn btn--danger" onClick={() => confirmDelete(false)}>
+                    {icons.trash} Delete
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        )
+      })()}
+
+      {/* Quota-reached upgrade popup */}
+      {showUpgradeModal && (
+        <UpgradeQuotaModal
+          quota={synthQuota}
+          onClose={() => setShowUpgradeModal(false)}
+          onGoPricing={onGoPricing}
+        />
       )}
 
       {/* ── Script list panel ── */}
@@ -1184,7 +1337,7 @@ export function WorkspacePage({
             <div className="empty-state" style={{ padding: '24px 12px' }}>
               {icons.edit}
               <p>No scripts yet</p>
-              <button className="btn btn--sm btn--primary" onClick={() => onAddScript()}>
+              <button className="btn btn--sm btn--primary" onClick={() => setShowTemplateModal(true)}>
                 Add Script
               </button>
             </div>
@@ -1226,6 +1379,13 @@ export function WorkspacePage({
                     ].join(' ')}
                   />
                 )}
+                <button
+                  className="script-item__delete"
+                  title="Delete script"
+                  onClick={e => { e.stopPropagation(); setDeleteScriptId(s.id) }}
+                >
+                  {icons.trash}
+                </button>
               </div>
             ))
           )}
@@ -1430,7 +1590,7 @@ export function WorkspacePage({
 
               <button
                 className="btn btn--sm btn--danger"
-                onClick={() => setDeleteScriptPending(true)}
+                onClick={() => setDeleteScriptId(activeScript.id)}
                 title="Delete script"
               >
                 {icons.trash}

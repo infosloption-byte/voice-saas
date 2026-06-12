@@ -9,6 +9,7 @@ import { StudioPage, VoicesPage, TranslationPage, TimelinePage, AudiobooksPage }
 import { EmailVerifiedPage } from './EmailVerifiedPage'
 import { api, ApiError } from './api'
 import { toast, subscribeToast, type ToastItem } from './toast'
+import { activityLog } from './activityLog'
 import { useAuth } from './hooks/useAuth'
 import { useProjects, notifyPlanLimit } from './hooks/useProjects'
 import { useAudio } from './hooks/useAudio'
@@ -145,6 +146,8 @@ export default function App() {
   const [activeScriptId, setActiveScriptId] = useState<string | null>(null)
   const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfile[]>([])
   const [showNewProject, setShowNewProject] = useState(false)
+  // Bumped by the topbar "+ Script" button to open the template picker in WorkspacePage
+  const [scriptModalNonce, setScriptModalNonce] = useState(0)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showActivityLog, setShowActivityLog] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -393,10 +396,22 @@ export default function App() {
   }
 
   async function handleDeleteProject(id: string) {
+    const proj = projects.find(p => p.id === id)
     await deleteProject(id)
     if (activeProjectId === id) {
       setActiveProjectId(null)
       setPage('projects')
+    }
+    if (proj) {
+      const audioCount = proj.scripts.filter(s => s.hasAudio).length
+      const clipCount  = (proj.timelineClips ?? []).filter(c => !c.isGap).length
+      const detail = `${proj.scripts.length} script${proj.scripts.length !== 1 ? 's' : ''}`
+        + ` · ${audioCount} audio clip${audioCount !== 1 ? 's' : ''}`
+        + (clipCount > 0 ? ` · ${clipCount} timeline clip${clipCount !== 1 ? 's' : ''}` : '')
+        + ' removed'
+      // No projectId — the project row is gone, so the log entry must not reference it
+      const entry = await activityLog.start(`Deleted project "${proj.name}"`, detail, { eventType: 'delete' })
+      entry.done(detail)
     }
   }
 
@@ -793,13 +808,9 @@ export default function App() {
             return (
               <>
                 <button className="btn btn--sm" onClick={() => {
-                  if (guestMode) {
-                    const s = guestProject.addScript()
-                    if (!s) setGuestGateType('script_limit')
-                    else setActiveScriptId(s.id)
-                  } else {
-                    addScript(p.id)
-                  }
+                  // Open the template picker popup instead of silently adding a blank script
+                  setWorkspaceTab('scripts')
+                  setScriptModalNonce(n => n + 1)
                 }}>
                   {icons.plus}<span className="btn__label"> Script</span>
                 </button>
@@ -905,6 +916,13 @@ export default function App() {
                 onGuestGate={type => setGuestGateType(type)}
                 onGuestSynthesisUsed={() => guestSession.updateUsage('synthesesUsed')}
                 onUploadAudio={guestMode ? undefined : uploadAudio}
+                onGoPricing={() => setPage('pricing')}
+                openTemplateNonce={scriptModalNonce}
+                onRemoveScriptClips={sid => {
+                  const clips = (wsProject.timelineClips ?? []).filter(c => c.scriptId !== sid)
+                  if (guestMode) guestProject.updateProject({ timelineClips: clips })
+                  else saveTimeline(wsProject.id, clips)
+                }}
               />
             )
           })()}
