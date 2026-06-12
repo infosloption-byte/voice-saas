@@ -1013,7 +1013,7 @@ function CsvButton({ path }: { path: string }) {
   )
 }
 
-function ReportTable({ columns, rows }: { columns: { key: string; label: string; render?: (v: any, row: any) => React.ReactNode }[]; rows: any[] }) {
+function ReportTable({ columns, rows = [] }: { columns: { key: string; label: string; render?: (v: any, row: any) => React.ReactNode }[]; rows?: any[] }) {
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -1143,7 +1143,7 @@ function ReportsSection() {
 
           {tab === 'funnel' && (
             <div style={{ maxWidth: 560, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {data.steps.map((s: any) => (
+              {(data.steps ?? []).map((s: any) => (
                 <div key={s.step} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <span style={{ width: 120, fontSize: 12, color: 'var(--text-2)', flexShrink: 0 }}>{s.step}</span>
                   <div style={{ flex: 1, height: 22, borderRadius: 5, background: 'var(--bg-2)', overflow: 'hidden' }}>
@@ -1195,7 +1195,9 @@ function PlansSection() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      setPlans(await api.get('/plan-limits') as Record<string, any>)
+      const raw = await api.get('/plan-limits') as any
+      const arr: any[] = Array.isArray(raw) ? raw : Object.values(raw)
+      setPlans(Object.fromEntries(arr.map((p: any) => [p.plan, p])))
       setEdits({})
     }
     catch { toast.err('Failed to load plan limits') }
