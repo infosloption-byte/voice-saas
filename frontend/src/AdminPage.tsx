@@ -1443,8 +1443,110 @@ function BroadcastSection() {
   )
 }
 
+// ── Operational settings (API keys, plan IDs, webhooks) ───────────
+type SettingField = {
+  key: string; label: string; help: string; secret: boolean
+  is_set: boolean; value: string | null; has_fallback: boolean
+}
+
+function AppSettingsSection({ currentUser }: { currentUser: User }) {
+  const [groups, setGroups]   = useState<Record<string, SettingField[]> | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving]   = useState(false)
+  const [edits, setEdits]     = useState<Record<string, string>>({})
+  const isSuper = currentUser.role === 'super_admin'
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await api.get('/admin/settings') as any
+      setGroups(data.groups)
+      setEdits({})
+    }
+    catch { toast.err('Failed to load settings') }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  async function save() {
+    if (Object.keys(edits).length === 0) return
+    setSaving(true)
+    try {
+      await api.put('/admin/settings', { settings: edits })
+      toast.ok('Settings saved')
+      load()
+    }
+    catch (e: any) { toast.err(e?.message ?? 'Failed to save settings') }
+    finally { setSaving(false) }
+  }
+
+  if (loading && !groups) return <div style={{ padding: 30, color: 'var(--text-3)' }}>Loading…</div>
+  if (!groups) return null
+
+  return (
+    <div style={{ maxWidth: 640 }}>
+      <SectionHeader title="Settings" onRefresh={load} loading={loading} />
+      <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: -6, marginBottom: 18 }}>
+        Operational keys stored encrypted in the database — rotate them here without redeploying.
+        Bootstrap secrets (database, mail, storage) stay in .env on the server.
+        {!isSuper && ' Only super admins can change these values.'}
+      </p>
+
+      {Object.entries(groups).map(([group, fields]) => (
+        <div key={group} style={{
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 10, padding: '16px 18px', marginBottom: 14,
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-1)', marginBottom: 12 }}>{group}</div>
+          {fields.map(f => {
+            const edited = f.key in edits
+            return (
+              <div key={f.key} style={{ marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>{f.label}</label>
+                  {f.is_set
+                    ? <Badge text="set" style="background:rgba(16,185,129,0.12);color:#10b981" />
+                    : f.has_fallback
+                      ? <Badge text="from .env" style="background:rgba(245,158,11,0.12);color:#f59e0b" />
+                      : <Badge text="not set" style="background:var(--bg-2);color:var(--text-3)" />}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    className="full-input"
+                    type={f.secret ? 'password' : 'text'}
+                    disabled={!isSuper}
+                    value={edited ? edits[f.key] : (f.value ?? '')}
+                    placeholder={f.secret && f.is_set ? '•••••••• (enter new value to replace)' : f.label}
+                    onChange={e => setEdits(prev => ({ ...prev, [f.key]: e.target.value }))}
+                    autoComplete="off"
+                  />
+                  {isSuper && f.is_set && (
+                    <button className="btn btn--ghost btn--sm" style={{ fontSize: 11, flexShrink: 0 }}
+                      title="Clear this setting (falls back to .env if configured)"
+                      onClick={() => setEdits(prev => ({ ...prev, [f.key]: '' }))}>
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>{f.help}</div>
+              </div>
+            )
+          })}
+        </div>
+      ))}
+
+      {isSuper && (
+        <button className="btn btn--primary btn--sm" disabled={saving || Object.keys(edits).length === 0} onClick={save}>
+          {saving ? <span className="spinner" /> : null} Save changes
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ── Main AdminPage ─────────────────────────────────────────────────
-type AdminSection = 'overview' | 'users' | 'activity' | 'subscriptions' | 'engines' | 'reports' | 'plans' | 'broadcast' | 'audit'
+type AdminSection = 'overview' | 'users' | 'activity' | 'subscriptions' | 'engines' | 'reports' | 'plans' | 'broadcast' | 'settings' | 'audit'
 
 const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
   { id: 'overview',      label: 'Overview',       icon: '◈' },
@@ -1455,6 +1557,7 @@ const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
   { id: 'plans',         label: 'Plan Limits',    icon: '◧' },
   { id: 'engines',       label: 'AI Engines',     icon: '⚡' },
   { id: 'broadcast',     label: 'Broadcast',      icon: '◳' },
+  { id: 'settings',      label: 'Settings',       icon: '⚙' },
   { id: 'audit',         label: 'Audit Log',      icon: '◷' },
 ]
 
@@ -1559,6 +1662,7 @@ export function AdminPage({ user, onBack, standalone }: { user: User; onBack?: (
         {section === 'plans'         && <PlansSection />}
         {section === 'engines'       && <EnginesSection />}
         {section === 'broadcast'     && <BroadcastSection />}
+        {section === 'settings'      && <AppSettingsSection currentUser={user} />}
         {section === 'audit'         && <AuditLogSection />}
       </div>
     </div>

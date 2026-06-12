@@ -105,7 +105,14 @@ class EngineProxyController extends Controller
         }
 
         try {
-            $resp = Http::withHeaders($this->engineHeaders())
+            // Gemini key is managed in the admin panel (stored encrypted in
+            // the DB) and injected per-request, so rotating it needs no
+            // engine .env change or restart.
+            $headers = $this->engineHeaders();
+            if ($gemini = \App\Services\Settings::get('gemini_api_key')) {
+                $headers['X-Gemini-Key'] = $gemini;
+            }
+            $resp = Http::withHeaders($headers)
                 ->timeout(60)
                 ->retry(2, 300, throw: false)
                 ->post($this->engineUrl() . '/translate', $request->json()->all() ?: $request->all());

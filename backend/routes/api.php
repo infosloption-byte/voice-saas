@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\AdminAuditLogController;
 use App\Http\Controllers\Admin\AdminBroadcastController;
 use App\Http\Controllers\Admin\AdminImpersonationController;
 use App\Http\Controllers\Admin\AdminReportsController;
+use App\Http\Controllers\Admin\AdminSettingsController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\EngineCapabilitiesController;
 use App\Http\Controllers\EngineProxyController;
@@ -212,6 +213,10 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::get('/admin/reports/engines',        [AdminReportsController::class, 'engines']);
     Route::get('/admin/reports/trends',         [AdminReportsController::class, 'trends']);
     Route::get('/admin/reports/export/users',   [AdminReportsController::class, 'exportUsers']);
+
+    // Operational settings (API keys, plan IDs, webhooks)
+    Route::get('/admin/settings', [AdminSettingsController::class, 'index']);
+    Route::put('/admin/settings', [AdminSettingsController::class, 'update']);
 
     // Broadcast announcement email
     Route::post('/admin/broadcast', [AdminBroadcastController::class, 'send']);
