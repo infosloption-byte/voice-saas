@@ -1161,7 +1161,7 @@ function ReportTable({ columns, rows = [] }: { columns: { key: string; label: st
   )
 }
 
-type ReportTab = 'trends' | 'top-users' | 'quota' | 'revenue' | 'funnel' | 'engines'
+type ReportTab = 'trends' | 'top-users' | 'quota' | 'revenue' | 'funnel' | 'engines' | 'failures' | 'abuse' | 'moderation'
 
 function ReportsSection() {
   const [tab, setTab]         = useState<ReportTab>('top-users')
@@ -1176,6 +1176,9 @@ function ReportsSection() {
     revenue:     `/admin/reports/revenue?months=${range === '7' ? 6 : range === '30' ? 12 : 24}`,
     funnel:      '/admin/reports/funnel',
     engines:     `/admin/reports/engines?days=${Math.min(Number(range), 90)}`,
+    failures:    `/admin/reports/failures?days=${Math.min(Number(range), 90)}`,
+    abuse:       '/admin/reports/abuse',
+    moderation:  '/admin/reports/moderation',
   }
 
   const load = useCallback(async () => {
@@ -1195,6 +1198,9 @@ function ReportsSection() {
     { id: 'revenue',   label: 'Revenue',            csv: ENDPOINTS.revenue },
     { id: 'funnel',    label: 'Funnel' },
     { id: 'engines',   label: 'Engine Performance', csv: ENDPOINTS.engines },
+    { id: 'failures',  label: 'Failures',           csv: ENDPOINTS.failures },
+    { id: 'abuse',     label: 'Abuse Flags',        csv: ENDPOINTS.abuse },
+    { id: 'moderation',label: 'Moderation',         csv: ENDPOINTS.moderation },
   ]
   const active = TABS.find(t => t.id === tab)!
 
@@ -1216,7 +1222,7 @@ function ReportsSection() {
           </button>
         ))}
         <div style={{ flex: 1 }} />
-        {(tab === 'trends' || tab === 'top-users' || tab === 'revenue' || tab === 'engines') && (
+        {(tab === 'trends' || tab === 'top-users' || tab === 'revenue' || tab === 'engines' || tab === 'failures') && (
           <Dropdown value={range} onChange={setRange} minWidth={110} options={[
             { value: '7',  label: 'Last 7 days' },
             { value: '30', label: 'Last 30 days' },
@@ -1342,6 +1348,57 @@ function ReportsSection() {
               </>
             )
           })()}
+
+          {tab === 'failures' && (
+            <ReportTable rows={data.rows} columns={[
+              { key: 'started_at', label: 'Time', render: v => `${fmtDate(v)} ${fmtTime(v)}` },
+              { key: 'name',       label: 'User', render: (_, r) => (<><div style={{ fontWeight: 500, color: 'var(--text-1)' }}>{r.name ?? '(deleted)'}</div><div style={{ fontSize: 10, color: 'var(--text-3)' }}>{r.email ?? '—'}</div></>) },
+              { key: 'event_type', label: 'Type' },
+              { key: 'message',    label: 'Message', render: v => <span style={{ whiteSpace: 'normal' }}>{v}</span> },
+              { key: 'detail',     label: 'Detail', render: v => <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-3)', whiteSpace: 'normal', wordBreak: 'break-all' }}>{v ?? '—'}</span> },
+            ]} />
+          )}
+
+          {tab === 'abuse' && (
+            <>
+              <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 0, marginBottom: 12 }}>
+                Flags: ≥100 jobs in 24h · ≥50% failure rate (with ≥20 jobs) · ≥100k words in 7 days.
+              </p>
+              <ReportTable rows={data.rows} columns={[
+                { key: 'name',     label: 'User', render: (_, r) => (<><div style={{ fontWeight: 500, color: 'var(--text-1)' }}>{r.name}</div><div style={{ fontSize: 10, color: 'var(--text-3)' }}>{r.email}</div></>) },
+                { key: 'plan',     label: 'Plan', render: v => <Badge text={v} style={PLAN_BADGE[v] ?? PLAN_BADGE.free} /> },
+                { key: 'reasons',  label: 'Flags', render: v => <span style={{ color: 'var(--warn)', fontWeight: 600, whiteSpace: 'normal' }}>{v}</span> },
+                { key: 'jobs_24h', label: 'Jobs 24h' },
+                { key: 'fail_pct', label: 'Fail %', render: v => `${v}%` },
+                { key: 'words_7d', label: 'Words 7d', render: v => (v as number).toLocaleString() },
+                { key: 'suspended', label: 'Status', render: v => v
+                  ? <Badge text="SUSPENDED" style="background:rgba(192,57,43,0.12);color:var(--err)" />
+                  : <span style={{ color: 'var(--text-3)' }}>active</span> },
+              ]} />
+            </>
+          )}
+
+          {tab === 'moderation' && (
+            (data.keywords ?? []).length === 0 ? (
+              <p style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                No flagged keywords configured. Add comma-separated keywords under
+                Settings → Moderation to enable this report.
+              </p>
+            ) : (
+              <>
+                <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 0, marginBottom: 12 }}>
+                  Scanning for: {(data.keywords as string[]).join(', ')}
+                </p>
+                <ReportTable rows={data.rows} columns={[
+                  { key: 'updated_at', label: 'Updated', render: v => fmtDate(v) },
+                  { key: 'name',     label: 'User', render: (_, r) => (<><div style={{ fontWeight: 500, color: 'var(--text-1)' }}>{r.name}</div><div style={{ fontSize: 10, color: 'var(--text-3)' }}>{r.email}</div></>) },
+                  { key: 'title',    label: 'Script' },
+                  { key: 'keywords', label: 'Matched', render: v => <span style={{ color: 'var(--err)', fontWeight: 600 }}>{v}</span> },
+                  { key: 'excerpt',  label: 'Excerpt', render: v => <span style={{ whiteSpace: 'normal', fontSize: 11, color: 'var(--text-3)' }}>{v}</span> },
+                ]} />
+              </>
+            )
+          )}
         </>
       )}
     </div>

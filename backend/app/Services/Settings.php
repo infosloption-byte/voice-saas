@@ -54,6 +54,13 @@ class Settings
             'secret'   => true,
             'fallback' => null,
         ],
+        'moderation_keywords' => [
+            'group'    => 'Moderation',
+            'label'    => 'Flagged Keywords',
+            'help'     => 'Comma-separated words/phrases. Scripts containing any of them appear in the Moderation report.',
+            'secret'   => false,
+            'fallback' => null,
+        ],
         'discord_webhook_url' => [
             'group'    => 'Alerts',
             'label'    => 'Discord Webhook URL',
