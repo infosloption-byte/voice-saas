@@ -210,6 +210,7 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::get('/admin/reports/revenue',        [AdminReportsController::class, 'revenue']);
     Route::get('/admin/reports/funnel',         [AdminReportsController::class, 'funnel']);
     Route::get('/admin/reports/engines',        [AdminReportsController::class, 'engines']);
+    Route::get('/admin/reports/trends',         [AdminReportsController::class, 'trends']);
     Route::get('/admin/reports/export/users',   [AdminReportsController::class, 'exportUsers']);
 
     // Broadcast announcement email
