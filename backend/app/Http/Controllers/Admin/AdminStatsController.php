@@ -80,11 +80,72 @@ class AdminStatsController extends Controller
         [$wordsToday, ] = $this->parseDetails($parseWindow(today()));
         [$wordsWeek, $engineSplit] = $this->parseDetails($parseWindow(now()->subDays(7)));
 
+        // Voice clones this week
+        $clonesWeek = DB::table('activity_logs')
+            ->where('event_type', 'voice_clone')
+            ->where('started_at', '>=', now()->subDays(7))
+            ->count();
+
+        // Top translation language pairs (30d), parsed from "langs:EN → ES"
+        $langPairs = [];
+        foreach (DB::table('activity_logs')
+            ->where('event_type', 'translation')
+            ->where('started_at', '>=', now()->subDays(30))
+            ->whereNotNull('detail')->pluck('detail') as $detail) {
+            if (preg_match('/(?:^|\|)langs:([^|]+)/', $detail, $m)) {
+                $pair = trim($m[1]);
+                $langPairs[$pair] = ($langPairs[$pair] ?? 0) + 1;
+            }
+        }
+        arsort($langPairs);
+        $langPairs = array_slice($langPairs, 0, 5, true);
+
+        // Retention: users who signed up 8-37 days ago and were active in
+        // the last 7 days
+        $cohort = DB::table('users')
+            ->whereBetween('created_at', [now()->subDays(37), now()->subDays(8)])
+            ->pluck('id');
+        $retained = $cohort->isEmpty() ? 0 : DB::table('activity_logs')
+            ->whereIn('user_id', $cohort)
+            ->where('started_at', '>=', now()->subDays(7))
+            ->distinct('user_id')->count('user_id');
+        $retention = $cohort->isEmpty() ? null : round($retained / $cohort->count() * 100, 1);
+
         // System health
         $queuePending = $this->tableCount('jobs');
         $queueFailed  = $this->tableCount('failed_jobs');
         $activeEngine = DB::table('engine_configs')->where('is_active', true)
             ->select('name', 'url', 'status', 'latency_ms', 'last_tested_at')->first();
+
+        // Disk usage of the storage volume
+        $diskTotal = @disk_total_space(storage_path());
+        $diskFree  = @disk_free_space(storage_path());
+        $diskUsedPct = ($diskTotal && $diskFree !== false)
+            ? round(($diskTotal - $diskFree) / $diskTotal * 100, 1)
+            : null;
+
+        // Database size (MySQL)
+        $dbSizeMb = null;
+        try {
+            $row = DB::selectOne(
+                'SELECT ROUND(SUM(data_length + index_length) / 1048576, 1) AS mb
+                 FROM information_schema.tables WHERE table_schema = DATABASE()'
+            );
+            $dbSizeMb = $row->mb !== null ? (float) $row->mb : null;
+        } catch (\Throwable) {
+            // non-MySQL or no permission — omit
+        }
+
+        // Most recent .sql.gz backup (same dir backup:check watches)
+        $lastBackup = null;
+        $backupDir  = env('BACKUP_DIR', '/home/user/voice-saas/backups');
+        if (is_dir($backupDir)) {
+            $newest = 0;
+            foreach (glob($backupDir . '/*.sql.gz') ?: [] as $file) {
+                $newest = max($newest, filemtime($file));
+            }
+            if ($newest > 0) $lastBackup = date('c', $newest);
+        }
 
         // User growth chart: last 30 days signups per day
         $growthRaw = DB::table('users')
@@ -132,6 +193,7 @@ class AdminStatsController extends Controller
                 'wau'        => $wau,
                 'mau'        => $mau,
                 'stickiness' => $mau > 0 ? round($dau / $mau * 100, 1) : 0.0,
+                'retention'  => $retention,
             ],
             'revenue' => [
                 'mrr'             => $mrr,
@@ -156,11 +218,16 @@ class AdminStatsController extends Controller
                 'words_today'       => $wordsToday,
                 'words_week'        => $wordsWeek,
                 'engine_split'      => $engineSplit,
+                'clones_week'       => $clonesWeek,
+                'lang_pairs'        => $langPairs,
             ],
             'system' => [
                 'queue_pending' => $queuePending,
                 'queue_failed'  => $queueFailed,
                 'active_engine' => $activeEngine,
+                'disk_used_pct' => $diskUsedPct,
+                'db_size_mb'    => $dbSizeMb,
+                'last_backup'   => $lastBackup,
             ],
             'charts' => [
                 'user_growth' => $growth,
