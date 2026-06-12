@@ -28,3 +28,16 @@ Schedule::command('admin:digest')
 Schedule::command('admin:check-alerts')
     ->everyFifteenMinutes()
     ->withoutOverlapping();
+
+// Heartbeats consumed by the admin System Check page:
+// - scheduler heartbeat proves schedule:run is firing
+// - queue heartbeat job proves the queue worker is processing
+Schedule::call(function () {
+    \Illuminate\Support\Facades\Cache::put(
+        'heartbeat:scheduler', now()->toIso8601String(), now()->addDay()
+    );
+})->everyMinute()->name('scheduler-heartbeat');
+
+Schedule::call(function () {
+    \App\Jobs\QueueHeartbeatJob::dispatch();
+})->everyFiveMinutes()->name('queue-heartbeat');

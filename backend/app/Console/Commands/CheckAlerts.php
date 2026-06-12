@@ -41,7 +41,15 @@ class CheckAlerts extends Command
             AlertNotifier::send('queue_failed', "{$dead} job(s) in the failed_jobs table.");
         }
 
-        // 3. Disk usage
+        // 3. Queue worker heartbeat (the scheduler dispatches it every 5 min;
+        // if this command runs but the heartbeat is stale, the worker is dead)
+        $beat = \Illuminate\Support\Facades\Cache::get('heartbeat:queue');
+        if ($beat && now()->diffInMinutes(\Carbon\Carbon::parse($beat)) > 12) {
+            AlertNotifier::send('queue_worker_dead',
+                'Queue worker heartbeat is stale — emails and bulk jobs are not being processed. Restart: docker compose restart queue-worker');
+        }
+
+        // 4. Disk usage
         $diskTotal = @disk_total_space(storage_path());
         $diskFree  = @disk_free_space(storage_path());
         if ($diskTotal && $diskFree !== false) {
