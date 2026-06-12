@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Project;
 use App\Services\PlanLimits;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class ProjectController extends Controller
 {
@@ -62,6 +63,17 @@ class ProjectController extends Controller
     public function destroy(Request $request, string $id)
     {
         $project = $request->user()->projects()->findOrFail($id);
+
+        // Remove every stored audio file belonging to this project's scripts
+        // (script rows are removed by cascade, but files must be deleted here).
+        foreach ($project->scripts()->whereNotNull('audio_url')->get() as $script) {
+            try {
+                Storage::disk('audio')->delete($script->audio_url);
+            } catch (\Throwable) {
+                // Missing/unreachable file must not block the project delete
+            }
+        }
+
         $project->delete();
 
         return response()->json(null, 204);
