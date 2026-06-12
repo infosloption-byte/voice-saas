@@ -204,6 +204,9 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::post(  '/admin/users/{user}/unsuspend',   [AdminUserController::class, 'unsuspend']);
     Route::put(   '/admin/users/{user}/plan',        [AdminUserController::class, 'updatePlanOverride']);
     Route::post(  '/admin/users/{user}/impersonate', [AdminImpersonationController::class, 'start']);
+    Route::post(  '/admin/users/{user}/send-reset',          [AdminUserController::class, 'sendPasswordReset']);
+    Route::post(  '/admin/users/{user}/resend-verification', [AdminUserController::class, 'resendVerification']);
+    Route::put(   '/admin/users/{user}/note',                [AdminUserController::class, 'updateNote']);
 
     // Reports (all support ?format=csv)
     Route::get('/admin/reports/top-users',      [AdminReportsController::class, 'topUsers']);

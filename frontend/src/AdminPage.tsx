@@ -377,13 +377,46 @@ function UsersSection({ currentUser }: { currentUser: User }) {
 
   useEffect(() => { load() }, [load])
 
+  const [noteDraft, setNoteDraft] = useState<string | null>(null)
+
   async function openDetail(userId: number) {
     setDetailLoading(true)
+    setNoteDraft(null)
     try {
       const res = await api.get(`/admin/users/${userId}`) as any
       setSelectedUser(res)
     } catch { toast.err('Failed to load user details') }
     finally { setDetailLoading(false) }
+  }
+
+  async function sendReset(u: any) {
+    if (!confirm(`Email a password reset link to ${u.email}?`)) return
+    setActionBusy(`reset-${u.id}`)
+    try {
+      await api.post(`/admin/users/${u.id}/send-reset`, {})
+      toast.ok(`Reset link sent to ${u.email}`)
+    } catch (e: any) { toast.err(e?.message ?? 'Failed to send reset link') }
+    finally { setActionBusy(null) }
+  }
+
+  async function resendVerification(u: any) {
+    setActionBusy(`verify-${u.id}`)
+    try {
+      await api.post(`/admin/users/${u.id}/resend-verification`, {})
+      toast.ok(`Verification email sent to ${u.email}`)
+    } catch (e: any) { toast.err(e?.message ?? 'Failed to send verification email') }
+    finally { setActionBusy(null) }
+  }
+
+  async function saveNote(userId: number) {
+    setActionBusy(`note-${userId}`)
+    try {
+      await api.put(`/admin/users/${userId}/note`, { note: noteDraft })
+      toast.ok('Note saved')
+      setNoteDraft(null)
+      openDetail(userId)
+    } catch (e: any) { toast.err(e?.message ?? 'Failed to save note') }
+    finally { setActionBusy(null) }
   }
 
   async function changeRole(userId: number, role: string) {
@@ -628,6 +661,16 @@ function UsersSection({ currentUser }: { currentUser: User }) {
                       Impersonate
                     </button>
                   )}
+                  <button className="btn btn--ghost btn--sm" disabled={!!actionBusy}
+                    style={{ fontSize: 11 }} onClick={() => sendReset(selectedUser.user)}>
+                    Send password reset
+                  </button>
+                  {!selectedUser.user.email_verified_at && (
+                    <button className="btn btn--ghost btn--sm" disabled={!!actionBusy}
+                      style={{ fontSize: 11 }} onClick={() => resendVerification(selectedUser.user)}>
+                      Resend verification
+                    </button>
+                  )}
                   {isSuperAdmin && (
                     <button className="btn btn--sm" disabled={!!actionBusy}
                       style={{ fontSize: 11, color: 'var(--err)', borderColor: 'rgba(192,57,43,0.3)' }}
@@ -637,6 +680,23 @@ function UsersSection({ currentUser }: { currentUser: User }) {
                   )}
                 </div>
               )}
+
+              {/* Admin note */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-2)', marginBottom: 6 }}>Admin Note</div>
+                <textarea className="full-input" rows={3} maxLength={5000}
+                  value={noteDraft ?? selectedUser.user.admin_note ?? ''}
+                  onChange={e => setNoteDraft(e.target.value)}
+                  placeholder="Internal note about this user — visible to admins only"
+                  style={{ resize: 'vertical', fontSize: 11.5, lineHeight: 1.5 }} />
+                {noteDraft !== null && noteDraft !== (selectedUser.user.admin_note ?? '') && (
+                  <button className="btn btn--primary btn--sm" disabled={!!actionBusy}
+                    style={{ fontSize: 11, marginTop: 6 }}
+                    onClick={() => saveNote(selectedUser.user.id)}>
+                    Save note
+                  </button>
+                )}
+              </div>
 
               {selectedUser.recent_activity?.length > 0 && (
                 <>
@@ -833,21 +893,44 @@ function SubscriptionsSection() {
 function AuditLogSection() {
   const [logs, setLogs]       = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [actionFilter, setActionFilter] = useState('')
+  const [actorFilter, setActorFilter]   = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate]     = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await api.get('/admin/audit-log') as any
+      const params = new URLSearchParams()
+      if (actionFilter) params.set('action', actionFilter)
+      if (actorFilter)  params.set('actor', actorFilter)
+      if (fromDate)     params.set('from', fromDate)
+      if (toDate)       params.set('to', toDate)
+      const res = await api.get(`/admin/audit-log?${params}`) as any
       setLogs(res.logs)
     } catch { toast.err('Failed to load audit log') }
     finally { setLoading(false) }
-  }, [])
+  }, [actionFilter, actorFilter, fromDate, toDate])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t) }, [load])
 
   return (
     <div>
       <SectionHeader title="Admin Audit Log" onRefresh={load} loading={loading} />
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        <input className="full-input" placeholder="Filter by action…" value={actionFilter}
+          onChange={e => setActionFilter(e.target.value)}
+          style={{ flex: 1, minWidth: 140, fontSize: 12, padding: '6px 10px', width: 'auto' }} />
+        <input className="full-input" placeholder="Filter by actor…" value={actorFilter}
+          onChange={e => setActorFilter(e.target.value)}
+          style={{ flex: 1, minWidth: 140, fontSize: 12, padding: '6px 10px', width: 'auto' }} />
+        <input className="full-input" type="date" value={fromDate} title="From date"
+          onChange={e => setFromDate(e.target.value)}
+          style={{ fontSize: 12, padding: '6px 10px', width: 'auto' }} />
+        <input className="full-input" type="date" value={toDate} title="To date"
+          onChange={e => setToDate(e.target.value)}
+          style={{ fontSize: 12, padding: '6px 10px', width: 'auto' }} />
+      </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
@@ -1084,14 +1167,15 @@ function ReportsSection() {
   const [tab, setTab]         = useState<ReportTab>('top-users')
   const [data, setData]       = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [range, setRange]     = useState('30')
 
   const ENDPOINTS: Record<ReportTab, string> = {
-    trends:      '/admin/reports/trends?days=30',
-    'top-users': '/admin/reports/top-users?days=30',
+    trends:      `/admin/reports/trends?days=${range}`,
+    'top-users': `/admin/reports/top-users?days=${range}`,
     quota:       '/admin/reports/quota-pressure?threshold=80',
-    revenue:     '/admin/reports/revenue?months=12',
+    revenue:     `/admin/reports/revenue?months=${range === '7' ? 6 : range === '30' ? 12 : 24}`,
     funnel:      '/admin/reports/funnel',
-    engines:     '/admin/reports/engines?days=14',
+    engines:     `/admin/reports/engines?days=${Math.min(Number(range), 90)}`,
   }
 
   const load = useCallback(async () => {
@@ -1100,7 +1184,7 @@ function ReportsSection() {
     catch { toast.err('Failed to load report') }
     finally { setLoading(false) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab])
+  }, [tab, range])
 
   useEffect(() => { setData(null); load() }, [load])
 
@@ -1132,6 +1216,13 @@ function ReportsSection() {
           </button>
         ))}
         <div style={{ flex: 1 }} />
+        {(tab === 'trends' || tab === 'top-users' || tab === 'revenue' || tab === 'engines') && (
+          <Dropdown value={range} onChange={setRange} minWidth={110} options={[
+            { value: '7',  label: 'Last 7 days' },
+            { value: '30', label: 'Last 30 days' },
+            { value: '90', label: 'Last 90 days' },
+          ]} />
+        )}
         {active.csv && <CsvButton path={active.csv} />}
         <button className="btn btn--ghost btn--sm" style={{ fontSize: 11 }}
           onClick={() => window.open(csvUrl('/admin/reports/export/users'), '_blank')}>
@@ -1148,7 +1239,7 @@ function ReportsSection() {
             const series = (key: string) => rows.map(r => ({ label: r.day.slice(5), value: r[key] as number }))
             return (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                <ChartCard title="Signups / day (30d)"       data={series('signups')}      color="var(--accent)" />
+                <ChartCard title={`Signups / day (${range}d)`} data={series('signups')}    color="var(--accent)" />
                 <ChartCard title="Active users / day"        data={series('active_users')} color="#10b981" />
                 <ChartCard title="Jobs / day"                data={series('jobs')}         color="#6366f1" />
                 <ChartCard title="Failed jobs / day"         data={series('failed')}       color="var(--err, #ef4444)" />
