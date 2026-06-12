@@ -11,6 +11,7 @@ use App\Http\Controllers\Admin\AdminBroadcastController;
 use App\Http\Controllers\Admin\AdminImpersonationController;
 use App\Http\Controllers\Admin\AdminReportsController;
 use App\Http\Controllers\Admin\AdminSettingsController;
+use App\Http\Controllers\Admin\SystemCheckController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\EngineCapabilitiesController;
 use App\Http\Controllers\EngineProxyController;
@@ -223,6 +224,11 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     // Operational settings (API keys, plan IDs, webhooks)
     Route::get('/admin/settings', [AdminSettingsController::class, 'index']);
     Route::put('/admin/settings', [AdminSettingsController::class, 'update']);
+
+    // System health checks (live probes)
+    Route::get( '/admin/system-check',            [SystemCheckController::class, 'index']);
+    Route::post('/admin/system-check/test-email', [SystemCheckController::class, 'testEmail']);
+    Route::post('/admin/system-check/test-alert', [SystemCheckController::class, 'testAlert']);
 
     // Broadcast announcement email
     Route::post('/admin/broadcast', [AdminBroadcastController::class, 'send']);
