@@ -256,7 +256,7 @@ class SystemCheckController extends Controller
 
     private function storageWritable(): array
     {
-        $disk = env('AUDIO_DISK', 'local') === 's3' ? 's3' : 'audio';
+        $disk = config('filesystems.disks.audio.driver') === 's3' ? 's3' : 'audio';
         try {
             $path = 'system-check/' . uniqid() . '.txt';
             $t = microtime(true);
@@ -274,7 +274,7 @@ class SystemCheckController extends Controller
 
     private function recentBackup(): array
     {
-        $dir = env('BACKUP_DIR', '/home/user/voice-saas/backups');
+        $dir = config('backup.dir');
         if (!is_dir($dir)) {
             return $this->result('backup', 'Database backup', 'warn', "backup dir not visible: {$dir}",
                 'If backups run on the host, mount the dir into the backend container and set BACKUP_DIR, otherwise this check cannot see them.');
