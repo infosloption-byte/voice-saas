@@ -26,9 +26,7 @@ for i in $(seq 1 30); do
     sleep 3
 done
 
-
-# Run the Laravel scheduler every minute in the background
-( while true; do php artisan schedule:run --no-interaction >> /dev/null 2>&1; sleep 60; done ) &
-
-# Start the dev server
-exec php artisan serve --host=0.0.0.0 --port=8080
+# Hand off to the command specified in docker-compose (queue:work, schedule:run
+# loop, or php artisan serve). Each service declares its own command so a single
+# image covers all three roles without the entrypoint hard-coding any one of them.
+exec "$@"
