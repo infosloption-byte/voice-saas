@@ -34,6 +34,8 @@ services:
       - DB_USERNAME=${DB_USERNAME:-root}
       - DB_PASSWORD=${DB_PASSWORD}
       - REDIS_HOST=redis
+      - CACHE_DRIVER=redis
+      - QUEUE_CONNECTION=redis
       - AI_ENGINE_URL=http://ai-engine:8000
       - ADMIN_EMAIL=${ADMIN_EMAIL:-}
       - BACKUP_DIR=/backups
@@ -47,6 +49,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - voice-network
 
@@ -91,6 +95,8 @@ services:
       - DB_USERNAME=${DB_USERNAME:-root}
       - DB_PASSWORD=${DB_PASSWORD}
       - REDIS_HOST=redis
+      - CACHE_DRIVER=redis
+      - QUEUE_CONNECTION=redis
       - AI_ENGINE_URL=http://ai-engine:8000
       - ADMIN_EMAIL=${ADMIN_EMAIL:-}
       - BACKUP_DIR=/backups
@@ -103,6 +109,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - voice-network
 
@@ -127,6 +135,8 @@ services:
       - DB_USERNAME=${DB_USERNAME:-root}
       - DB_PASSWORD=${DB_PASSWORD}
       - REDIS_HOST=redis
+      - CACHE_DRIVER=redis
+      - QUEUE_CONNECTION=redis
       - ADMIN_EMAIL=${ADMIN_EMAIL:-}
       - BACKUP_DIR=/backups
       - AUDIO_DISK=${AUDIO_DISK:-local}
@@ -138,6 +148,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - voice-network
 
