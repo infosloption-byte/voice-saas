@@ -6,6 +6,16 @@ RUN apt-get update && apt-get install -y \
 
 RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd
 
+# phpredis — required for the Redis cache/queue drivers and the health probe.
+# $PHPIZE_DEPS (autoconf/gcc/make) is needed to compile the PECL extension;
+# remove it afterwards to keep the image small.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends $PHPIZE_DEPS \
+    && pecl install redis \
+    && docker-php-ext-enable redis \
+    && apt-get purge -y --auto-remove $PHPIZE_DEPS \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
