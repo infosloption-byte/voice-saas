@@ -102,7 +102,7 @@ class SystemCheckController extends Controller
             // Cache/queue currently run on the database driver, so Redis
             // being down degrades nothing — warn, don't fail.
             return $this->result('redis', 'Redis', 'warn', 'unreachable',
-                'Redis is not responding. Cache/queue use the database driver so nothing is broken, but the voice_redis container should be checked.');
+                get_class($e) . ': ' . $e->getMessage());
         }
     }
 
