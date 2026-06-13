@@ -138,7 +138,7 @@ class AdminStatsController extends Controller
 
         // Most recent .sql.gz backup (same dir backup:check watches)
         $lastBackup = null;
-        $backupDir  = env('BACKUP_DIR', '/home/user/voice-saas/backups');
+        $backupDir  = config('backup.dir');
         if (is_dir($backupDir)) {
             $newest = 0;
             foreach (glob($backupDir . '/*.sql.gz') ?: [] as $file) {
