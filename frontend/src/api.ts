@@ -26,7 +26,7 @@ const LARAVEL_PATHS = [
   '/forgot-password', '/reset-password',
   '/email', '/subscription', '/guest-limits',
   '/plan-limits', '/admin', '/synthesis', '/translation',
-  '/engine', '/activity-logs',
+  '/engine', '/activity-logs', '/notifications',
 ]
 
 function isLaravelPath(path: string): boolean {
