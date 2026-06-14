@@ -86,8 +86,9 @@ export const activityLog = {
       // Replace temp entry with the server-issued id
       _entries = _entries.map(e => e.id === tempId ? { ..._fromApi(res) } : e)
       _notify()
-    } catch {
+    } catch (e) {
       // guest or network error — stay in-memory only
+      if (import.meta.env.DEV) console.warn('[activityLog] store failed:', e)
     }
 
     const resolvedId = backendId ?? tempId
