@@ -41,3 +41,17 @@ Schedule::call(function () {
 Schedule::call(function () {
     \App\Jobs\QueueHeartbeatJob::dispatch();
 })->everyFiveMinutes()->name('queue-heartbeat');
+
+// Reap orphaned activity logs. Single-script synthesis is driven client-side,
+// so a page refresh mid-task leaves the log stuck in "running" forever (the
+// browser never sends the done/fail signal). Anything still running after an
+// hour — longer than the bulk job's own 1h timeout — is certainly dead.
+Schedule::call(function () {
+    \App\Models\ActivityLog::where('status', 'running')
+        ->where('started_at', '<', now()->subHour())
+        ->update([
+            'status'   => 'failed',
+            'detail'   => 'Marked failed automatically — the task was interrupted (e.g. the page was closed) and never reported completion.',
+            'ended_at' => now(),
+        ]);
+})->everyFifteenMinutes()->name('reap-stale-activity-logs');
