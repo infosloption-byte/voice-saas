@@ -152,38 +152,122 @@ class BulkSynthesisJob implements ShouldQueue
             }
         }
 
-        // --- Submit ---
+        // Build the shared engine params for every chunk submission.
+        $baseParams = [
+            'tts_engine'          => $this->engine,
+            'speed'               => (string) $speed,
+            'temperature'         => (string) $temperature,
+            'top_k'               => (string) $topK,
+            'top_p'               => (string) $topP,
+            'gap_ms'              => '60',
+            'cfg_strength'        => (string) ($preset['cfg_strength'] ?? 2.0),
+            'target_rms'          => (string) ($preset['f5_rms'] ?? 0.1),
+            'sway_sampling_coef'  => (string) ($preset['f5_sway'] ?? -1.0),
+        ];
+        if ($this->engine === 'xtts') {
+            $baseParams['repetition_penalty'] = '5.0';
+        }
+        if ($engineKey) {
+            $baseParams['profile_id'] = $engineKey;
+        }
+        if ($speakerMap) {
+            $baseParams['speaker_map'] = json_encode($speakerMap);
+        }
+        if ($script->language) {
+            $baseParams['language'] = $script->language;
+        }
+
+        // --- Chunk long texts so F5-TTS / XTTS don't truncate or fail ---
+        // Multi-voice scripts are not chunked (speaker-tagged text must be
+        // processed whole so the engine can switch speakers mid-script).
+        $content    = $script->content ?? '';
+        $isMulti    = ! empty($speakerMap);
+        $chunks     = ($isMulti || str_word_count($content) <= 150)
+            ? [$content]
+            : $this->splitIntoChunks($content);
+
+        $chunkWavs = [];
+        foreach ($chunks as $chunkText) {
+            $chunkWavs[] = $this->submitAndFetch($engineUrl, $chunkText, $baseParams);
+        }
+
+        // Concatenate WAV chunks (raw PCM splice — header from first, data from all).
+        $audioData = count($chunkWavs) === 1
+            ? $chunkWavs[0]
+            : $this->concatWavs($chunkWavs);
+
+        if (empty($audioData)) {
+            throw new \RuntimeException('Engine returned empty audio body.');
+        }
+
+        // --- Post-process audio server-side (enhance + trim + convert) ---
+        [$processedData, $ext, $duration, $peaks] = $this->postProcessAudio($audioData);
+
+        // --- Persist ---
+        if ($script->audio_url) {
+            Storage::disk('audio')->delete($script->audio_url);
+        }
+
+        $filename = $this->userId . '/script_' . $script->id . '.' . $ext;
+        Storage::disk('audio')->put($filename, $processedData);
+
+        $script->update([
+            'has_audio'      => true,
+            'audio_url'      => $filename,
+            'duration'       => $duration,
+            'waveform_peaks' => $peaks,
+        ]);
+    }
+
+    // ── Chunking + WAV concat ────────────────────────────────────────────
+
+    /**
+     * Split text into sentence-aligned chunks of at most $maxWords words.
+     * Mirrors the browser's splitIntoChunks() in WorkspacePage.tsx.
+     *
+     * @return string[]
+     */
+    private function splitIntoChunks(string $text, int $maxWords = 150): array
+    {
+        // Split on sentence-ending punctuation, keeping the delimiter.
+        $sentences = preg_split('/(?<=[.!?])\s+/', trim($text), -1, PREG_SPLIT_NO_EMPTY);
+        if (! $sentences) {
+            return [$text];
+        }
+
+        $chunks  = [];
+        $current = '';
+
+        foreach ($sentences as $sentence) {
+            $candidate = $current === '' ? $sentence : $current . ' ' . $sentence;
+            if (str_word_count($candidate) > $maxWords && $current !== '') {
+                $chunks[]  = $current;
+                $current   = $sentence;
+            } else {
+                $current   = $candidate;
+            }
+        }
+
+        if ($current !== '') {
+            $chunks[] = $current;
+        }
+
+        return array_values(array_filter($chunks));
+    }
+
+    /**
+     * Submit one text chunk to the engine, poll until done, and return the
+     * raw WAV bytes. Throws on any failure.
+     */
+    private function submitAndFetch(string $engineUrl, string $text, array $params): string
+    {
         $pending = Http::withHeaders($this->engineHeaders())
             ->retry(2, 500, throw: false)
             ->asMultipart()
-            ->attach('text',        $script->content ?? '')
-            ->attach('tts_engine',  $this->engine)
-            ->attach('speed',       (string) $speed)
-            // XTTS-specific knobs (ignored by F5)
-            ->attach('temperature', (string) $temperature)
-            ->attach('top_k',       (string) $topK)
-            ->attach('top_p',       (string) $topP)
-            ->attach('gap_ms',      '60')
-            // F5-specific tone knobs (ignored by XTTS)
-            ->attach('cfg_strength',       (string) ($preset['cfg_strength'] ?? 2.0))
-            ->attach('target_rms',         (string) ($preset['f5_rms'] ?? 0.1))
-            ->attach('sway_sampling_coef', (string) ($preset['f5_sway'] ?? -1.0));
+            ->attach('text', $text);
 
-        // Reduces word/phrase repetition loops in XTTS output.
-        if ($this->engine === 'xtts') {
-            $pending = $pending->attach('repetition_penalty', '5.0');
-        }
-
-        if ($engineKey) {
-            $pending = $pending->attach('profile_id', $engineKey);
-        }
-
-        if ($speakerMap) {
-            $pending = $pending->attach('speaker_map', json_encode($speakerMap));
-        }
-
-        if ($script->language) {
-            $pending = $pending->attach('language', $script->language);
+        foreach ($params as $name => $value) {
+            $pending = $pending->attach($name, $value);
         }
 
         $submitResp = $pending->timeout(30)->post($engineUrl . '/synthesize/submit');
@@ -197,7 +281,7 @@ class BulkSynthesisJob implements ShouldQueue
             throw new \RuntimeException('Engine did not return a job_id.');
         }
 
-        // --- Poll status ---
+        // Poll status.
         $deadline = time() + self::PER_SCRIPT_TIMEOUT;
         $status   = 'pending';
 
@@ -231,7 +315,6 @@ class BulkSynthesisJob implements ShouldQueue
             );
         }
 
-        // --- Fetch result ---
         $resultResp = Http::withHeaders($this->engineHeaders())
             ->timeout(120)
             ->withOptions(['stream' => true])
@@ -241,29 +324,42 @@ class BulkSynthesisJob implements ShouldQueue
             throw new \RuntimeException("Result fetch failed ({$resultResp->status()})");
         }
 
-        $audioData = $resultResp->body();
-        if (empty($audioData)) {
+        $data = $resultResp->body();
+        if (empty($data)) {
             throw new \RuntimeException('Engine returned empty audio body.');
         }
 
-        // --- Post-process audio server-side (enhance + trim + convert) ---
-        [$processedData, $ext, $duration, $peaks] = $this->postProcessAudio($audioData);
+        return $data;
+    }
 
-        // --- Persist ---
-        // Clean up any old audio file for this script.
-        if ($script->audio_url) {
-            Storage::disk('audio')->delete($script->audio_url);
+    /**
+     * Splice multiple PCM WAV blobs into one.
+     * Keeps the 44-byte header from the first file and appends the raw PCM
+     * data from every file (skipping each file's own 44-byte header).
+     * Updates the RIFF and data chunk sizes in the combined header.
+     *
+     * @param string[] $wavs
+     */
+    private function concatWavs(array $wavs): string
+    {
+        $header   = substr($wavs[0], 0, 44);
+        $allPcm   = '';
+
+        foreach ($wavs as $wav) {
+            if (strlen($wav) > 44) {
+                $allPcm .= substr($wav, 44);
+            }
         }
 
-        $filename = $this->userId . '/script_' . $script->id . '.' . $ext;
-        Storage::disk('audio')->put($filename, $processedData);
+        $dataSize = strlen($allPcm);
+        $riffSize = 36 + $dataSize;
 
-        $script->update([
-            'has_audio'     => true,
-            'audio_url'     => $filename,
-            'duration'      => $duration,
-            'waveform_peaks' => $peaks,
-        ]);
+        // Patch RIFF chunk size at offset 4 (little-endian uint32)
+        $header = substr_replace($header, pack('V', $riffSize), 4, 4);
+        // Patch data chunk size at offset 40 (little-endian uint32)
+        $header = substr_replace($header, pack('V', $dataSize), 40, 4);
+
+        return $header . $allPcm;
     }
 
     // ── Voice-profile resolution ─────────────────────────────────────────
