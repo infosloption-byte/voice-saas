@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\ActivityLog;
 use App\Models\Script;
+use App\Models\VoiceProfile;
 use App\Services\EngineResolver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -29,6 +30,24 @@ class BulkSynthesisJob implements ShouldQueue
 
     /** Number of waveform bars to extract. */
     private const WAVEFORM_BARS = 60;
+
+    /**
+     * Tone presets — kept in sync with the frontend TONE_PRESETS
+     * (frontend/src/constants.tsx). These map a tone name to the engine
+     * tuning knobs so server-side synthesis sounds identical to the old
+     * browser path.
+     */
+    private const TONE_PRESETS = [
+        'natural'      => ['temperature' => 0.65, 'top_k' => 50, 'top_p' => 0.85, 'cfg_strength' => 2.0, 'f5_rms' => 0.10, 'f5_sway' => -1.0, 'f5_pace' => 1.00],
+        'expressive'   => ['temperature' => 0.85, 'top_k' => 80, 'top_p' => 0.95, 'cfg_strength' => 2.6, 'f5_rms' => 0.12, 'f5_sway' => -0.6, 'f5_pace' => 1.03],
+        'calm'         => ['temperature' => 0.40, 'top_k' => 30, 'top_p' => 0.70, 'cfg_strength' => 1.6, 'f5_rms' => 0.07, 'f5_sway' => -1.2, 'f5_pace' => 0.92],
+        'energetic'    => ['temperature' => 0.90, 'top_k' => 90, 'top_p' => 0.98, 'cfg_strength' => 2.8, 'f5_rms' => 0.14, 'f5_sway' => -0.5, 'f5_pace' => 1.12],
+        'cheerful'     => ['temperature' => 0.80, 'top_k' => 70, 'top_p' => 0.92, 'cfg_strength' => 2.4, 'f5_rms' => 0.12, 'f5_sway' => -0.7, 'f5_pace' => 1.05],
+        'serious'      => ['temperature' => 0.45, 'top_k' => 35, 'top_p' => 0.75, 'cfg_strength' => 2.2, 'f5_rms' => 0.10, 'f5_sway' => -1.2, 'f5_pace' => 0.96],
+        'dramatic'     => ['temperature' => 0.95, 'top_k' => 95, 'top_p' => 0.99, 'cfg_strength' => 3.0, 'f5_rms' => 0.13, 'f5_sway' => -0.4, 'f5_pace' => 0.98],
+        'whisper'      => ['temperature' => 0.30, 'top_k' => 20, 'top_p' => 0.60, 'cfg_strength' => 1.4, 'f5_rms' => 0.05, 'f5_sway' => -1.3, 'f5_pace' => 0.90],
+        'storytelling' => ['temperature' => 0.72, 'top_k' => 60, 'top_p' => 0.88, 'cfg_strength' => 2.1, 'f5_rms' => 0.10, 'f5_sway' => -0.9, 'f5_pace' => 1.00],
+    ];
 
     public function __construct(
         public readonly int    $userId,
@@ -57,6 +76,7 @@ class BulkSynthesisJob implements ShouldQueue
         $total     = $ordered->count();
         $done      = 0;
         $failed    = 0;
+        $lastError = '';
         $engineUrl = rtrim(EngineResolver::activeUrl(), '/');
 
         $totalWords = $ordered->sum(fn($s) => str_word_count($s->content ?? ''));
@@ -70,6 +90,7 @@ class BulkSynthesisJob implements ShouldQueue
                 $done++;
             } catch (\Throwable $e) {
                 $failed++;
+                $lastError = $e->getMessage();
                 Log::warning("BulkSynthesisJob: script {$script->id} failed — {$e->getMessage()}");
             }
 
@@ -81,6 +102,11 @@ class BulkSynthesisJob implements ShouldQueue
         }
 
         $summary = "Bulk synthesis complete: {$done}/{$total} succeeded" . ($failed ? ", {$failed} failed" : '');
+        // When everything failed, surface the underlying reason so the user
+        // isn't left with a bare "3 failed" in the activity log.
+        if ($failed === $total && $lastError !== '') {
+            $summary .= ' — ' . $this->truncate($lastError, 180);
+        }
         $status  = ($failed === $total) ? 'failed' : 'done';
         $this->updateLog($log, $summary, $status, now());
     }
@@ -89,13 +115,38 @@ class BulkSynthesisJob implements ShouldQueue
 
     private function synthesiseScript(Script $script, string $engineUrl): void
     {
-        $profileId  = $script->profile_id ?? '';
-        $speakerMap = $script->speaker_map;
+        // The engine identifies voices by their engine_key (a UUID), not by the
+        // user-facing profile_id stored on the script. Resolve it here, exactly
+        // as the browser path does, or every real recorded voice fails.
+        $engineKey = $this->resolveEngineKey($script->profile_id ?? '');
 
-        // Ensure voice profile is present on the engine.
-        if ($profileId) {
+        // Resolve any multi-voice speaker_map entries from profile_id → engine_key.
+        $speakerMap = $this->resolveSpeakerMap($script->speaker_map);
+
+        // Tone → engine tuning knobs (kept in sync with the frontend).
+        $tone   = $script->tone ?: 'natural';
+        $preset = self::TONE_PRESETS[$tone] ?? self::TONE_PRESETS['natural'];
+
+        // advanced_params override the preset's XTTS knobs when the user has
+        // manually tuned them.
+        $adv = $script->advanced_params ?? [];
+        if (is_string($adv)) {
+            $adv = json_decode($adv, true) ?: [];
+        }
+        $temperature = $adv['temperature'] ?? $preset['temperature'];
+        $topK        = $adv['top_k']       ?? $preset['top_k'];
+        $topP        = $adv['top_p']       ?? $preset['top_p'];
+
+        // Speed: clamp 0.5–2.0; F5 folds the tone's pace into the user's speed.
+        $userSpeed = max(0.5, min(2.0, (float) ($script->speed ?: 1.0)));
+        $f5Speed   = max(0.5, min(2.0, $userSpeed * ($preset['f5_pace'] ?? 1.0)));
+        $speed     = $this->engine === 'f5' ? $f5Speed : $userSpeed;
+
+        // Ensure the voice profile (and any speaker-map voices) are present on
+        // the engine, provisioning from shared storage if needed.
+        foreach ($this->collectEngineKeys($engineKey, $speakerMap) as $key) {
             try {
-                \App\Services\VoiceProfileStore::ensureOnEngine($engineUrl, $profileId);
+                \App\Services\VoiceProfileStore::ensureOnEngine($engineUrl, $key);
             } catch (\Throwable) {
                 // Non-fatal: the engine will return an error we will surface.
             }
@@ -105,26 +156,34 @@ class BulkSynthesisJob implements ShouldQueue
         $pending = Http::withHeaders($this->engineHeaders())
             ->retry(2, 500, throw: false)
             ->asMultipart()
-            ->attach('text',       $script->content ?? '')
-            ->attach('tts_engine', $this->engine);
+            ->attach('text',        $script->content ?? '')
+            ->attach('tts_engine',  $this->engine)
+            ->attach('speed',       (string) $speed)
+            // XTTS-specific knobs (ignored by F5)
+            ->attach('temperature', (string) $temperature)
+            ->attach('top_k',       (string) $topK)
+            ->attach('top_p',       (string) $topP)
+            ->attach('gap_ms',      '60')
+            // F5-specific tone knobs (ignored by XTTS)
+            ->attach('cfg_strength',       (string) ($preset['cfg_strength'] ?? 2.0))
+            ->attach('target_rms',         (string) ($preset['f5_rms'] ?? 0.1))
+            ->attach('sway_sampling_coef', (string) ($preset['f5_sway'] ?? -1.0));
 
-        if ($profileId) {
-            $pending = $pending->attach('profile_id', $profileId);
+        // Reduces word/phrase repetition loops in XTTS output.
+        if ($this->engine === 'xtts') {
+            $pending = $pending->attach('repetition_penalty', '5.0');
+        }
+
+        if ($engineKey) {
+            $pending = $pending->attach('profile_id', $engineKey);
         }
 
         if ($speakerMap) {
-            $pending = $pending->attach(
-                'speaker_map',
-                is_array($speakerMap) ? json_encode($speakerMap) : (string) $speakerMap,
-            );
+            $pending = $pending->attach('speaker_map', json_encode($speakerMap));
         }
 
         if ($script->language) {
             $pending = $pending->attach('language', $script->language);
-        }
-
-        if ($script->speed) {
-            $pending = $pending->attach('speed', (string) $script->speed);
         }
 
         $submitResp = $pending->timeout(30)->post($engineUrl . '/synthesize/submit');
@@ -205,6 +264,73 @@ class BulkSynthesisJob implements ShouldQueue
             'duration'      => $duration,
             'waveform_peaks' => $peaks,
         ]);
+    }
+
+    // ── Voice-profile resolution ─────────────────────────────────────────
+
+    /**
+     * Resolve a script's stored profile_id to the engine_key the engine
+     * actually uses. Built-in voices ("builtin:Name") are passed through
+     * unchanged, as are ids that already match an engine_key.
+     */
+    private function resolveEngineKey(string $profileId): string
+    {
+        if ($profileId === '' || str_starts_with($profileId, 'builtin:')) {
+            return $profileId;
+        }
+
+        $profile = VoiceProfile::where('user_id', $this->userId)
+            ->where('profile_id', $profileId)
+            ->first();
+
+        return $profile?->engine_key ?: $profileId;
+    }
+
+    /**
+     * Resolve a multi-voice speaker_map's values (profile_ids) to engine_keys.
+     * Accepts an array or JSON string; returns an array (or null when empty).
+     */
+    private function resolveSpeakerMap($speakerMap): ?array
+    {
+        if (! $speakerMap) {
+            return null;
+        }
+
+        $map = is_string($speakerMap) ? json_decode($speakerMap, true) : $speakerMap;
+        if (! is_array($map) || empty($map)) {
+            return null;
+        }
+
+        $resolved = [];
+        foreach ($map as $speaker => $profileId) {
+            $resolved[$speaker] = is_string($profileId)
+                ? $this->resolveEngineKey($profileId)
+                : $profileId;
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * Gather the distinct engine_keys that must exist on the engine for this
+     * synthesis: the primary voice plus any speaker-map voices. Built-in
+     * voices are skipped (the engine ships with them).
+     *
+     * @return string[]
+     */
+    private function collectEngineKeys(string $primaryKey, ?array $speakerMap): array
+    {
+        $keys = [];
+        if ($primaryKey !== '' && ! str_starts_with($primaryKey, 'builtin:')) {
+            $keys[] = $primaryKey;
+        }
+        foreach ($speakerMap ?? [] as $key) {
+            if (is_string($key) && $key !== '' && ! str_starts_with($key, 'builtin:')) {
+                $keys[] = $key;
+            }
+        }
+
+        return array_values(array_unique($keys));
     }
 
     // ── Audio post-processing ────────────────────────────────────────────
@@ -373,6 +499,12 @@ class BulkSynthesisJob implements ShouldQueue
     {
         $key = config('services.ai_engine.key', '');
         return $key ? ['X-Engine-Key' => $key] : [];
+    }
+
+    private function truncate(string $text, int $max): string
+    {
+        $text = trim(preg_replace('/\s+/', ' ', $text));
+        return strlen($text) > $max ? substr($text, 0, $max - 1) . '…' : $text;
     }
 
     /**
