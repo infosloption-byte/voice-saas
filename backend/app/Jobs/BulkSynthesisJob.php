@@ -56,7 +56,10 @@ class BulkSynthesisJob implements ShouldQueue
         $failed    = 0;
         $engineUrl = rtrim(EngineResolver::activeUrl(), '/');
 
-        $this->updateLog($log, "Bulk synthesis running: 0/{$total} done", 'running');
+        $totalWords = $ordered->sum(fn($s) => str_word_count($s->content ?? ''));
+
+        $this->updateLog($log, "Bulk synthesis running: 0/{$total} done", 'running',
+            detail: "model:{$this->engine}|words:{$totalWords}|scripts:{$total}");
 
         foreach ($ordered as $script) {
             try {
@@ -228,15 +231,15 @@ class BulkSynthesisJob implements ShouldQueue
         string $message,
         string $status,
         ?\Carbon\Carbon $endedAt = null,
+        ?string $detail = null,
     ): void {
         if (! $log) {
             return;
         }
 
         $data = ['message' => $message, 'status' => $status];
-        if ($endedAt) {
-            $data['ended_at'] = $endedAt;
-        }
+        if ($endedAt) $data['ended_at'] = $endedAt;
+        if ($detail !== null) $data['detail'] = $detail;
 
         $log->update($data);
     }
