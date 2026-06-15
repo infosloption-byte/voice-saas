@@ -806,20 +806,27 @@ export function WorkspacePage({
 
   // ── Server synthesis helpers ──────────────────────────────────────
 
-  /** Poll an activity-log record until its status is 'done' or 'failed'. */
+  /**
+   * Poll a server activity-log until done/failed.
+   * Keeps the local activity-log store in sync so the panel shows live progress
+   * without creating a second redundant log entry.
+   */
   async function pollActivityLog(
     logId: number,
     onProgress?: (message: string) => void,
   ): Promise<void> {
     const MAX_MS = 60 * 60 * 1000 // 1 hour
     const start  = Date.now()
+    // Register the server log in the in-memory store so it shows immediately.
+    const tracker = await activityLog.track(logId)
     for (;;) {
       await new Promise(r => setTimeout(r, 3000))
       if (Date.now() - start > MAX_MS) throw new Error('Synthesis timed out after 1 hour.')
-      const log = await api.get(`/activity-logs/${logId}`) as { status: string; message: string }
-      onProgress?.(log.message ?? '')
+      const log = await api.get(`/activity-logs/${logId}`) as Record<string, unknown>
+      tracker?.update(log)
+      onProgress?.((log.message as string) ?? '')
       if (log.status === 'done') return
-      if (log.status === 'failed') throw new Error(log.message || 'Server synthesis failed.')
+      if (log.status === 'failed') throw new Error((log.message as string) || 'Server synthesis failed.')
     }
   }
 
@@ -922,13 +929,6 @@ export function WorkspacePage({
 
     setSynthesizing(true)
     setSynthErr('')
-    const modelLabel    = engine === 'f5' ? 'F5-TTS' : 'XTTS v2'
-    const synthWordCount = histState.present.trim().split(/\s+/).length
-    const logEntry = await activityLog.start(
-      `Synthesising "${activeScript.title}"`,
-      `model:${modelLabel}|words:${synthWordCount}|voice:queued`,
-      { projectId: project.id, eventType: 'synthesis' },
-    )
 
     try {
       const result = await api.post('/engine/synthesize/bulk-queue', {
@@ -937,6 +937,8 @@ export function WorkspacePage({
         project_id: project.id,
       }) as { queued: boolean; activity_log_id: number }
 
+      // pollActivityLog registers the server's own log in the local store —
+      // no separate client log needed.
       await pollActivityLog(result.activity_log_id)
 
       await refreshScriptState([activeScript.id])
@@ -944,11 +946,8 @@ export function WorkspacePage({
       if (url) setAudioUrl(url)
 
       api.get('/synthesis/quota').then(q => setSynthQuota(q as typeof synthQuota)).catch(() => {})
-      logEntry.done('Audio ready')
     } catch (e) {
-      const msg = (e as Error).message
-      setSynthErr(msg)
-      logEntry.fail(msg)
+      setSynthErr((e as Error).message)
     } finally {
       setSynthesizing(false)
     }
@@ -998,13 +997,6 @@ export function WorkspacePage({
     setBulkProgress(0)
     setBulkErrors([])
 
-    const bulkModelLabel = engine === 'f5' ? 'F5-TTS' : 'XTTS v2'
-    const bulkLog = await activityLog.start(
-      `Bulk synthesis: ${pending.length} scripts`,
-      `model:${bulkModelLabel}|words:${pending.reduce((acc, s) => acc + s.content.trim().split(/\s+/).length, 0)}`,
-      { projectId: project.id, eventType: 'synthesis' },
-    )
-
     try {
       const result = await api.post('/engine/synthesize/bulk-queue', {
         script_ids: pending.map(s => s.id),
@@ -1012,8 +1004,9 @@ export function WorkspacePage({
         project_id: project.id,
       }) as { queued: boolean; activity_log_id: number }
 
+      // Server creates and owns the activity log — pollActivityLog registers it
+      // in the local store so the panel shows it immediately (no duplicate log).
       await pollActivityLog(result.activity_log_id, (msg) => {
-        // Parse progress from "Bulk synthesis running: N/M done"
         const m = msg.match(/(\d+)\/(\d+)/)
         if (m) setBulkProgress(parseInt(m[1]))
       })
@@ -1021,17 +1014,13 @@ export function WorkspacePage({
       await refreshScriptState(pending.map(s => s.id))
       setBulkProgress(pending.length)
 
-      bulkLog.done(`${pending.length} scripts queued and processed`)
-
       api.post('/notifications/bulk-synthesis-complete', {
         project_name: project.name,
         total: pending.length,
         failed: 0,
       }).catch(() => {})
     } catch (e) {
-      const msg = (e as Error).message || 'Bulk synthesis failed.'
-      toast.err(msg)
-      bulkLog.fail(msg)
+      toast.err((e as Error).message || 'Bulk synthesis failed.')
     } finally {
       setBulkActiveId(null)
       setBulkGenerating(false)

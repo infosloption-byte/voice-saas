@@ -125,6 +125,27 @@ export const activityLog = {
     }
   },
 
+  /**
+   * Fetch a single server-created log (e.g. from a background job) and add
+   * it to the local in-memory store so it shows immediately in the activity
+   * panel. Returns a handle to push updates into the store as polling arrives.
+   */
+  async track(serverLogId: number) {
+    try {
+      const res = await api.get(`/activity-logs/${serverLogId}`) as Record<string, unknown>
+      const entry = _fromApi(res)
+      _upsert(entry)
+
+      return {
+        update(data: Record<string, unknown>) {
+          _upsert(_fromApi(data))
+        },
+      }
+    } catch {
+      return null
+    }
+  },
+
   /** Pull the latest entries from the backend (replaces in-memory). */
   async fetch(projectId?: string): Promise<void> {
     try {
