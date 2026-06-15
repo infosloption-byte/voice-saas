@@ -1037,23 +1037,6 @@ export function WorkspacePage({
   }
 
   // ── Queue bulk synthesis server-side ─────────────────────────────
-  async function handleQueueBulk() {
-    const pending = project.scripts.filter(s => s.content.trim() && !s.hasAudio)
-    if (!pending.length) { toast.info('All scripts already have audio.'); return }
-    if (isGuest) { toast.err('Sign in to use background synthesis.'); return }
-
-    try {
-      await api.post('/engine/synthesize/bulk-queue', {
-        script_ids: pending.map(s => s.id),
-        engine,
-        project_id: project.id,
-      })
-      toast.ok('Bulk synthesis queued — you\'ll get an email when done. Close this tab safely.')
-    } catch (e) {
-      toast.err((e as Error).message || 'Failed to queue bulk synthesis.')
-    }
-  }
-
   // ── Audio transcription ───────────────────────────────────────────
   async function handleAudioTranscribe(file: File) {
     if (!ENGINE_URL) { toast.err('Engine URL is not configured. Check your .env file.'); return }
@@ -1387,11 +1370,12 @@ export function WorkspacePage({
           </h3>
 
           <div style={{ display: 'flex', gap: 4 }}>
-            {pendingCount > 0 && !bulkGenerating && (
+            {!bulkGenerating && (
               <button
                 className="btn btn--sm"
                 onClick={handleBulkGenerate}
-                title={`Generate all ${pendingCount} pending scripts`}
+                disabled={synthesizing || bulkGenerating}
+                title="Generate all scripts"
                 style={{
                   background:   'var(--accent-lt)',
                   color:        'var(--accent)',
@@ -1474,49 +1458,27 @@ export function WorkspacePage({
           )}
         </div>
 
-        {/* Bulk generate footer */}
-        {pendingCount > 0 && (
-          <div style={{ padding: '8px 10px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
-            <button
-              className="btn btn--sm"
-              style={{
-                width:          '100%',
-                justifyContent: 'center',
-                background:     bulkGenerating ? 'var(--bg-3)' : 'var(--accent-lt)',
-                color:          bulkGenerating ? 'var(--text-3)' : 'var(--accent)',
-                border:         '1px solid var(--accent-mid)',
-              }}
-              onClick={handleBulkGenerate}
-              disabled={bulkGenerating}
-            >
-              {bulkGenerating ? (
-                <><span className="spinner" /> Generating {bulkProgress}/{bulkTotal}</>
-              ) : (
-                <>{icons.bolt} Generate All ({pendingCount})</>
-              )}
-            </button>
-
-            {!bulkGenerating && (
-              <button
-                className="btn btn--sm btn--ghost"
-                style={{ width: '100%', justifyContent: 'center', marginTop: 6 }}
-                onClick={handleQueueBulk}
-                title="Run synthesis on the server — safe to close this tab"
-              >
-                Queue in background
-              </button>
+        {/* Bulk generate footer — always visible so users can regenerate */}
+        <div style={{ padding: '8px 10px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+          <button
+            className="btn btn--sm"
+            style={{
+              width:          '100%',
+              justifyContent: 'center',
+              background:     (synthesizing || bulkGenerating) ? 'var(--bg-3)' : 'var(--accent-lt)',
+              color:          (synthesizing || bulkGenerating) ? 'var(--text-3)' : 'var(--accent)',
+              border:         '1px solid var(--accent-mid)',
+            }}
+            onClick={handleBulkGenerate}
+            disabled={synthesizing || bulkGenerating}
+          >
+            {bulkGenerating ? (
+              <><span className="spinner" /> Generating {bulkProgress}/{bulkTotal}</>
+            ) : (
+              <>{icons.bolt} Generate All{pendingCount > 0 ? ` (${pendingCount})` : ''}</>
             )}
-
-            {!bulkGenerating && bulkErrors.length > 0 && (
-              <div className="msg msg--err" style={{ marginTop: 8, fontSize: 11, lineHeight: 1.5 }}>
-                {engine === 'f5' && !engineCaps.f5
-                  ? 'F5-TTS not installed — '
-                  : ''}
-                Failed: {bulkErrors.join(', ')}
-              </div>
-            )}
-          </div>
-        )}
+          </button>
+        </div>
       </div>
 
       {/* ── Editor panel ── */}
