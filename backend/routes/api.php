@@ -78,10 +78,11 @@ Route::middleware('auth:sanctum')->group(function () {
         ]);
 
     // Activity logs
-    Route::get(   'activity-logs',      [ActivityLogController::class, 'index']);
-    Route::post(  'activity-logs',      [ActivityLogController::class, 'store']);
+    Route::get(   'activity-logs',              [ActivityLogController::class, 'index']);
+    Route::post(  'activity-logs',              [ActivityLogController::class, 'store']);
+    Route::get(   'activity-logs/{activityLog}', [ActivityLogController::class, 'show']);
     Route::match(['put', 'patch'], 'activity-logs/{activityLog}', [ActivityLogController::class, 'update']);
-    Route::delete('activity-logs',      [ActivityLogController::class, 'destroy']);
+    Route::delete('activity-logs',              [ActivityLogController::class, 'destroy']);
 
     // Voice profiles
     // GET  /api/voice-profiles        → list user's profiles
