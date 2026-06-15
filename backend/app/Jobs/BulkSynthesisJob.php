@@ -455,13 +455,26 @@ class BulkSynthesisJob implements ShouldQueue
         try {
             file_put_contents($tmpIn, $wavData);
 
+            // Filter chain:
+            //   highpass  — remove sub-80Hz rumble
+            //   loudnorm  — EBU R128 loudness normalisation
+            //   silenceremove (+areverse) — trim leading AND trailing silence
+            //
+            // IMPORTANT: a single silenceremove with stop_periods=1 truncates
+            // the audio at the first *internal* pause longer than stop_silence
+            // (e.g. the gap between two sentences), losing everything after it.
+            // The safe idiom is: trim leading silence, reverse, trim leading
+            // (= original trailing) silence, reverse back — which never touches
+            // pauses in the middle of speech.
+            $trim = 'silenceremove=start_periods=1:start_duration=0'
+                  . ':start_silence=0.06:start_threshold=-50dB:detection=peak';
+
             $cmd = [
                 'ffmpeg', '-y', '-i', $tmpIn,
                 '-af',
-                'highpass=f=80,' .
-                'loudnorm=I=-16:LRA=11:TP=-1.5,' .
-                'silenceremove=start_periods=1:start_silence=0.04:start_threshold=-50dB' .
-                ':stop_periods=1:stop_silence=0.4:stop_threshold=-50dB',
+                'highpass=f=80,'
+                . 'loudnorm=I=-16:LRA=11:TP=-1.5,'
+                . $trim . ',areverse,' . $trim . ',areverse',
                 '-codec:a', 'libmp3lame', '-q:a', '4',
                 $tmpOut,
             ];
