@@ -804,6 +804,72 @@ export function WorkspacePage({
     }
   }
 
+  // ── Server synthesis helpers ──────────────────────────────────────
+
+  /** Poll an activity-log record until its status is 'done' or 'failed'. */
+  async function pollActivityLog(
+    logId: number,
+    onProgress?: (message: string) => void,
+  ): Promise<void> {
+    const MAX_MS = 60 * 60 * 1000 // 1 hour
+    const start  = Date.now()
+    for (;;) {
+      await new Promise(r => setTimeout(r, 3000))
+      if (Date.now() - start > MAX_MS) throw new Error('Synthesis timed out after 1 hour.')
+      const log = await api.get(`/activity-logs/${logId}`) as { status: string; message: string }
+      onProgress?.(log.message ?? '')
+      if (log.status === 'done') return
+      if (log.status === 'failed') throw new Error(log.message || 'Server synthesis failed.')
+    }
+  }
+
+  /** Re-fetch the current project from the server and push changed script fields into local state. */
+  async function refreshScriptState(scriptIds: string[]): Promise<void> {
+    try {
+      const raw   = await api.get('/projects') as Record<string, unknown>[]
+      const proj  = raw.find(p => (p as Record<string, unknown>).id === project.id) as Record<string, unknown> | undefined
+      if (!proj) return
+      const scripts = (proj.scripts ?? []) as Record<string, unknown>[]
+      for (const s of scripts) {
+        const id = s.id as string
+        if (!scriptIds.includes(id)) continue
+        onUpdateScript(id, {
+          hasAudio:      (s.has_audio      as boolean)              ?? false,
+          audioUrl:      (s.audio_url      as string  | undefined)  ?? undefined,
+          duration:      (s.duration       as number  | null)       ?? null,
+          waveformPeaks: (s.waveform_peaks as number[] | undefined) ?? undefined,
+        })
+      }
+    } catch (e) {
+      console.warn('[WorkspacePage] refreshScriptState failed:', e)
+    }
+  }
+
+  /** Download a script's audio from the server, cache it in IndexedDB, and return an object URL. */
+  async function loadServerAudio(scriptId: string): Promise<string | null> {
+    try {
+      const blob = await api.get(`/scripts/${scriptId}/audio`) as Blob
+      await saveAudioBlob(`audio_${scriptId}`, blob)
+      return URL.createObjectURL(blob)
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Ensure a script has a profile_id saved server-side before queuing.
+   * Picks the first available voice if none is set.
+   */
+  async function ensureProfileSaved(script: Script): Promise<boolean> {
+    if (script.profileId) return true
+    const fallbackId = voiceProfiles[0]?.profile_id
+    if (!fallbackId) return false
+    onUpdateScript(script.id, { profileId: fallbackId })
+    // Give the server a moment to persist (updateScript is fire-and-forget in onUpdateScript)
+    await new Promise(r => setTimeout(r, 300))
+    return true
+  }
+
   // ── Single-script synthesis ───────────────────────────────────────
   async function handleGenerateSingle() {
     if (isGuest) { await handleGuestGenerate(); return }
@@ -822,7 +888,6 @@ export function WorkspacePage({
       setSynthErr('Engine URL is not configured. Check your .env file.')
       return
     }
-    // Guard: surface engine unavailability immediately rather than waiting for a 503
     if (!currentEngineAvailable) {
       setSynthErr(
         engine === 'f5'
@@ -832,7 +897,7 @@ export function WorkspacePage({
       return
     }
 
-    // Check synthesis quota for authenticated users
+    // Check synthesis quota
     try {
       const q = await api.get('/synthesis/quota') as { remaining: number; limit: number; period: string }
       setSynthQuota(q)
@@ -841,38 +906,45 @@ export function WorkspacePage({
         setShowUpgradeModal(true)
         return
       }
-    } catch {
-      // Non-critical — proceed without quota check if endpoint unavailable
+    } catch { /* non-critical */ }
+
+    // Ensure the current voice selection is persisted before the server job reads it.
+    if (!activeScript.profileId && voiceProfiles[0]?.profile_id) {
+      onUpdateScript(activeScript.id, { profileId: voiceProfiles[0].profile_id })
+      await new Promise(r => setTimeout(r, 300))
     }
 
-    synthAbortRef.current?.abort()
-    const controller = new AbortController()
-    synthAbortRef.current = controller
+    // Also persist current content before queuing (auto-save may not have fired yet)
+    if (activeScript.content !== histState.present) {
+      onUpdateScript(activeScript.id, { content: histState.present })
+      await new Promise(r => setTimeout(r, 300))
+    }
 
     setSynthesizing(true)
     setSynthErr('')
-    const voiceProfile = isBuiltinVoice ? null : voiceProfiles.find(vp => vp.profile_id === selectedVoiceId)
-    const voiceName = isBuiltinVoice
-      ? selectedVoiceId.replace('builtin:', '')
-      : (voiceProfile?.name ?? selectedVoiceId)
+    const modelLabel    = engine === 'f5' ? 'F5-TTS' : 'XTTS v2'
     const synthWordCount = histState.present.trim().split(/\s+/).length
-    const modelLabel = engine === 'f5' ? 'F5-TTS' : 'XTTS v2'
     const logEntry = await activityLog.start(
       `Synthesising "${activeScript.title}"`,
-      `model:${modelLabel}|words:${synthWordCount}|voice:${voiceName}`,
+      `model:${modelLabel}|words:${synthWordCount}|voice:queued`,
       { projectId: project.id, eventType: 'synthesis' },
     )
 
     try {
-      const ok = await generateVoiceover(activeScript, histState.present, controller.signal, engine)
-      if (ok) {
-        const url = await loadAudioBlob(`audio_${activeScript.id}`)
-        setAudioUrl(url)
-        api.get('/synthesis/quota').then(q => setSynthQuota(q as typeof synthQuota)).catch(() => {})
-        logEntry.done('Audio ready')
-      } else {
-        logEntry.fail('Cancelled')
-      }
+      const result = await api.post('/engine/synthesize/bulk-queue', {
+        script_ids: [activeScript.id],
+        engine,
+        project_id: project.id,
+      }) as { queued: boolean; activity_log_id: number }
+
+      await pollActivityLog(result.activity_log_id)
+
+      await refreshScriptState([activeScript.id])
+      const url = await loadServerAudio(activeScript.id)
+      if (url) setAudioUrl(url)
+
+      api.get('/synthesis/quota').then(q => setSynthQuota(q as typeof synthQuota)).catch(() => {})
+      logEntry.done('Audio ready')
     } catch (e) {
       const msg = (e as Error).message
       setSynthErr(msg)
@@ -886,19 +958,18 @@ export function WorkspacePage({
   async function handleBulkGenerate() {
     const pending = project.scripts.filter(s => s.content.trim() && !s.hasAudio)
     if (!pending.length) { toast.info('All scripts already have audio.'); return }
-    if (!voiceProfiles.length) { toast.err('No voice profile found. Record one in Voice Profiles first.'); return }
 
     // Guest path: use /clone-voice for each pending script, respecting synth gate
     if (isGuest) {
+      if (!voiceProfiles.length) { toast.err('No voice profile found. Record one in Voice Profiles first.'); return }
       for (const script of pending) {
         const result = await handleGuestGenerate(script, script.content)
-        // Stop the whole batch once the synth limit gate fires — otherwise the
-        // gate modal would re-trigger for every remaining script.
         if (result === 'gated') break
       }
       return
     }
 
+    if (!voiceProfiles.length) { toast.err('No voice profile found. Record one in Voice Profiles first.'); return }
     if (!ENGINE_URL) { toast.err('Engine URL is not configured. Check your .env file.'); return }
     if (!currentEngineAvailable) {
       toast.err(
@@ -909,14 +980,24 @@ export function WorkspacePage({
       return
     }
 
-    synthAbortRef.current?.abort()
-    const controller = new AbortController()
-    synthAbortRef.current = controller
+    // Ensure every pending script has a profile_id persisted before the server job runs.
+    const fallbackProfileId = voiceProfiles[0]?.profile_id
+    if (fallbackProfileId) {
+      for (const script of pending) {
+        if (!script.profileId) {
+          onUpdateScript(script.id, { profileId: fallbackProfileId })
+        }
+      }
+      if (pending.some(s => !s.profileId)) {
+        await new Promise(r => setTimeout(r, 400))
+      }
+    }
 
     setBulkGenerating(true)
     setBulkTotal(pending.length)
     setBulkProgress(0)
     setBulkErrors([])
+
     const bulkModelLabel = engine === 'f5' ? 'F5-TTS' : 'XTTS v2'
     const bulkLog = await activityLog.start(
       `Bulk synthesis: ${pending.length} scripts`,
@@ -924,33 +1005,39 @@ export function WorkspacePage({
       { projectId: project.id, eventType: 'synthesis' },
     )
 
-    let failedCount = 0
-    for (const script of pending) {
-      if (controller.signal.aborted) break
-      setBulkActiveId(script.id)
-      bulkLog.update(`Synthesising "${script.title}"`, engine.toUpperCase())
-      try {
-        const ok = await generateVoiceover(script, script.content, controller.signal, engine)
-        if (!ok && !controller.signal.aborted) { failedCount++; setBulkErrors(prev => [...prev, script.title]) }
-      } catch (e) {
-        failedCount++; setBulkErrors(prev => [...prev, script.title])
-        // Engine is unreachable — no point continuing the batch
-        if ((e as Error).message.includes('multiple attempts')) break
-      }
-      setBulkProgress(p => p + 1)
+    try {
+      const result = await api.post('/engine/synthesize/bulk-queue', {
+        script_ids: pending.map(s => s.id),
+        engine,
+        project_id: project.id,
+      }) as { queued: boolean; activity_log_id: number }
+
+      await pollActivityLog(result.activity_log_id, (msg) => {
+        // Parse progress from "Bulk synthesis running: N/M done"
+        const m = msg.match(/(\d+)\/(\d+)/)
+        if (m) setBulkProgress(parseInt(m[1]))
+      })
+
+      await refreshScriptState(pending.map(s => s.id))
+      setBulkProgress(pending.length)
+
+      bulkLog.done(`${pending.length} scripts queued and processed`)
+
+      api.post('/notifications/bulk-synthesis-complete', {
+        project_name: project.name,
+        total: pending.length,
+        failed: 0,
+      }).catch(() => {})
+    } catch (e) {
+      const msg = (e as Error).message || 'Bulk synthesis failed.'
+      toast.err(msg)
+      bulkLog.fail(msg)
+    } finally {
+      setBulkActiveId(null)
+      setBulkGenerating(false)
+      setBulkTotal(0)
+      setBulkProgress(0)
     }
-
-    setBulkActiveId(null)
-    setBulkGenerating(false)
-    setBulkTotal(0)
-    setBulkProgress(0)
-    bulkLog.done(`${pending.length} scripts processed`)
-
-    api.post('/notifications/bulk-synthesis-complete', {
-      project_name: project.name,
-      total: pending.length,
-      failed: failedCount + (controller.signal.aborted ? 1 : 0),
-    }).catch(() => {}) // non-fatal
   }
 
   // ── Queue bulk synthesis server-side ─────────────────────────────
