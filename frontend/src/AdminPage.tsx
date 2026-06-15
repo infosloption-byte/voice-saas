@@ -1166,6 +1166,7 @@ type ReportTab = 'trends' | 'top-users' | 'quota' | 'revenue' | 'funnel' | 'engi
 function ReportsSection() {
   const [tab, setTab]         = useState<ReportTab>('top-users')
   const [data, setData]       = useState<any>(null)
+  const [dataTab, setDataTab] = useState<ReportTab | null>(null)
   const [loading, setLoading] = useState(true)
   const [range, setRange]     = useState('30')
 
@@ -1183,13 +1184,17 @@ function ReportsSection() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    try { setData(await api.get(ENDPOINTS[tab])) }
+    try {
+      const payload = await api.get(ENDPOINTS[tab])
+      setData(payload)
+      setDataTab(tab)
+    }
     catch { toast.err('Failed to load report') }
     finally { setLoading(false) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, range])
 
-  useEffect(() => { setData(null); load() }, [load])
+  useEffect(() => { setData(null); setDataTab(null); load() }, [load])
 
   const TABS: { id: ReportTab; label: string; csv?: string }[] = [
     { id: 'trends',    label: 'Trends',             csv: ENDPOINTS.trends },
@@ -1238,11 +1243,11 @@ function ReportsSection() {
 
       {loading && !data ? (
         <div style={{ padding: 30, color: 'var(--text-3)' }}>Loading…</div>
-      ) : !data ? null : (
+      ) : (!data || dataTab !== tab) ? null : (
         <>
           {tab === 'trends' && (() => {
             const rows: any[] = data.rows ?? []
-            const series = (key: string) => rows.map(r => ({ label: r.day.slice(5), value: r[key] as number }))
+            const series = (key: string) => rows.map(r => ({ label: (r.day ?? '').slice(5), value: (r[key] as number) ?? 0 }))
             return (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                 <ChartCard title={`Signups / day (${range}d)`} data={series('signups')}    color="var(--accent)" />
@@ -1260,7 +1265,7 @@ function ReportsSection() {
               { key: 'name',   label: 'User', render: (_, r) => (<><div style={{ fontWeight: 500, color: 'var(--text-1)' }}>{r.name}</div><div style={{ fontSize: 10, color: 'var(--text-3)' }}>{r.email}</div></>) },
               { key: 'plan',   label: 'Plan', render: v => <Badge text={v} style={PLAN_BADGE[v] ?? PLAN_BADGE.free} /> },
               { key: 'jobs',   label: 'Synthesis Jobs (30d)' },
-              { key: 'words',  label: 'Words', render: v => (v as number).toLocaleString() },
+              { key: 'words',  label: 'Words', render: v => ((v as number) ?? 0).toLocaleString() },
               { key: 'failed', label: 'Failed', render: v => <span style={{ color: v > 0 ? 'var(--err)' : 'var(--text-3)' }}>{v}</span> },
             ]} />
           )}
@@ -1370,7 +1375,7 @@ function ReportsSection() {
                 { key: 'reasons',  label: 'Flags', render: v => <span style={{ color: 'var(--warn)', fontWeight: 600, whiteSpace: 'normal' }}>{v}</span> },
                 { key: 'jobs_24h', label: 'Jobs 24h' },
                 { key: 'fail_pct', label: 'Fail %', render: v => `${v}%` },
-                { key: 'words_7d', label: 'Words 7d', render: v => (v as number).toLocaleString() },
+                { key: 'words_7d', label: 'Words 7d', render: v => ((v as number) ?? 0).toLocaleString() },
                 { key: 'suspended', label: 'Status', render: v => v
                   ? <Badge text="SUSPENDED" style="background:rgba(192,57,43,0.12);color:var(--err)" />
                   : <span style={{ color: 'var(--text-3)' }}>active</span> },
