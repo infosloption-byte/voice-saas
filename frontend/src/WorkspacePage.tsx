@@ -1014,6 +1014,13 @@ export function WorkspacePage({
       await refreshScriptState(pending.map(s => s.id))
       setBulkProgress(pending.length)
 
+      // If the currently-viewed script was in this batch, load its audio into
+      // the player now — otherwise the waveform stays empty until page reload.
+      if (activeScript && pending.some(s => s.id === activeScript.id)) {
+        const url = await loadServerAudio(activeScript.id)
+        if (url) setAudioUrl(url)
+      }
+
       api.post('/notifications/bulk-synthesis-complete', {
         project_name: project.name,
         total: pending.length,
