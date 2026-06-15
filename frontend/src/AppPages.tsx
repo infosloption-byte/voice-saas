@@ -716,11 +716,6 @@ export function ActivityLogPanel({ open, onClose, projects, lockedProjectId }: {
               <div>
                 <div style={{ ...sectionLabel, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ flex: 1 }}>Finished</span>
-                  <button
-                    className="btn btn--ghost btn--sm"
-                    onClick={handleClear}
-                    style={{ fontSize: 10, padding: '2px 7px', marginRight: 10, textTransform: 'none', letterSpacing: 0 }}
-                  >Clear</button>
                 </div>
                 {finishedGroups.map(g => (
                   <div key={g.label}>
