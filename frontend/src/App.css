@@ -74,7 +74,8 @@
 /* ── Layout shell ────────────────────────────────────────────────── */
 .shell {
   display: flex;
-  min-height: 100svh;
+  height: 100svh;
+  overflow: hidden;
 }
 
 /* ── Sidebar overlay (mobile) ─────────────────────────────────────── */
@@ -323,7 +324,7 @@
   display: flex;
   flex-direction: column;
   transition: margin-left 0.22s ease, margin-right 0.25s ease;
-  min-height: 100svh;
+  height: 100svh;
   overflow: hidden;
   background: var(--bg);
 }
@@ -363,8 +364,7 @@
   background: var(--bg);
   gap: 8px;
   flex-shrink: 0;
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 50;
 }
 
