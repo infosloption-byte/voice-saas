@@ -116,6 +116,16 @@ class ActivityLogController extends Controller
         ]));
     }
 
+    // GET /activity-logs/{log}
+    public function show(Request $request, ActivityLog $activityLog): JsonResponse
+    {
+        if ($activityLog->user_id !== $request->user()->id) {
+            abort(403);
+        }
+
+        return response()->json($activityLog);
+    }
+
     // DELETE /activity-logs?project_id=
     public function destroy(Request $request): JsonResponse
     {
