@@ -3,7 +3,7 @@ import './App.css'
 import { LandingPage } from './LandingPage'
 import { SignInPage, SignUpPage, ForgotPasswordPage, ResetPasswordPage } from './AuthPages'
 import { SettingsPage } from './SettingsPage'
-import { PrivacyPage, TermsPage } from './LegalPages'
+import { PrivacyPage, TermsPage, RefundPolicyPage } from './LegalPages'
 import { PricingPage } from './PricingPage'
 import { StudioPage, VoicesPage, TranslationPage, TimelinePage, AudiobooksPage } from './MarketingPages'
 import { EmailVerifiedPage } from './EmailVerifiedPage'
@@ -125,7 +125,12 @@ export default function App() {
   const [resetEmail] = useState(() => new URLSearchParams(window.location.search).get('email') ?? '')
 
   const [page, setPage] = useState<Page>(() => {
-    if (window.location.pathname === '/email-verified') return 'email-verified'
+    const path = window.location.pathname
+    if (path === '/email-verified')       return 'email-verified'
+    if (path === '/pricing')              return 'pricing'
+    if (path === '/privacypolicy')        return 'privacy'
+    if (path === '/termsandconditions')   return 'terms'
+    if (path === '/refundpolicy')         return 'refund'
     if (new URLSearchParams(window.location.search).get('token')) return 'reset-password'
     return 'landing'
   })
@@ -194,6 +199,20 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light')
     localStorage.setItem('vo_dark', String(darkMode))
   }, [darkMode])
+
+  // ── Keep URL in sync with page state ─────────────────────────────
+  useEffect(() => {
+    const PATH_MAP: Partial<Record<Page, string>> = {
+      pricing:  '/pricing',
+      privacy:  '/privacypolicy',
+      terms:    '/termsandconditions',
+      refund:   '/refundpolicy',
+    }
+    const target = PATH_MAP[page] ?? '/'
+    if (window.location.pathname !== target) {
+      window.history.pushState(null, '', target)
+    }
+  }, [page])
 
   // ── Page state persistence ────────────────────────────────────────
   const RESTORABLE_PAGES: Page[] = ['dashboard', 'projects', 'profiles', 'settings', 'workspace']
@@ -527,6 +546,10 @@ export default function App() {
 
   if (page === 'terms') return (
     <TermsPage onBack={() => setPage(user ? 'settings' : 'landing')} />
+  )
+
+  if (page === 'refund') return (
+    <RefundPolicyPage onBack={() => setPage(user ? 'settings' : 'landing')} />
   )
 
   if (page === 'pricing') return (

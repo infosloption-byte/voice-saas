@@ -212,8 +212,8 @@ export function TermsPage({ onBack }: { onBack?: () => void }) {
         </p>
         <ul style={{ paddingLeft: 20, marginTop: 8, marginBottom: 10 }}>
           <li style={{ marginBottom: 6 }}><strong>Free:</strong> Limited usage with basic features. No payment required.</li>
-          <li style={{ marginBottom: 6 }}><strong>Starter ($4.99/month):</strong> Increased synthesis quota and voice profiles.</li>
-          <li><strong>Pro ($14.99/month):</strong> Unlimited synthesis, all features.</li>
+          <li style={{ marginBottom: 6 }}><strong>Starter ($9.99/month):</strong> Increased synthesis quota and voice profiles.</li>
+          <li><strong>Pro ($24.99/month):</strong> Unlimited synthesis, all features.</li>
         </ul>
         <p>
           Subscriptions are billed monthly through PayPal. You may cancel your subscription at
@@ -294,6 +294,111 @@ export function TermsPage({ onBack }: { onBack?: () => void }) {
       <Section title="13. Contact">
         <p>
           Questions about these Terms? Contact us at{' '}
+          <a href={`mailto:${EMAIL}`} style={{ color: 'var(--accent)' }}>{EMAIL}</a>.
+        </p>
+      </Section>
+    </LegalShell>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// REFUND POLICY
+// ═══════════════════════════════════════════════════════════════════
+export function RefundPolicyPage({ onBack }: { onBack?: () => void }) {
+  return (
+    <LegalShell title="Refund Policy" onBack={onBack}>
+      <Section title="1. Overview">
+        <p>
+          At {COMPANY}, we want you to be satisfied with your subscription. This Refund Policy
+          explains when refunds are available and how to request them. By subscribing to any
+          paid plan, you agree to this policy.
+        </p>
+      </Section>
+
+      <Section title="2. Subscription Plans">
+        <p style={{ marginBottom: 10 }}>
+          {COMPANY} offers the following paid subscription plans, billed monthly:
+        </p>
+        <ul style={{ paddingLeft: 20, marginTop: 8, marginBottom: 10 }}>
+          <li style={{ marginBottom: 6 }}><strong>Starter — $9.99/month:</strong> Increased synthesis quota and voice profiles.</li>
+          <li><strong>Pro — $24.99/month:</strong> Unlimited synthesis and access to all features.</li>
+        </ul>
+        <p>
+          All payments are processed securely through PayPal. Subscription fees are charged at
+          the beginning of each billing period.
+        </p>
+      </Section>
+
+      <Section title="3. No Refunds for Partial Months">
+        <p>
+          Subscriptions are billed on a monthly cycle. We do not issue refunds or credits for
+          partial months of service, unused synthesis quota, or periods during which you did not
+          actively use the service. When you cancel your subscription, you will retain access to
+          your paid plan features until the end of the current billing period.
+        </p>
+      </Section>
+
+      <Section title="4. Eligibility for a Refund">
+        <p style={{ marginBottom: 10 }}>
+          A full refund of the most recent payment may be granted in the following circumstances:
+        </p>
+        <ul style={{ paddingLeft: 20, marginTop: 8, marginBottom: 10 }}>
+          <li style={{ marginBottom: 6 }}>
+            <strong>Duplicate charge:</strong> You were charged more than once for the same
+            billing period due to a technical error.
+          </li>
+          <li style={{ marginBottom: 6 }}>
+            <strong>Service unavailability:</strong> The service experienced a verified outage
+            of more than 72 consecutive hours during your paid period through no fault of your
+            own (e.g. not caused by your account being suspended for a policy violation).
+          </li>
+          <li>
+            <strong>Unauthorised charge:</strong> A payment was made without your authorisation
+            and you notify us within 7 days of the charge.
+          </li>
+        </ul>
+        <p>
+          Refund requests based on dissatisfaction with AI-generated output quality, change of
+          mind, or failure to cancel before the next billing date are not eligible for a refund.
+        </p>
+      </Section>
+
+      <Section title="5. How to Request a Refund">
+        <p style={{ marginBottom: 10 }}>
+          To request a refund, email us at{' '}
+          <a href={`mailto:${EMAIL}`} style={{ color: 'var(--accent)' }}>{EMAIL}</a> with:
+        </p>
+        <ul style={{ paddingLeft: 20, marginTop: 8, marginBottom: 10 }}>
+          <li style={{ marginBottom: 6 }}>Your registered email address</li>
+          <li style={{ marginBottom: 6 }}>The PayPal transaction ID</li>
+          <li>A brief description of the reason for your request</li>
+        </ul>
+        <p>
+          We aim to respond to all refund requests within 5 business days. Approved refunds
+          are issued to the original payment method via PayPal and typically appear within
+          3–7 business days, depending on your bank.
+        </p>
+      </Section>
+
+      <Section title="6. Cancellation">
+        <p>
+          You may cancel your subscription at any time from the Settings page inside your
+          Voxora account. Cancellation stops future charges; it does not trigger a refund for
+          the current billing period unless you meet the eligibility criteria in Section 4.
+        </p>
+      </Section>
+
+      <Section title="7. Changes to This Policy">
+        <p>
+          We reserve the right to update this Refund Policy at any time. Material changes will
+          be communicated by email or by a notice within the platform. Continued use of the
+          service after such changes constitutes your acceptance of the revised policy.
+        </p>
+      </Section>
+
+      <Section title="8. Contact Us">
+        <p>
+          Questions about this Refund Policy? Contact us at{' '}
           <a href={`mailto:${EMAIL}`} style={{ color: 'var(--accent)' }}>{EMAIL}</a>.
         </p>
       </Section>
