@@ -713,16 +713,16 @@ export function VoicesPage(props: PageProps) {
     <Shell {...props}>
       <Hero
         eyebrow="Voice Library"
-        h1="Your voice — or the perfect one"
-        accent="for any character."
-        lead="Clone your own voice from a short sample, or pick from 30+ studio-crafted voices. Use any voice in any project — switch anytime."
+        h1="Your voice — or a"
+        accent="studio-crafted one."
+        lead="Clone your own voice from a short sample, or pick from 30+ licensed studio voices. Use your voices across every project — switch anytime."
         cta="Clone my voice" ctaIcon={icons.mic} onSignUp={props.onSignUp}
       />
       <hr className="vox-rule" />
       <section className="vox-section">
         <div className="vox-wrap">
           <SHead pre="Voice cloning" title="Sounds exactly" accent="like you."
-            sub="Record a 10–30 second sample or upload a WAV. Voxora captures timbre, pacing, and intonation — then speaks any script in your voice." />
+            sub="Record a 10–30 second sample of your own voice or upload a WAV you have the rights to. Voxora captures timbre, pacing, and intonation — then speaks any script in your voice." />
           <div className="vox-grid vox-grid-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', maxWidth: 880, margin: '0 auto' }}>
             {[
               { icon: icons.mic,      title: 'Record or upload',   desc: 'Use your browser mic for a quick sample, or upload a clean WAV file.' },
