@@ -526,6 +526,7 @@ export default function App() {
       onBack={() => setPage('landing')}
       onTerms={() => setPage('terms')}
       onPrivacy={() => setPage('privacy')}
+      onAcceptableUse={() => setPage('acceptable-use')}
     />
   )
 
