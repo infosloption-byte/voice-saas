@@ -210,9 +210,10 @@ interface SignUpPageProps {
   onBack?: () => void
   onTerms?: () => void
   onPrivacy?: () => void
+  onAcceptableUse?: () => void
 }
 
-export function SignUpPage({ onSignUp, onSignIn, onBack, onTerms, onPrivacy }: SignUpPageProps) {
+export function SignUpPage({ onSignUp, onSignIn, onBack, onTerms, onPrivacy, onAcceptableUse }: SignUpPageProps) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -332,6 +333,12 @@ export function SignUpPage({ onSignUp, onSignIn, onBack, onTerms, onPrivacy }: S
           {' '}and{' '}
           <button type="button" style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12.5, padding: 0 }} onClick={onPrivacy}>Privacy Policy</button>
         </label>
+
+        <div style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.5, padding: '8px 10px', borderRadius: 7, background: 'var(--surface-2, var(--surface))', border: '1px solid var(--border)' }}>
+          🔒 <strong style={{ color: 'var(--text-2)' }}>Consent-only voice cloning.</strong>{' '}
+          Voxora only clones your own voice, or voices you have explicit permission to use. Impersonation and deepfakes are prohibited under our{' '}
+          <button type="button" style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 11.5, padding: 0 }} onClick={onAcceptableUse ?? onTerms}>Acceptable Use Policy</button>.
+        </div>
 
         {error && <div className="msg msg--err">{error}</div>}
 

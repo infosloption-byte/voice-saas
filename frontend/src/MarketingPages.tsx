@@ -723,6 +723,10 @@ export function VoicesPage(props: PageProps) {
         <div className="vox-wrap">
           <SHead pre="Voice cloning" title="Sounds exactly" accent="like you."
             sub="Record a 10–30 second sample of your own voice or upload a WAV you have the rights to. Voxora captures timbre, pacing, and intonation — then speaks any script in your voice." />
+          <div style={{ maxWidth: 880, margin: '0 auto 32px', padding: '14px 18px', borderRadius: 10, background: 'rgba(var(--accent-rgb, 99,102,241),0.07)', border: '1px solid rgba(var(--accent-rgb, 99,102,241),0.18)', fontSize: 13.5, color: 'var(--vx-text-2)', lineHeight: 1.6, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <span style={{ fontSize: 18, flexShrink: 0 }}>🔒</span>
+            <span><strong style={{ color: 'var(--vx-text-1)' }}>Consent-only cloning.</strong> Voxora never hosts celebrity or public-figure voices. You can only clone your own voice — or a voice you have explicit, written permission to use. A consent confirmation is required at the point of recording.</span>
+          </div>
           <div className="vox-grid vox-grid-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', maxWidth: 880, margin: '0 auto' }}>
             {[
               { icon: icons.mic,      title: 'Record or upload',   desc: 'Use your browser mic for a quick sample, or upload a clean WAV file.' },
