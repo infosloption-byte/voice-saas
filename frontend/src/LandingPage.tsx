@@ -140,6 +140,7 @@ export function VoxFooter({ onSignIn, onSignUp, onNavigate }: {
           <div className="vox-footer-col-label">Legal</div>
           <button className="vox-footer-link" onClick={() => onNavigate?.('privacy')}>Privacy Policy</button>
           <button className="vox-footer-link" onClick={() => onNavigate?.('terms')}>Terms of Service</button>
+          <button className="vox-footer-link" onClick={() => onNavigate?.('refund')}>Refund Policy</button>
         </div>
       </div>
       <div className="vox-footer-bottom">
