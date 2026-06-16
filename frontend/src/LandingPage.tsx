@@ -14,7 +14,7 @@ export function LogoMark({ size = 32 }: { size?: number }) {
 // ── Product links used by dropdown + footer ───────────────────────
 export const PRODUCT_LINKS = [
   { key: 'feature-studio',      label: 'Studio',        desc: 'Script editor & voice synthesis', icon: icons.scripts },
-  { key: 'feature-voices',      label: 'Voice Library', desc: '30+ voices + voice cloning',      icon: icons.mic     },
+  { key: 'feature-voices',      label: 'Voice Library', desc: 'Clone your own voice + 30 studio voices', icon: icons.mic     },
   { key: 'feature-translation', label: 'Translation',   desc: 'AI scripts in 17 languages',       icon: icons.globe   },
   { key: 'feature-timeline',    label: 'Timeline',      desc: 'Multi-lane audio assembly',        icon: icons.assembly },
   { key: 'feature-audiobooks',  label: 'Audiobooks',    desc: 'Long-form audio production',        icon: icons.music   },
@@ -327,7 +327,7 @@ const CHECK = (
 )
 
 const FEATURES = [
-  { icon: icons.mic,      title: 'Voice Cloning',           desc: 'Record a 10-second sample — or upload a WAV. Voxora captures timbre, pacing, and intonation and speaks any script in a voice that sounds unmistakably like you.' },
+  { icon: icons.mic,      title: 'Your Voice, Cloned',       desc: 'Record a 10-second sample of your own voice — or upload a WAV you have the rights to. Voxora captures timbre, pacing, and intonation. Consent-verified: we require confirmation the voice is yours before cloning.' },
   { icon: icons.speaker,  title: 'Studio Voice Library',    desc: 'No sample? Pick from 30+ professional studio voices across genders, styles, and languages. Ready to use in seconds — no account upgrade needed on Free.' },
   { icon: icons.globe,    title: '17 Languages + AI Translate', desc: 'Write in one language and translate your entire script with one click. Powered by Gemini AI. Generate natural speech in Spanish, Japanese, Arabic, Hindi, French and 11 more.' },
   { icon: icons.music,    title: '9 Emotion Presets',       desc: 'Natural, Calm, Energetic, Cheerful, Serious, Dramatic, Whisper, Storytelling — shape the exact delivery your content needs, with fine-grained controls for power users.' },
@@ -367,6 +367,9 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow, onNavigate }: Landin
         </div>
         <p style={{ marginTop: 14, fontSize: 13, color: 'var(--vx-text-3)' }}>
           Free plan to start · Nothing to install · Cancel anytime
+        </p>
+        <p style={{ marginTop: 8, fontSize: 12, color: 'var(--vx-text-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+          <span>🔒</span> Consent-only voice cloning — your voice, your content
         </p>
 
         {/* Mock UI preview */}
