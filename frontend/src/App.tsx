@@ -3,7 +3,7 @@ import './App.css'
 import { LandingPage } from './LandingPage'
 import { SignInPage, SignUpPage, ForgotPasswordPage, ResetPasswordPage } from './AuthPages'
 import { SettingsPage } from './SettingsPage'
-import { PrivacyPage, TermsPage, RefundPolicyPage } from './LegalPages'
+import { PrivacyPage, TermsPage, RefundPolicyPage, AcceptableUsePage } from './LegalPages'
 import { PricingPage } from './PricingPage'
 import { StudioPage, VoicesPage, TranslationPage, TimelinePage, AudiobooksPage } from './MarketingPages'
 import { EmailVerifiedPage } from './EmailVerifiedPage'
@@ -131,6 +131,7 @@ export default function App() {
     if (path === '/privacypolicy')        return 'privacy'
     if (path === '/termsandconditions')   return 'terms'
     if (path === '/refundpolicy')         return 'refund'
+    if (path === '/acceptableuse')        return 'acceptable-use'
     if (new URLSearchParams(window.location.search).get('token')) return 'reset-password'
     return 'landing'
   })
@@ -207,6 +208,7 @@ export default function App() {
       privacy:  '/privacypolicy',
       terms:    '/termsandconditions',
       refund:   '/refundpolicy',
+      'acceptable-use': '/acceptableuse',
     }
     const target = PATH_MAP[page] ?? '/'
     if (window.location.pathname !== target) {
@@ -550,6 +552,10 @@ export default function App() {
 
   if (page === 'refund') return (
     <RefundPolicyPage onBack={() => setPage(user ? 'settings' : 'landing')} />
+  )
+
+  if (page === 'acceptable-use') return (
+    <AcceptableUsePage onBack={() => setPage(user ? 'settings' : 'landing')} />
   )
 
   if (page === 'pricing') return (

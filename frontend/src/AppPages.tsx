@@ -991,10 +991,15 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
   const [previewText, setPreviewText] = useState('Hello, this is a preview of my voice profile.')
   const [previewing, setPreviewing] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [consented, setConsented] = useState(false)
   useEscapeKey(() => setDeleteConfirmId(null), deleteConfirmId !== null)
 
   async function handleStart() {
     setMsg(''); setMsgWarn('')
+    if (!consented) {
+      setMsg('Error: Please confirm you have the right to clone this voice before recording.')
+      return
+    }
     try {
       await recorder.start(noiseSuppression, gainVal)
     } catch (e: unknown) {
@@ -1182,10 +1187,24 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
                 placeholder="my-voice"
               />
             </div>
+            <label className="consent-gate">
+              <input
+                type="checkbox"
+                checked={consented}
+                onChange={e => setConsented(e.target.checked)}
+                disabled={recorder.recording}
+              />
+              <span>
+                I confirm this is <strong>my own voice</strong>, or I have explicit
+                permission from the person whose voice this is. I will not use Voxora to
+                impersonate any public figure, celebrity, or other real person without their
+                consent.
+              </span>
+            </label>
             <MicBtn
               recording={recorder.recording}
               onClick={recorder.recording ? handleStop : handleStart}
-              disabled={saving}
+              disabled={saving || (!consented && !recorder.recording)}
               label={saving ? 'Saving…' : recorder.recording ? 'Stop Recording' : 'Start Recording'}
             />
             {msgWarn && <div className="msg msg--warn">{msgWarn}</div>}

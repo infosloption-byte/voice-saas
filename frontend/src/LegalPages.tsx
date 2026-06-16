@@ -302,6 +302,107 @@ export function TermsPage({ onBack }: { onBack?: () => void }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// ACCEPTABLE USE POLICY
+// ═══════════════════════════════════════════════════════════════════
+export function AcceptableUsePage({ onBack }: { onBack?: () => void }) {
+  return (
+    <LegalShell title="Acceptable Use Policy" onBack={onBack}>
+      <Section title="1. Purpose">
+        <p>
+          This Acceptable Use Policy ("AUP") governs how you may use {COMPANY}. It exists to
+          keep our voice technology safe, lawful, and respectful of every individual's identity.
+          By using {COMPANY}, you agree to comply with this AUP in addition to our Terms of
+          Service. Violations may result in immediate suspension or termination of your account.
+        </p>
+      </Section>
+
+      <Section title="2. Consent-Only Voice Cloning">
+        <p style={{ marginBottom: 10 }}>
+          {COMPANY} is designed for one purpose: to let you create a voice from audio that you
+          are legally entitled to use. You may only create a voice profile from:
+        </p>
+        <ul style={{ paddingLeft: 20, marginTop: 8, marginBottom: 10 }}>
+          <li style={{ marginBottom: 6 }}>Your own voice; or</li>
+          <li style={{ marginBottom: 6 }}>
+            The voice of a person who has given you explicit, verifiable, written permission to
+            clone and use their voice.
+          </li>
+        </ul>
+        <p>
+          Before recording or uploading a voice sample, you must affirmatively confirm that you
+          meet one of these conditions. {COMPANY} does not provide, host, or offer any library of
+          celebrity, public-figure, or other real persons' voices.
+        </p>
+      </Section>
+
+      <Section title="3. Strictly Prohibited Uses">
+        <p style={{ marginBottom: 10 }}>You must <strong>not</strong> use {COMPANY} to:</p>
+        <ul style={{ paddingLeft: 20 }}>
+          <li style={{ marginBottom: 6 }}>
+            Clone, imitate, or synthesise the voice of any celebrity, politician, public figure,
+            or any other real person without their explicit consent.
+          </li>
+          <li style={{ marginBottom: 6 }}>
+            Create "deepfakes" or any audio intended to deceive listeners into believing a real
+            person said something they did not.
+          </li>
+          <li style={{ marginBottom: 6 }}>
+            Impersonate any individual or organisation for the purpose of fraud, scams, social
+            engineering, or identity theft.
+          </li>
+          <li style={{ marginBottom: 6 }}>
+            Produce content that is defamatory, harassing, hateful, sexually explicit involving
+            real people, or that promotes violence.
+          </li>
+          <li style={{ marginBottom: 6 }}>
+            Generate misinformation, fake endorsements, or fraudulent communications.
+          </li>
+          <li style={{ marginBottom: 6 }}>
+            Violate any person's publicity, privacy, intellectual property, or other legal rights.
+          </li>
+          <li>Break any applicable local, national, or international law.</li>
+        </ul>
+      </Section>
+
+      <Section title="4. Your Responsibility">
+        <p>
+          You are solely responsible for the voice samples you upload and the audio you generate.
+          You represent and warrant that you hold all necessary rights and consents for every
+          voice profile you create. {COMPANY} is a tool; lawful use of its output is your
+          responsibility.
+        </p>
+      </Section>
+
+      <Section title="5. Enforcement">
+        <p>
+          We take violations seriously. We may, at our discretion and without prior notice,
+          remove content, suspend or terminate accounts, and report unlawful activity to the
+          relevant authorities. We reserve the right to refuse service to anyone who breaches
+          this policy.
+        </p>
+      </Section>
+
+      <Section title="6. Reporting Abuse">
+        <p>
+          If you believe your voice or identity has been used on {COMPANY} without your consent,
+          or you wish to report any other violation of this policy, contact us immediately at{' '}
+          <a href={`mailto:${EMAIL}`} style={{ color: 'var(--accent)' }}>{EMAIL}</a>. We
+          investigate all reports promptly.
+        </p>
+      </Section>
+
+      <Section title="7. Changes">
+        <p>
+          We may update this Acceptable Use Policy from time to time. Material changes will be
+          communicated by email or by a notice within the platform. Continued use of the service
+          after such changes constitutes acceptance of the revised policy.
+        </p>
+      </Section>
+    </LegalShell>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // REFUND POLICY
 // ═══════════════════════════════════════════════════════════════════
 export function RefundPolicyPage({ onBack }: { onBack?: () => void }) {

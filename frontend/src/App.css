@@ -2335,6 +2335,31 @@
 
 .noise-toggle input { accent-color: var(--accent); width: 15px; height: 15px }
 
+.consent-gate {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  cursor: pointer;
+  padding: 11px 13px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2, var(--surface));
+}
+
+.consent-gate input {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+
+.consent-gate strong { color: var(--text-1); }
+
 .wave-vis {
   display: flex;
   align-items: center;

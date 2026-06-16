@@ -6,7 +6,7 @@ export type Page =
   | 'landing' | 'signin' | 'signup'
   | 'forgot-password' | 'reset-password'
   | 'dashboard' | 'projects' | 'workspace' | 'profiles' | 'settings' | 'admin'
-  | 'pricing' | 'privacy' | 'terms' | 'refund'
+  | 'pricing' | 'privacy' | 'terms' | 'refund' | 'acceptable-use'
   | 'email-verified'
   | 'feature-studio' | 'feature-voices' | 'feature-translation'
   | 'feature-timeline' | 'feature-audiobooks'
