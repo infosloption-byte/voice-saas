@@ -854,7 +854,7 @@ export default function App() {
         })()}
 
         {/* Page content */}
-        <div className={workspaceTab === 'assembly' && page === 'workspace' ? '' : 'content'}>
+        <div className={page === 'workspace' ? '' : 'content'}>
           {page === 'dashboard' && (
             <DashboardPage
               user={user}
