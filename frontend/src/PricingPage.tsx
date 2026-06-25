@@ -224,7 +224,7 @@ export function PricingPage({ user, onBack, onSignUp, onSubscribed, onSignIn, on
               const isFeatured = plan.id === 'creator'
 
               return (
-                <div key={plan.id} style={{ position: 'relative', display: 'flex', flexDirection: 'column' }} className={`vox-price-card${isFeatured ? ' vox-price-card--featured-border' : ''}`}>
+                <div key={plan.id} className={`vox-price-card${isFeatured ? ' vox-price-card--featured' : ''}`} style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
                   {isFeatured && (
                     <div style={{
                       position: 'absolute', top: -13, left: '50%', transform: 'translateX(-50%)',
@@ -232,7 +232,7 @@ export function PricingPage({ user, onBack, onSignUp, onSubscribed, onSignIn, on
                       color: '#fff', fontSize: 10, fontWeight: 700,
                       padding: '4px 14px', borderRadius: 99, letterSpacing: '0.8px', whiteSpace: 'nowrap',
                     }}>
-                      MOST POPULAR
+                      
                     </div>
                   )}
                   {isCurrent && (
