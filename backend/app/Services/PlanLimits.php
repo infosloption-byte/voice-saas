@@ -13,8 +13,12 @@ use Illuminate\Support\Facades\DB;
  *   project_limit / profile_limit / word_limit = 0  → unlimited
  *   multi_voice  / data_export = boolean flag
  *
- * The table has one row per plan name: 'free', 'starter', 'pro'.
- * If a row is missing the hardcoded defaults below are used.
+ * Plan tiers (aligned with cost report, June 2026):
+ *   guest   — session-only, no account
+ *   free    — $0,   20 synths/mo,   1 profile
+ *   starter — $9,   150 synths/mo,  3 profiles
+ *   creator — $29,  600 synths/mo,  10 profiles   ← recommended
+ *   pro     — $79,  2000 synths/mo, 25 profiles
  */
 class PlanLimits
 {
@@ -43,31 +47,42 @@ class PlanLimits
             'word_limit'       => 500,
             'multi_voice'      => false,
             'data_export'      => false,
-            'synth_limit'      => 3,
-            'synth_period'     => 'day',
+            'synth_limit'      => 20,
+            'synth_period'     => 'month',
             'translate_limit'  => 10,
             'translate_period' => 'month',
         ],
         'starter' => [
             'project_limit'    => 10,
-            'profile_limit'    => 5,
+            'profile_limit'    => 3,
             'word_limit'       => 5000,
             'multi_voice'      => true,
             'data_export'      => false,
-            'synth_limit'      => 100,
+            'synth_limit'      => 150,
             'synth_period'     => 'month',
             'translate_limit'  => 50,
             'translate_period' => 'month',
         ],
+        'creator' => [
+            'project_limit'    => 0,      // unlimited
+            'profile_limit'    => 10,
+            'word_limit'       => 0,      // unlimited
+            'multi_voice'      => true,
+            'data_export'      => false,
+            'synth_limit'      => 600,
+            'synth_period'     => 'month',
+            'translate_limit'  => 200,
+            'translate_period' => 'month',
+        ],
         'pro' => [
-            'project_limit'    => 0,   // 0 = unlimited
-            'profile_limit'    => 0,
-            'word_limit'       => 0,
+            'project_limit'    => 0,      // unlimited
+            'profile_limit'    => 25,
+            'word_limit'       => 0,      // unlimited
             'multi_voice'      => true,
             'data_export'      => true,
-            'synth_limit'      => 0,
+            'synth_limit'      => 2000,
             'synth_period'     => 'month',
-            'translate_limit'  => 0,   // unlimited
+            'translate_limit'  => 0,      // unlimited
             'translate_period' => 'month',
         ],
     ];
@@ -86,8 +101,6 @@ class PlanLimits
 
             self::$cache[$key] = $row
                 ? [
-                    // NULL is preserved (not cast to 0) so a NULL shared column
-                    // means "inherit from another tier" rather than "unlimited".
                     'project_limit' => isset($row->project_limit) ? (int) $row->project_limit : null,
                     'profile_limit' => isset($row->profile_limit) ? (int) $row->profile_limit : null,
                     'word_limit'    => isset($row->word_limit)    ? (int) $row->word_limit    : null,
@@ -124,20 +137,14 @@ class PlanLimits
     ];
 
     /**
-     * Return the numeric limit for a given key. Accepts either the canonical
-     * column name (project_limit|profile_limit|word_limit) or the shorthand
-     * (projects|profiles|words).
-     *
-     * 0 means unlimited (PHP_INT_MAX returned so callers can use >= directly).
-     * NULL means "inherit" — the value is taken from the free tier (this is how
-     * guest shared limits defer to free).
+     * Return the numeric limit for a given key. 0 means unlimited (PHP_INT_MAX).
+     * NULL means "inherit" — the value is taken from the free tier.
      */
     public static function limit(User $user, string $key): int
     {
         $key   = self::LIMIT_ALIASES[$key] ?? $key;
         $value = self::forUser($user)[$key] ?? null;
 
-        // NULL = inherit from the free tier (e.g. guest shared columns)
         if ($value === null) {
             $value = self::forPlan('free')[$key] ?? null;
         }
@@ -163,15 +170,15 @@ class PlanLimits
     public static function nextPlanHint(string $plan): string
     {
         return match ($plan) {
-            'free'    => 'Upgrade to Starter or Pro',
-            'starter' => 'Upgrade to Pro',
+            'free'    => 'Upgrade to Starter or Creator',
+            'starter' => 'Upgrade to Creator or Pro',
+            'creator' => 'Upgrade to Pro',
             default   => 'Upgrade your plan',
         };
     }
 
     /**
      * Return a human-readable limit string for display (e.g. "10" or "Unlimited").
-     * Used by the plan limits API endpoint.
      */
     public static function displayLimit(int $rawValue): string
     {
@@ -189,17 +196,16 @@ class PlanLimits
      */
     public static function all(): array
     {
-        self::flushCache(); // always read fresh from DB when listing all plans
+        self::flushCache();
 
         return array_map(function (string $plan) {
             $cfg = self::forPlan($plan);
             return array_merge(['plan' => $plan], $cfg);
-        }, ['guest', 'free', 'starter', 'pro']);
+        }, ['guest', 'free', 'starter', 'creator', 'pro']);
     }
 
     /**
-     * Guest limits in the legacy shape expected by the frontend
-     * (GET /api/guest-limits). Reads the 'guest' row of plan_limits.
+     * Guest limits in the legacy shape expected by the frontend (GET /api/guest-limits).
      */
     public static function guestLimits(): array
     {
@@ -209,13 +215,10 @@ class PlanLimits
         $fd    = self::$defaults['free'];
 
         return [
-            // Session-specific knobs come from the guest row
             'synth_limit'   => $guest['synth_limit']   ?? $gd['synth_limit'],
             'preview_limit' => $guest['preview_limit'] ?? $gd['preview_limit'],
             'script_limit'  => $guest['script_limit']  ?? $gd['script_limit'],
             'session_days'  => $guest['session_days']  ?? $gd['session_days'],
-            // Shared feature limits inherit from the free tier when the guest
-            // column is NULL — so non-paying limits live in one place (free).
             'word_limit'    => $guest['word_limit']    ?? $free['word_limit']    ?? $fd['word_limit'],
             'profile_limit' => $guest['profile_limit'] ?? $free['profile_limit'] ?? $fd['profile_limit'],
         ];
