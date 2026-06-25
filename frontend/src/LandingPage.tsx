@@ -296,25 +296,75 @@ const PRICING = [
     amount: '$0',
     period: '',
     desc: 'Try it — no credit card needed',
-    feats: ['3 syntheses / day', '10 translations / month', '1 voice profile', '1 project', 'WAV export'],
+    feats: [
+      '20 voice syntheses per month',
+      '10 script translations per month',
+      '1 voice profile',
+      '1 project',
+      'Up to 500 words per script',
+      'WAV export',
+      '16 languages',
+    ],
     btn: 'Get started free',
     featured: false,
   },
   {
     name: 'Starter',
-    amount: '$9.99',
-    period: '/mo',
-    desc: 'For creators and podcasters',
-    feats: ['100 syntheses / month', '50 translations / month', '5 voice profiles', '10 projects', 'Multi-voice scripts', 'Timeline assembly'],
+    amount: '$9',
+    period: '/month',
+    desc: 'For individuals getting started',
+    feats: [
+      '150 voice syntheses per month',
+      '50 script translations per month',
+      '3 voice profiles',
+      '10 projects',
+      'Up to 5,000 words per script',
+      'WAV export',
+      'Multi-voice scripts',
+      'Timeline assembly',
+      '16 languages',
+    ],
     btn: 'Start Starter',
     featured: false,
   },
   {
+    name: 'Creator',
+    amount: '$29',
+    period: '/month',
+    desc: 'For creators and podcasters',
+    feats: [
+      '600 voice syntheses per month',
+      '200 script translations per month',
+      '10 voice profiles',
+      'Unlimited projects',
+      'No word limit per script',
+      'WAV export',
+      'Multi-voice scripts',
+      'Timeline assembly',
+      '16 languages',
+      'Priority synthesis queue',
+    ],
+    btn: 'Start Creator',
+    featured: false,
+  },
+  {
     name: 'Pro',
-    amount: '$24.99',
-    period: '/mo',
-    desc: 'Unlimited for power users',
-    feats: ['Unlimited syntheses', 'Unlimited translations', 'Unlimited voice profiles', 'Unlimited projects', 'Priority queue', 'Data export (GDPR)'],
+    amount: '$79',
+    period: '/month',
+    desc: 'For power users and studios',
+    feats: [
+      '2,000 voice syntheses per month',
+      'Unlimited script translations',
+      '25 voice profiles',
+      'Unlimited projects',
+      'No word limit per script',
+      'WAV export',
+      'Multi-voice scripts',
+      'Timeline assembly',
+      '16 languages',
+      'Priority synthesis queue',
+      'Data export (GDPR)',
+    ],
     btn: 'Go Pro',
     featured: true,
   },
@@ -484,7 +534,9 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow, onNavigate }: Landin
             <h2 className="vox-h2">Simple, transparent <span className="vox-grad-text">pricing</span></h2>
             <p className="vox-lead">Start free. Upgrade when you need more. Cancel any time.</p>
           </div>
-          <div className="vox-grid vox-grid-3">
+          
+          {/* 👇 CHANGE: updated from vox-grid-3 to vox-grid-4 */}
+          <div className="vox-grid vox-grid-4">
             {PRICING.map(p => (
               <div key={p.name} className={`vox-price-card${p.featured ? ' vox-price-card--featured' : ''}`}>
                 <div>
