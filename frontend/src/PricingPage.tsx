@@ -212,14 +212,29 @@ export function PricingPage({ user, onBack, onSignUp, onSubscribed, onSignIn, on
 
       {/* Plan cards */}
       <section className="vox-section" style={{ paddingTop: 32 }}>
-        <div className="vox-wrap">
-          <div className="vox-grid vox-grid-3">
+        <div className="vox-wrap" style={{ maxWidth: 1200 }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, 1fr)',
+            gap: 20,
+            alignItems: 'stretch',
+          }}>
             {PLANS.map(plan => {
-              const isCurrent = user ? currentPlan === plan.id : false
-              const isPro     = plan.id === 'pro'
+              const isCurrent  = user ? currentPlan === plan.id : false
+              const isFeatured = plan.id === 'creator'
 
               return (
-                <div key={plan.id} className={`vox-price-card${isPro ? ' vox-price-card--featured' : ''}`}>
+                <div key={plan.id} className={`vox-price-card${isFeatured ? ' vox-price-card--featured' : ''}`} style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
+                  {isFeatured && (
+                    <div style={{
+                      position: 'absolute', top: -13, left: '50%', transform: 'translateX(-50%)',
+                      background: 'linear-gradient(90deg, var(--vx-purple), var(--vx-coral))',
+                      color: '#fff', fontSize: 10, fontWeight: 700,
+                      padding: '4px 14px', borderRadius: 99, letterSpacing: '0.8px', whiteSpace: 'nowrap',
+                    }}>
+                      MOST POPULAR
+                    </div>
+                  )}
                   {isCurrent && (
                     <div style={{
                       position: 'absolute', top: 14, right: 14,
@@ -266,14 +281,14 @@ export function PricingPage({ user, onBack, onSignUp, onSubscribed, onSignIn, on
                       </button>
                     ) : !user ? (
                       <button
-                        className={`vox-btn ${isPro ? 'vox-btn--primary' : 'vox-btn--ghost'}`}
+                        className={`vox-btn ${isFeatured ? 'vox-btn--primary' : 'vox-btn--ghost'}`}
                         style={{ width: '100%' }}
                         onClick={onSignUp}
                       >
                         Sign up &amp; Subscribe
                       </button>
                     ) : ppReady ? (
-                      <PayPalButton plan={plan.id as 'starter' | 'pro'} onSuccess={() => onSubscribed?.()} />
+                      <PayPalButton plan={plan.id as 'starter' | 'creator' | 'pro'} onSuccess={() => onSubscribed?.()} />
                     ) : (
                       <div style={{
                         height: 44, background: 'var(--vx-surface-2)', borderRadius: 10,
