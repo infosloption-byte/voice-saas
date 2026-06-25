@@ -45,13 +45,14 @@ class SubscriptionController extends Controller
     public function create(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'plan' => 'required|string|in:starter,pro',
+            'plan' => 'required|string|in:starter,creator,pro',
         ]);
 
         $plan   = $validated['plan'];
         // Admin-panel managed setting; falls back to .env via the registry
         $planId = match ($plan) {
             'starter' => \App\Services\Settings::get('paypal_plan_starter'),
+            'creator' => \App\Services\Settings::get('paypal_plan_creator'),
             'pro'     => \App\Services\Settings::get('paypal_plan_pro'),
         };
 
@@ -95,6 +96,7 @@ class SubscriptionController extends Controller
 
         $resolvedPlan = match (true) {
             $details['plan_id'] === \App\Services\Settings::get('paypal_plan_starter') => 'starter',
+            $details['plan_id'] === \App\Services\Settings::get('paypal_plan_creator') => 'creator',
             $details['plan_id'] === \App\Services\Settings::get('paypal_plan_pro')     => 'pro',
             default => null,
         };

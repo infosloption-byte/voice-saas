@@ -40,6 +40,13 @@ class Settings
             'secret'   => false,
             'fallback' => 'services.paypal.plan_starter',
         ],
+        'paypal_plan_creator' => [
+            'group'    => 'PayPal',
+            'label'    => 'Creator Plan ID',
+            'help'     => 'PayPal subscription plan ID (P-xxx…) for the Creator plan.',
+            'secret'   => false,
+            'fallback' => 'services.paypal.plan_creator',
+        ],
         'paypal_plan_pro' => [
             'group'    => 'PayPal',
             'label'    => 'Pro Plan ID',

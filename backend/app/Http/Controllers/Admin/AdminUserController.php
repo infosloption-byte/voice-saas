@@ -253,7 +253,7 @@ class AdminUserController extends Controller
     public function updatePlanOverride(Request $request, User $user)
     {
         $data = $request->validate([
-            'plan_override' => ['nullable', Rule::in(['starter', 'pro'])],
+            'plan_override' => ['nullable', Rule::in(['starter', 'creator', 'pro'])],
         ]);
 
         $before = $user->plan_override;

@@ -7,6 +7,7 @@ import type { Plan, User } from './types'
 
 const PAYPAL_CLIENT_ID    = import.meta.env.VITE_PAYPAL_CLIENT_ID    as string | undefined
 const PAYPAL_PLAN_STARTER = import.meta.env.VITE_PAYPAL_PLAN_STARTER as string | undefined
+const PAYPAL_PLAN_CREATOR = import.meta.env.VITE_PAYPAL_PLAN_CREATOR as string | undefined
 const PAYPAL_PLAN_PRO     = import.meta.env.VITE_PAYPAL_PLAN_PRO     as string | undefined
 
 // ── Plan definitions ───────────────────────────────────────────────
@@ -27,7 +28,7 @@ const PLANS: PlanDef[] = [
     period: '',
     tagline: 'Try it — no credit card needed',
     features: [
-      '3 voice syntheses per day',
+      '20 voice syntheses per month',
       '10 script translations per month',
       '1 voice profile',
       '1 project',
@@ -39,13 +40,13 @@ const PLANS: PlanDef[] = [
   {
     id: 'starter',
     name: 'Starter',
-    price: '$9.99',
+    price: '$9',
     period: '/month',
-    tagline: 'For creators and podcasters',
+    tagline: 'For individuals getting started',
     features: [
-      '100 voice syntheses per month',
+      '150 voice syntheses per month',
       '50 script translations per month',
-      '5 voice profiles',
+      '3 voice profiles',
       '10 projects',
       'Up to 5,000 words per script',
       'WAV export',
@@ -55,15 +56,34 @@ const PLANS: PlanDef[] = [
     ],
   },
   {
+    id: 'creator',
+    name: 'Creator',
+    price: '$29',
+    period: '/month',
+    tagline: 'For creators and podcasters',
+    features: [
+      '600 voice syntheses per month',
+      '200 script translations per month',
+      '10 voice profiles',
+      'Unlimited projects',
+      'No word limit per script',
+      'WAV export',
+      'Multi-voice scripts',
+      'Timeline assembly',
+      '16 languages',
+      'Priority synthesis queue',
+    ],
+  },
+  {
     id: 'pro',
     name: 'Pro',
-    price: '$24.99',
+    price: '$79',
     period: '/month',
-    tagline: 'Unlimited for power users',
+    tagline: 'For power users and studios',
     features: [
-      'Unlimited voice syntheses',
+      '2,000 voice syntheses per month',
       'Unlimited script translations',
-      'Unlimited voice profiles',
+      '25 voice profiles',
       'Unlimited projects',
       'No word limit per script',
       'WAV export',
@@ -102,7 +122,7 @@ function usePayPalSdk() {
 }
 
 // ── PayPal subscription button ────────────────────────────────────
-function PayPalButton({ plan, onSuccess }: { plan: 'starter' | 'pro'; onSuccess: () => void }) {
+function PayPalButton({ plan, onSuccess }: { plan: 'starter' | 'creator' | 'pro'; onSuccess: () => void }) {
   const containerId = `paypal-btn-${plan}`
   const rendered    = useRef(false)
 
@@ -115,7 +135,7 @@ function PayPalButton({ plan, onSuccess }: { plan: 'starter' | 'pro'; onSuccess:
     pp.Buttons({
       style: { shape: 'rect', color: 'silver', layout: 'vertical', label: 'subscribe', height: 44 },
       createSubscription: (_data: unknown, actions: any) => {
-        const planId = plan === 'starter' ? PAYPAL_PLAN_STARTER : PAYPAL_PLAN_PRO
+        const planId = plan === 'starter' ? PAYPAL_PLAN_STARTER : plan === 'creator' ? PAYPAL_PLAN_CREATOR : PAYPAL_PLAN_PRO
         return actions.subscription.create({ plan_id: planId })
       },
       onApprove: async (data: { subscriptionID: string }) => {

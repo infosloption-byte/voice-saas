@@ -1,6 +1,6 @@
 // ── Shared types for Voxora ──────────────────────────────────
 
-export type Plan = 'free' | 'starter' | 'pro'
+export type Plan = 'free' | 'starter' | 'creator' | 'pro'
 
 export type Page =
   | 'landing' | 'signin' | 'signup'
@@ -25,7 +25,7 @@ export interface User {
   is_admin?: boolean
   impersonated?: boolean
   suspended_at?: string | null
-  plan_override?: 'starter' | 'pro' | null
+  plan_override?: 'starter' | 'creator' | 'pro' | null
 }
 
 export interface Subscription {
