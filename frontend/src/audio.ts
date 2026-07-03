@@ -241,20 +241,35 @@ export function useAudioRecorder() {
 
   const start = useCallback(async (noiseSuppression = true, noiseGain = 0.85) => {
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { noiseSuppression, echoCancellation: true, autoGainControl: true, sampleRate: 44100, channelCount: 1 }
+      // autoGainControl is deliberately OFF here: this recorder feeds voice
+      // cloning (XTTS/F5), and AGC continuously rides the gain in real time —
+      // that fights the natural loudness/prosody contour that a clone needs
+      // to sound like a specific person rather than a flattened "generic"
+      // voice. A single manual gain trim (the `gain` node below) is enough.
+      audio: { noiseSuppression, echoCancellation: true, autoGainControl: false, sampleRate: 44100, channelCount: 1 }
     })
     const ctx = new AudioContext(); ctxRef.current = ctx
     const source = ctx.createMediaStreamSource(stream)
     const dest = ctx.createMediaStreamDestination()
     const hpf = ctx.createBiquadFilter(); hpf.type = 'highpass'; hpf.frequency.value = 80
+    // Peak-safety limiter only — NOT a continuous compressor. The previous
+    // settings (threshold -24dB, ratio 12:1) compressed normal speech
+    // throughout the take, flattening the dynamic range that carries a
+    // speaker's natural character. This only engages to catch rare clipping
+    // peaks near 0dB and is transparent for everything below that.
     const comp = ctx.createDynamicsCompressor()
-    comp.threshold.value = -24; comp.knee.value = 30; comp.ratio.value = 12
-    comp.attack.value = 0.003; comp.release.value = 0.25
+    comp.threshold.value = -3; comp.knee.value = 0; comp.ratio.value = 20
+    comp.attack.value = 0.001; comp.release.value = 0.1
     const gain = ctx.createGain(); gain.gain.value = noiseGain
     source.connect(hpf).connect(comp).connect(gain).connect(dest)
     streamRef.current = stream
     const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm'
-    recRef.current = new MediaRecorder(dest.stream, { mimeType })
+    // Explicit high bitrate — browsers otherwise pick a bitrate tuned for
+    // call intelligibility (as low as ~32-64 kbps for mono voice), which
+    // throws away spectral detail before the reference clip ever reaches
+    // the cloning model. 256 kbps keeps that detail intact for a mono
+    // speech recording at negligible file-size cost for a 10-30s clip.
+    recRef.current = new MediaRecorder(dest.stream, { mimeType, audioBitsPerSecond: 256_000 })
     chunksRef.current = []
     recRef.current.ondataavailable = e => chunksRef.current.push(e.data)
     recRef.current.start(100)

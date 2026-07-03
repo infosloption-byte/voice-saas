@@ -200,6 +200,85 @@ def convert_to_wav(input_path: str, output_path: str, sample_rate: int = 22050) 
         return False
 
 
+# ── Neural denoise (optional, used only for saved voice-profile refs) ──
+# ffmpeg's afftdn (spectral gate) already runs in convert_to_wav(). For
+# voice-profile references specifically we additionally try a neural
+# denoiser (DeepFilterNet), which removes noise far more surgically without
+# smearing the formants that carry speaker identity — noisy reference audio
+# is one of the biggest silent killers of cloning similarity. This is fully
+# optional: if `deepfilternet` isn't installed, we log once and continue
+# with the ffmpeg-only pipeline, so nothing breaks on servers without it.
+#   pip install deepfilternet
+_DF_MODEL = None
+_DF_STATE = None
+_DF_LOCK  = threading.Lock()
+_DF_UNAVAILABLE = False  # sticky flag so we only try/log once per process
+
+
+def _try_load_deepfilternet() -> bool:
+    global _DF_MODEL, _DF_STATE, _DF_UNAVAILABLE
+    if _DF_MODEL is not None:
+        return True
+    if _DF_UNAVAILABLE:
+        return False
+    with _DF_LOCK:
+        if _DF_MODEL is not None:
+            return True
+        if _DF_UNAVAILABLE:
+            return False
+        try:
+            from df.enhance import init_df
+            _DF_MODEL, _DF_STATE, _ = init_df()
+            print("[denoise] DeepFilterNet loaded — neural denoise enabled for voice-profile references.")
+            return True
+        except Exception as e:
+            print(f"[denoise] DeepFilterNet not available ({e}); using ffmpeg spectral denoise only. "
+                  f"Run `pip install deepfilternet` to enable neural denoise.")
+            _DF_UNAVAILABLE = True
+            return False
+
+
+def neural_denoise(wav_path: str) -> None:
+    """In-place neural denoise. Non-fatal no-op if DeepFilterNet isn't installed
+    or the pass fails for any reason — the caller's ffmpeg-cleaned file is kept."""
+    if not _try_load_deepfilternet():
+        return
+    try:
+        from df.enhance import enhance, load_audio, save_audio
+        audio, _ = load_audio(wav_path, sr=_DF_STATE.sr())
+        enhanced = enhance(_DF_MODEL, _DF_STATE, audio)
+        save_audio(wav_path, enhanced, _DF_STATE.sr())
+    except Exception as e:
+        print(f"[denoise] Neural denoise pass failed (non-fatal, keeping ffmpeg-only output): {e}")
+
+
+def convert_to_wav_enhanced(input_path: str, output_path: str, sample_rate: int = 22050) -> bool:
+    """convert_to_wav() + an additional neural denoise pass, specifically for
+    voice-profile reference clips where noise directly hurts clone similarity.
+    Re-normalizes sample rate/format afterward since the denoiser may change
+    the sample rate internally."""
+    if not convert_to_wav(input_path, output_path, sample_rate=sample_rate):
+        return False
+    neural_denoise(output_path)
+    tmp = output_path + ".renorm.wav"
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", output_path,
+             "-ar", str(sample_rate), "-ac", "1",
+             "-f", "wav", "-acodec", "pcm_s16le", tmp],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0:
+            os.replace(tmp, output_path)
+        elif os.path.exists(tmp):
+            os.remove(tmp)
+    except Exception as e:
+        print(f"[denoise] Re-normalize after denoise failed (non-fatal): {e}")
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    return True
+
+
 def trim_silence(wav_path: str, top_db: float = 30.0) -> None:
     try:
         data, sr = sf.read(wav_path)
@@ -284,7 +363,7 @@ def concatenate_wavs(wav_paths: list[str], output_path: str, gap_ms: int = 60) -
 def synthesize_chunk_f5(
     chunk: str, ref_wav: str, speed: float, chunk_path: str,
     cfg_strength: float = 2.0, target_rms: float = 0.1,
-    sway_sampling_coef: float = -1.0,
+    sway_sampling_coef: float = -1.0, ref_text: str = "",
 ) -> None:
     """
     Synthesize a single text chunk using F5-TTS and save to chunk_path.
@@ -294,6 +373,12 @@ def synthesize_chunk_f5(
     knobs and are how we express "tone" on F5 (it has no temperature/top_k
     like XTTS). Higher cfg_strength = more emphatic adherence; target_rms
     controls loudness; sway_sampling_coef nearer 0 = more pitch variation.
+
+    ref_text: pass the pre-computed Whisper transcription of ref_wav when
+    available (see get_cached_ref_text). Leaving it "" makes F5 auto-
+    transcribe the reference on every single call — slower, and a bad
+    auto-transcription measurably hurts how close the cloned voice lands
+    to the original speaker.
     """
     f5 = models["f5tts"]
     if f5 is None:
@@ -306,7 +391,7 @@ def synthesize_chunk_f5(
     try:
         result = f5.infer(
             ref_file=ref_wav,
-            ref_text="",          # auto-transcription from ref audio
+            ref_text=ref_text,    # cached transcription, or "" to auto-transcribe
             gen_text=chunk,
             speed=max(0.5, min(2.0, speed)),
             target_rms=target_rms,
@@ -324,7 +409,7 @@ def synthesize_chunk_f5(
         try:
             result = f5.infer(
                 ref_file=ref_wav,
-                ref_text="",
+                ref_text=ref_text,
                 gen_text=chunk,
             )
             if isinstance(result, (tuple, list)) and len(result) >= 2:
@@ -352,6 +437,118 @@ def synthesize_chunk_f5(
         raise RuntimeError("F5-TTS produced empty audio array")
 
     sf.write(chunk_path, wav, sr, subtype="PCM_16")
+
+
+# ── XTTS conditioning-latent cache (similarity optimization) ──────
+# XTTS's tts_to_file(speaker_wav=...) recomputes the speaker's conditioning
+# latents (gpt_cond_latent, speaker_embedding) from the reference WAV on
+# EVERY call. Two problems with that: (1) it's wasted compute for a saved
+# profile that's reused many times, and (2) it only ever sees ONE take of
+# the speaker. Computing latents once from ALL of a profile's reference
+# clips together — and caching the (averaged) result — gives a noticeably
+# closer and more stable timbre match than conditioning from a single clip
+# every time.
+def _get_raw_xtts_model():
+    """Return the underlying TTS.tts.models.xtts.Xtts nn.Module, or None."""
+    xtts = models.get("xtts")
+    if xtts is None:
+        return None
+    try:
+        return xtts.synthesizer.tts_model
+    except Exception:
+        return None
+
+
+def compute_and_cache_xtts_latents(profile_id: str, wav_paths: list[str]) -> bool:
+    """Compute XTTS conditioning latents from one or more reference clips and
+    cache them to disk as {profile_id}.latents.pt. Returns True on success.
+    Non-fatal on failure — callers fall back to passing speaker_wav directly
+    on every request, which is slower but still works."""
+    model = _get_raw_xtts_model()
+    if model is None or not wav_paths:
+        return False
+    try:
+        try:
+            # Newer coqui-tts accepts a list of reference clips directly and
+            # averages internally — this is the preferred path when available.
+            gpt_cond_latent, speaker_embedding = model.get_conditioning_latents(
+                audio_path=wav_paths, gpt_cond_len=30, max_ref_length=60,
+            )
+        except TypeError:
+            # Older API only accepts a single path per call — average manually.
+            latents, embeds = [], []
+            for wp in wav_paths:
+                g, s = model.get_conditioning_latents(audio_path=wp, gpt_cond_len=30, max_ref_length=60)
+                latents.append(g)
+                embeds.append(s)
+            gpt_cond_latent = torch.mean(torch.stack(latents), dim=0)
+            speaker_embedding = torch.mean(torch.stack(embeds), dim=0)
+
+        cache_path = os.path.join(VOICES_DIR, f"{profile_id}.latents.pt")
+        torch.save({"gpt_cond_latent": gpt_cond_latent, "speaker_embedding": speaker_embedding}, cache_path)
+        print(f"[latents] Cached averaged XTTS conditioning from {len(wav_paths)} clip(s) → {cache_path}")
+        return True
+    except Exception as e:
+        print(f"[latents] Failed to compute cached latents for '{profile_id}' (non-fatal, "
+              f"will condition from speaker_wav per request instead): {e}")
+        return False
+
+
+def load_cached_xtts_latents(profile_id: str):
+    """Return (gpt_cond_latent, speaker_embedding) if cached, else None."""
+    cache_path = os.path.join(VOICES_DIR, f"{profile_id}.latents.pt")
+    if not os.path.exists(cache_path):
+        return None
+    try:
+        data = torch.load(cache_path, map_location="cpu")
+        return data["gpt_cond_latent"], data["speaker_embedding"]
+    except Exception as e:
+        print(f"[latents] Failed to load cached latents for '{profile_id}' (non-fatal): {e}")
+        return None
+
+
+def xtts_synthesize_with_latents(
+    text: str, language: str, gpt_cond_latent, speaker_embedding, file_path: str,
+    temperature: float, top_k: int, top_p: float, speed: float, repetition_penalty: float,
+) -> None:
+    """Run XTTS inference directly from pre-computed (possibly multi-clip
+    averaged) latents, bypassing tts_to_file's per-call re-encoding of
+    speaker_wav. Raises on failure so callers can fall back to speaker_wav."""
+    model = _get_raw_xtts_model()
+    if model is None:
+        raise RuntimeError("XTTS model not loaded")
+    out = model.inference(
+        text=text, language=language,
+        gpt_cond_latent=gpt_cond_latent, speaker_embedding=speaker_embedding,
+        temperature=temperature, top_k=top_k, top_p=top_p,
+        repetition_penalty=repetition_penalty, speed=speed,
+    )
+    wav = np.array(out["wav"], dtype=np.float32)
+    sf.write(file_path, wav, 24000, subtype="PCM_16")
+
+
+# ── Reference-text cache (similarity optimization for F5-TTS) ─────
+# F5-TTS auto-transcribes the reference clip on every call when ref_text=""
+# — that's wasted work AND a source of variance: a bad auto-transcription
+# misaligns F5's text/audio conditioning and directly hurts how close the
+# output timbre lands to the original speaker. We transcribe once at
+# profile-save time (we already have Whisper loaded) and reuse it forever.
+def ref_text_cache_path(safe_profile_id: str) -> str:
+    return os.path.join(VOICES_DIR, f"{safe_profile_id}.reftext.txt")
+
+
+def get_cached_ref_text(profile_id: str) -> str:
+    """Return the pre-computed transcription of a profile's primary reference
+    clip, or '' if none is cached (F5 will fall back to auto-transcribing)."""
+    safe = sanitize_profile_id(profile_id)
+    p = ref_text_cache_path(safe)
+    if os.path.exists(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except Exception:
+            pass
+    return ""
 
 
 # ── Model loading ──────────────────────────────────────────────────
@@ -679,48 +876,106 @@ async def transcribe(
 
 
 # ── FEATURE 2: SAVE VOICE PROFILE ────────────────────────────────
+MAX_PROFILE_CLIPS = 4
+
 @app.post("/voice-profile/save")
 async def save_voice_profile(
-    file: UploadFile = File(...),
+    file: list[UploadFile] = File(...),
     profile_id: str = Form(...),
     _key: None = Depends(verify_api_key),
 ):
-    await check_file_size(file)
-    safe_id  = sanitize_profile_id(profile_id)
-    raw_path = tmp_path("voice_raw")
-    wav_path = os.path.join(VOICES_DIR, f"{safe_id}.wav")
+    """Save a voice profile from one or more reference clips.
+
+    NOTE: the form field is named "file" (not "files") on purpose — the
+    Laravel backend uploads a single clip under a field named "file"
+    (Http::attach('file', ...)). FastAPI/Starlette binds repeated fields of
+    the same name to a List[UploadFile], so a single "file" upload still
+    arrives here as a one-item list — fully backward compatible. To use the
+    multi-clip similarity improvement, the caller sends the SAME field name
+    "file" multiple times (Laravel: call ->attach('file', ...) once per clip).
+
+    Uploading 2-4 short clips (instead of just one) is the single biggest
+    lever for cloning similarity: XTTS conditioning latents get computed
+    from ALL clips together and cached as an average, which is a closer and
+    more stable timbre match than deriving everything from one take. The
+    cleanest clip also gets pre-transcribed with Whisper and cached so
+    F5-TTS doesn't have to auto-transcribe (and risk mis-transcribing) the
+    reference on every single synthesis call.
+    """
+    files = file
+    if not files:
+        raise HTTPException(400, "At least one reference clip is required.")
+    if len(files) > MAX_PROFILE_CLIPS:
+        raise HTTPException(400, f"Maximum {MAX_PROFILE_CLIPS} reference clips per profile.")
+    for f in files:
+        await check_file_size(f)
+
+    safe_id = sanitize_profile_id(profile_id)
+    raw_paths: list[str] = []
+    wav_paths: list[str] = []
 
     try:
-        with open(raw_path, "wb") as b:
-            b.write(await file.read())
+        multi = len(files) > 1
+        for i, f in enumerate(files):
+            raw_p = tmp_path(f"voice_raw_{i}")
+            with open(raw_p, "wb") as b:
+                b.write(await f.read())
+            raw_paths.append(raw_p)
 
-        if not convert_to_wav(raw_path, wav_path, sample_rate=22050):
-            raise HTTPException(400, "Could not convert audio.")
+            wav_p = (os.path.join(VOICES_DIR, f"{safe_id}__{i}.wav") if multi
+                     else os.path.join(VOICES_DIR, f"{safe_id}.wav"))
+            if not convert_to_wav_enhanced(raw_p, wav_p, sample_rate=22050):
+                raise HTTPException(400, f"Could not convert reference clip {i + 1}.")
+            trim_silence(wav_p, top_db=35)
+            wav_paths.append(wav_p)
 
-        trim_silence(wav_path, top_db=35)
+        # Primary clip (index 0) is always also available at {safe_id}.wav —
+        # this is what F5, the preview endpoint, and older clients expect.
+        primary_path = os.path.join(VOICES_DIR, f"{safe_id}.wav")
+        if primary_path not in wav_paths:
+            import shutil
+            shutil.copy(wav_paths[0], primary_path)
 
-        probe = subprocess.run(
-            [
-                "ffprobe", "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
-                wav_path,
-            ],
-            capture_output=True, text=True,
-        )
-        duration = float(probe.stdout.strip()) if probe.stdout.strip() else 0
+        durations = []
+        for wp in wav_paths:
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", wp],
+                capture_output=True, text=True,
+            )
+            durations.append(float(probe.stdout.strip()) if probe.stdout.strip() else 0)
+        total_duration = sum(durations)
 
         warning = None
-        if duration < 6:
-            warning = f"Recording is only {duration:.1f}s — both engines need 6-30 s for best quality."
-        elif duration > 30:
-            warning = "Recording is over 30 s — consider trimming to the best 10-20 s."
+        if total_duration < 6:
+            warning = (f"Total reference audio is only {total_duration:.1f}s — aim for "
+                       f"10-30s across your clip(s) for best cloning quality.")
+        elif not multi and durations[0] > 30:
+            warning = ("Recording is over 30s — consider trimming to the best 10-20s, "
+                       "or upload it as 2-3 separate shorter clips instead (improves similarity).")
+
+        # Pre-transcribe the primary clip once so F5-TTS reuses it instead of
+        # auto-transcribing (and risking a bad transcription) on every call.
+        if models["stt"] is not None:
+            try:
+                result = models["stt"].transcribe(primary_path)
+                with open(ref_text_cache_path(safe_id), "w", encoding="utf-8") as tf:
+                    tf.write(result["text"].strip())
+            except Exception as e:
+                print(f"[voice-profile] Reference transcription failed (non-fatal): {e}")
+
+        # Precompute averaged XTTS conditioning latents from ALL clips.
+        latents_cached = compute_and_cache_xtts_latents(safe_id, wav_paths)
 
         return {
             "success": True,
             "profile_id": safe_id,
-            "duration_seconds": round(duration, 2),
+            "clips_saved": len(wav_paths),
+            # Kept as "duration_seconds" (not renamed) — the Laravel backend
+            # reads $engineData['duration_seconds'] to populate the DB.
+            "duration_seconds": round(total_duration, 2),
             "warning": warning,
+            "xtts_latents_cached": latents_cached,
             "message": "Voice profile saved successfully.",
         }
     except HTTPException:
@@ -728,8 +983,9 @@ async def save_voice_profile(
     except Exception as e:
         raise HTTPException(500, str(e))
     finally:
-        if os.path.exists(raw_path):
-            os.remove(raw_path)
+        for p in raw_paths:
+            if os.path.exists(p):
+                os.remove(p)
 
 
 # ── FEATURE 3: LIST VOICE PROFILES ───────────────────────────────
@@ -737,8 +993,18 @@ async def save_voice_profile(
 async def list_voice_profiles(_key: None = Depends(verify_api_key)):
     profiles = []
     for f in os.listdir(VOICES_DIR):
-        if f.endswith(".wav"):
-            profiles.append({"profile_id": f[:-4], "filename": f})
+        # Extra multi-clip reference files are named {id}__0.wav, {id}__1.wav,
+        # etc. — skip them so each profile appears exactly once in the list.
+        if f.endswith(".wav") and "__" not in f:
+            safe_id = f[:-4]
+            profiles.append({
+                "profile_id": safe_id,
+                "filename": f,
+                "extra_clips": len([
+                    x for x in os.listdir(VOICES_DIR) if x.startswith(f"{safe_id}__")
+                ]),
+                "xtts_latents_cached": os.path.exists(os.path.join(VOICES_DIR, f"{safe_id}.latents.pt")),
+            })
     return {"profiles": profiles}
 
 
@@ -765,11 +1031,20 @@ async def delete_voice_profile(
     profile_id: str,
     _key: None = Depends(verify_api_key),
 ):
-    safe_id  = sanitize_profile_id(profile_id)
-    wav_path = os.path.join(VOICES_DIR, f"{safe_id}.wav")
-    if os.path.exists(wav_path):
-        os.remove(wav_path)
-    return {"success": True, "profile_id": safe_id}
+    safe_id = sanitize_profile_id(profile_id)
+    removed = 0
+    # Primary clip, any extra multi-clip files (__0, __1, ...), cached
+    # averaged XTTS latents, and cached F5 reference transcription.
+    candidates = [
+        os.path.join(VOICES_DIR, f"{safe_id}.wav"),
+        os.path.join(VOICES_DIR, f"{safe_id}.latents.pt"),
+        ref_text_cache_path(safe_id),
+    ] + [os.path.join(VOICES_DIR, f) for f in os.listdir(VOICES_DIR) if f.startswith(f"{safe_id}__")]
+    for p in candidates:
+        if os.path.exists(p):
+            os.remove(p)
+            removed += 1
+    return {"success": True, "profile_id": safe_id, "files_removed": removed}
 
 
 # ── Multi-voice helpers ────────────────────────────────────────────
@@ -804,13 +1079,24 @@ def synthesize_segment(text: str, engine: str,
                         speed: float, gap_ms: int,
                         repetition_penalty: float = 5.0,
                         ref_wav: str | None = None,
-                        speaker_name: str | None = None) -> list[str]:
+                        speaker_name: str | None = None,
+                        profile_id: str | None = None,
+                        cfg_strength: float = 2.0,
+                        target_rms: float = 0.1,
+                        sway_sampling_coef: float = -1.0) -> list[str]:
     """Synthesize one segment (may span multiple chunks). Returns list of chunk paths.
 
     Provide either ref_wav (custom clone) or speaker_name (XTTS built-in).
+    profile_id, when set, is the saved profile's safe id — used to look up
+    cached XTTS conditioning latents and F5's pre-computed reference text
+    for closer/faster cloning than re-deriving both from ref_wav every call.
     """
     chunks = split_into_chunks(text)
     chunk_paths: list[str] = []
+
+    cached_latents = load_cached_xtts_latents(profile_id) if (engine == "xtts" and profile_id) else None
+    ref_text = get_cached_ref_text(profile_id) if (engine == "f5" and profile_id) else ""
+
     for i, chunk in enumerate(chunks):
         chunk_path = tmp_path(f"seg_chunk_{i}", ".wav")
         chunk_paths.append(chunk_path)
@@ -826,24 +1112,55 @@ def synthesize_segment(text: str, engine: str,
                     raise HTTPException(400, "F5-TTS requires a voice reference (custom profile or built-in speaker).")
             synthesize_chunk_f5(chunk=chunk, ref_wav=f5_ref, speed=speed, chunk_path=chunk_path,
                                 cfg_strength=cfg_strength, target_rms=target_rms,
-                                sway_sampling_coef=sway_sampling_coef)
+                                sway_sampling_coef=sway_sampling_coef, ref_text=ref_text)
         else:
-            kwargs: dict = dict(
-                text=chunk,
-                language=language,
-                file_path=chunk_path,
-                temperature=max(0.1, min(1.0, temperature)),
-                top_k=max(1, min(100, top_k)),
-                top_p=max(0.1, min(1.0, top_p)),
-                speed=max(0.5, min(2.0, speed)),
-                repetition_penalty=max(1.0, min(10.0, repetition_penalty)),
-                enable_text_splitting=False,
-            )
             if speaker_name:
-                kwargs["speaker"] = speaker_name
+                models["xtts"].tts_to_file(
+                    text=chunk, language=language, file_path=chunk_path,
+                    temperature=max(0.1, min(1.0, temperature)),
+                    top_k=max(1, min(100, top_k)),
+                    top_p=max(0.1, min(1.0, top_p)),
+                    speed=max(0.5, min(2.0, speed)),
+                    repetition_penalty=max(1.0, min(10.0, repetition_penalty)),
+                    enable_text_splitting=False,
+                    speaker=speaker_name,
+                )
+            elif cached_latents is not None:
+                gpt_cond_latent, speaker_embedding = cached_latents
+                try:
+                    xtts_synthesize_with_latents(
+                        text=chunk, language=language,
+                        gpt_cond_latent=gpt_cond_latent, speaker_embedding=speaker_embedding,
+                        file_path=chunk_path,
+                        temperature=max(0.1, min(1.0, temperature)),
+                        top_k=max(1, min(100, top_k)),
+                        top_p=max(0.1, min(1.0, top_p)),
+                        speed=max(0.5, min(2.0, speed)),
+                        repetition_penalty=max(1.0, min(10.0, repetition_penalty)),
+                    )
+                except Exception as e:
+                    print(f"[latents] Inference from cached latents failed, falling back to speaker_wav: {e}")
+                    models["xtts"].tts_to_file(
+                        text=chunk, language=language, file_path=chunk_path,
+                        temperature=max(0.1, min(1.0, temperature)),
+                        top_k=max(1, min(100, top_k)),
+                        top_p=max(0.1, min(1.0, top_p)),
+                        speed=max(0.5, min(2.0, speed)),
+                        repetition_penalty=max(1.0, min(10.0, repetition_penalty)),
+                        enable_text_splitting=False,
+                        speaker_wav=ref_wav,
+                    )
             else:
-                kwargs["speaker_wav"] = ref_wav
-            models["xtts"].tts_to_file(**kwargs)
+                models["xtts"].tts_to_file(
+                    text=chunk, language=language, file_path=chunk_path,
+                    temperature=max(0.1, min(1.0, temperature)),
+                    top_k=max(1, min(100, top_k)),
+                    top_p=max(0.1, min(1.0, top_p)),
+                    speed=max(0.5, min(2.0, speed)),
+                    repetition_penalty=max(1.0, min(10.0, repetition_penalty)),
+                    enable_text_splitting=False,
+                    speaker_wav=ref_wav,
+                )
     return chunk_paths
 
 
@@ -971,14 +1288,18 @@ def _perform_synthesis(
     out_path = tmp_path("synth_final", ".wav")
 
     try:
-        def resolve_voice(pid_raw: str) -> tuple[str | None, str | None]:
-            """Return (ref_wav_path_or_None, builtin_speaker_name_or_None)."""
+        def resolve_voice(pid_raw: str) -> tuple[str | None, str | None, str | None]:
+            """Return (ref_wav_path_or_None, builtin_speaker_name_or_None, safe_profile_id_or_None).
+            safe_profile_id is only set for a resolved custom profile — used
+            to look up cached XTTS latents / F5 ref text for that segment."""
             is_b, spk = parse_builtin_speaker(pid_raw)
             if is_b:
-                return None, spk
+                return None, spk, None
             safe = sanitize_profile_id(pid_raw)
             path = os.path.join(VOICES_DIR, f"{safe}.wav")
-            return (path if os.path.exists(path) else None), None
+            if os.path.exists(path):
+                return path, None, safe
+            return None, None, None
 
         if is_multi:
             # ── Multi-voice path ─────────────────────────────────
@@ -987,11 +1308,12 @@ def _perform_synthesis(
                 if not seg_text.strip():
                     continue
                 raw_pid = spk_map.get(spk_label, profile_id if not is_builtin_voice else f"builtin:{builtin_speaker}")
-                seg_ref_wav, seg_speaker = resolve_voice(raw_pid)
+                seg_ref_wav, seg_speaker, seg_profile_id = resolve_voice(raw_pid)
                 # Fall back to default voice if mapped profile missing
                 if seg_ref_wav is None and seg_speaker is None:
                     seg_ref_wav = None if is_builtin_voice else os.path.join(VOICES_DIR, f"{profile_id}.wav")
                     seg_speaker = builtin_speaker if is_builtin_voice else None
+                    seg_profile_id = None if is_builtin_voice else profile_id
                 if seg_ref_wav is None and seg_speaker is None:
                     raise HTTPException(404, f"Voice profile '{raw_pid}' not found.")
 
@@ -1001,6 +1323,9 @@ def _perform_synthesis(
                     top_k=top_k, top_p=top_p, speed=speed, gap_ms=gap_ms,
                     repetition_penalty=repetition_penalty,
                     ref_wav=seg_ref_wav, speaker_name=seg_speaker,
+                    profile_id=seg_profile_id,
+                    cfg_strength=cfg_strength, target_rms=target_rms,
+                    sway_sampling_coef=sway_sampling_coef,
                 )
                 all_chunk_paths.extend(seg_chunks)
 
@@ -1038,6 +1363,14 @@ def _perform_synthesis(
             if not chunks:
                 raise HTTPException(400, "No text to synthesise.")
 
+            # Cached optimizations for a saved custom profile (not builtin):
+            # averaged XTTS conditioning latents, and F5's pre-transcribed
+            # reference text — both computed once at profile-save time.
+            cached_latents = (load_cached_xtts_latents(profile_id)
+                               if (engine == "xtts" and not is_builtin_voice) else None)
+            f5_ref_text = (get_cached_ref_text(profile_id)
+                           if (engine == "f5" and not is_builtin_voice) else "")
+
             for i, chunk in enumerate(chunks):
                 chunk_path = tmp_path(f"synth_chunk_{i}", ".wav")
                 all_chunk_paths.append(chunk_path)
@@ -1045,24 +1378,54 @@ def _perform_synthesis(
                 if engine == "f5":
                     synthesize_chunk_f5(chunk=chunk, ref_wav=ref_wav_path, speed=speed, chunk_path=chunk_path,
                                         cfg_strength=cfg_strength, target_rms=target_rms,
-                                        sway_sampling_coef=sway_sampling_coef)
-                else:
-                    xtts_kwargs: dict = dict(
-                        text=chunk,
-                        language=language,
-                        file_path=chunk_path,
+                                        sway_sampling_coef=sway_sampling_coef, ref_text=f5_ref_text)
+                elif is_builtin_voice:
+                    models["xtts"].tts_to_file(
+                        text=chunk, language=language, file_path=chunk_path,
                         temperature=max(0.1, min(1.0, temperature)),
                         top_k=max(1, min(100, top_k)),
                         top_p=max(0.1, min(1.0, top_p)),
                         speed=max(0.5, min(2.0, speed)),
                         repetition_penalty=max(1.0, min(10.0, repetition_penalty)),
                         enable_text_splitting=False,
+                        speaker=builtin_speaker,
                     )
-                    if is_builtin_voice:
-                        xtts_kwargs["speaker"] = builtin_speaker
-                    else:
-                        xtts_kwargs["speaker_wav"] = ref_wav_path
-                    models["xtts"].tts_to_file(**xtts_kwargs)
+                elif cached_latents is not None:
+                    gpt_cond_latent, speaker_embedding = cached_latents
+                    try:
+                        xtts_synthesize_with_latents(
+                            text=chunk, language=language,
+                            gpt_cond_latent=gpt_cond_latent, speaker_embedding=speaker_embedding,
+                            file_path=chunk_path,
+                            temperature=max(0.1, min(1.0, temperature)),
+                            top_k=max(1, min(100, top_k)),
+                            top_p=max(0.1, min(1.0, top_p)),
+                            speed=max(0.5, min(2.0, speed)),
+                            repetition_penalty=max(1.0, min(10.0, repetition_penalty)),
+                        )
+                    except Exception as e:
+                        print(f"[latents] Inference from cached latents failed, falling back to speaker_wav: {e}")
+                        models["xtts"].tts_to_file(
+                            text=chunk, language=language, file_path=chunk_path,
+                            temperature=max(0.1, min(1.0, temperature)),
+                            top_k=max(1, min(100, top_k)),
+                            top_p=max(0.1, min(1.0, top_p)),
+                            speed=max(0.5, min(2.0, speed)),
+                            repetition_penalty=max(1.0, min(10.0, repetition_penalty)),
+                            enable_text_splitting=False,
+                            speaker_wav=ref_wav_path,
+                        )
+                else:
+                    models["xtts"].tts_to_file(
+                        text=chunk, language=language, file_path=chunk_path,
+                        temperature=max(0.1, min(1.0, temperature)),
+                        top_k=max(1, min(100, top_k)),
+                        top_p=max(0.1, min(1.0, top_p)),
+                        speed=max(0.5, min(2.0, speed)),
+                        repetition_penalty=max(1.0, min(10.0, repetition_penalty)),
+                        enable_text_splitting=False,
+                        speaker_wav=ref_wav_path,
+                    )
 
             if len(all_chunk_paths) == 1:
                 shutil.copy(all_chunk_paths[0], out_path)
@@ -1217,6 +1580,9 @@ async def clone(
     file: UploadFile = File(...),
     tts_engine: str = Form(default="xtts"),   # "xtts" | "f5"
     speed: float    = Form(default=1.0),
+    cfg_strength: float       = Form(default=2.0),    # F5 tone knobs (ignored by XTTS)
+    target_rms: float         = Form(default=0.1),
+    sway_sampling_coef: float = Form(default=-1.0),
     _key: None = Depends(verify_api_key),
 ):
     engine = tts_engine.lower().strip()
@@ -1236,6 +1602,9 @@ async def clone(
     raw_path = tmp_path("ref_raw")
     ref_path = tmp_path("ref", ".wav")
     out_path = tmp_path("clone", ".wav")
+    chunk_paths: list[str] = []  # initialized here (not just in try) so the
+                                  # finally block can't NameError if an early
+                                  # step (e.g. convert_to_wav) fails first
 
     try:
         with open(raw_path, "wb") as b:
@@ -1245,6 +1614,31 @@ async def clone(
             raise HTTPException(400, "Could not convert reference audio.")
 
         trim_silence(ref_path)
+
+        # For F5, pre-transcribe the reference once so all chunks share the
+        # same ref_text instead of each chunk triggering (and risking a
+        # different) auto-transcription.
+        ref_text = ""
+        if engine == "f5" and models["stt"] is not None:
+            try:
+                ref_text = models["stt"].transcribe(ref_path)["text"].strip()
+            except Exception as e:
+                print(f"[clone-voice] Reference transcription failed (non-fatal, F5 will auto-transcribe): {e}")
+
+        # For XTTS, compute conditioning latents from the reference ONCE and
+        # reuse them for every chunk — tts_to_file(speaker_wav=...) would
+        # otherwise re-derive conditioning from the file on every single
+        # chunk call, which can drift subtly between chunks of the same clip.
+        one_shot_latents = None
+        if engine == "xtts":
+            model = _get_raw_xtts_model()
+            if model is not None:
+                try:
+                    one_shot_latents = model.get_conditioning_latents(
+                        audio_path=ref_path, gpt_cond_len=30, max_ref_length=60,
+                    )
+                except Exception as e:
+                    print(f"[clone-voice] Could not precompute latents, falling back to per-chunk speaker_wav: {e}")
 
         chunks = split_into_chunks(text.strip()) or [text.strip()]
         chunk_paths = []
@@ -1256,7 +1650,23 @@ async def clone(
                                     speed=max(0.5, min(2.0, speed)),
                                     chunk_path=cp,
                                     cfg_strength=cfg_strength, target_rms=target_rms,
-                                    sway_sampling_coef=sway_sampling_coef)
+                                    sway_sampling_coef=sway_sampling_coef, ref_text=ref_text)
+            elif one_shot_latents is not None:
+                gpt_cond_latent, speaker_embedding = one_shot_latents
+                try:
+                    xtts_synthesize_with_latents(
+                        text=chunk, language="en",
+                        gpt_cond_latent=gpt_cond_latent, speaker_embedding=speaker_embedding,
+                        file_path=cp, temperature=0.65, top_k=50, top_p=0.85,
+                        speed=max(0.5, min(2.0, speed)), repetition_penalty=5.0,
+                    )
+                except Exception as e:
+                    print(f"[clone-voice] Inference from precomputed latents failed, falling back: {e}")
+                    models["xtts"].tts_to_file(
+                        text=chunk, speaker_wav=ref_path, language="en", file_path=cp,
+                        temperature=0.65, top_k=50, top_p=0.85,
+                        speed=max(0.5, min(2.0, speed)), enable_text_splitting=False,
+                    )
             else:
                 models["xtts"].tts_to_file(
                     text=chunk,
