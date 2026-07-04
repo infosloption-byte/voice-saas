@@ -18,6 +18,12 @@ RUN apt-get update \
 
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
+RUN { \
+    echo "upload_max_filesize=64M"; \
+    echo "post_max_size=200M"; \
+    echo "max_file_uploads=20"; \
+} > /usr/local/etc/php/conf.d/uploads.ini
+
 WORKDIR /var/www/html
 
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
