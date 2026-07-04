@@ -134,6 +134,7 @@ export interface SynthesisResult {
 export interface VoiceProfileSaveResult {
   profile_id: string
   duration_seconds?: number
+  clips_saved?: number
   warning?: string
 }
 

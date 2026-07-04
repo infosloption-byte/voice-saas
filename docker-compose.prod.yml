@@ -1,0 +1,114 @@
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - /etc/letsencrypt/live/usevoxora.online/fullchain.pem:/etc/nginx/certs/fullchain.pem:ro
+      - /etc/letsencrypt/live/usevoxora.online/privkey.pem:/etc/nginx/certs/privkey.pem:ro
+      - /var/www/certbot:/var/www/certbot:ro
+      - /etc/letsencrypt/live/ycusriya.online/fullchain.pem:/etc/nginx/certs/ycusriya/fullchain.pem:ro
+      - /etc/letsencrypt/live/ycusriya.online/privkey.pem:/etc/nginx/certs/ycusriya/privkey.pem:ro
+      - /etc/letsencrypt/live/pma.ycusriya.online/fullchain.pem:/etc/nginx/certs/pma/fullchain.pem:ro
+      - /etc/letsencrypt/live/pma.ycusriya.online/privkey.pem:/etc/nginx/certs/pma/privkey.pem:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+    networks:
+      - voice-network
+      - app_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: voice_backend
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend:/var/www/html
+      - backend_storage:/var/www/html/storage
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - voice-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: voice_frontend
+    restart: unless-stopped
+    networks:
+      - voice-network
+
+  ai-engine:
+    build:
+      context: ./ai-engine
+      dockerfile: Dockerfile
+    container_name: voice_ai
+    volumes:
+      - voice_profiles:/app/voice_profiles
+      - ai_models:/root/.cache/huggingface
+      - tts_models:/root/.local/share/tts
+    environment:
+      - COQUI_TOS_AGREED=1
+      - ALLOWED_ORIGINS=https://usevoxora.online
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    networks:
+      - voice-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+
+  db:
+    image: mysql:8.0
+    container_name: voice_db
+    environment:
+      MYSQL_DATABASE: voice_saas
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+    restart: unless-stopped
+    networks:
+      - voice-network
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    image: redis:alpine
+    container_name: voice_redis
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - voice-network
+
+networks:
+  voice-network:
+    driver: bridge
+  app_network:
+    external: true
+
+volumes:
+  voice_profiles:
+  ai_models:
+  tts_models:
+  db_data:
+  redis_data:
+  backend_storage:

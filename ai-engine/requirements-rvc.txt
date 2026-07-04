@@ -1,0 +1,8 @@
+# Optional. Only install this on a GPU host where you intend to enable
+# RVC post-processing (RVC_ENABLED=1). Kept separate from requirements.txt
+# because fairseq/faiss add real install risk (fairseq has known build
+# issues on Python 3.11+) and most deployments won't use this feature.
+#
+#   pip install -r requirements-rvc.txt
+#
+rvc-python

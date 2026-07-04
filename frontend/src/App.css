@@ -2295,6 +2295,46 @@
   box-shadow: var(--shadow-sm);
 }
 
+.takes-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+}
+
+.takes-list__label {
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 2px;
+}
+
+.takes-list__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.takes-list__index {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.takes-list__secs {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  width: 36px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
 .noise-controls {
   width: 100%;
   display: flex;
