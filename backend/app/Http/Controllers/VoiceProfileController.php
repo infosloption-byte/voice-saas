@@ -27,61 +27,84 @@ class VoiceProfileController extends Controller
      */
     public function store(Request $request)
     {
+        // Closure shared by every clip's validation — same MIME-sniffing
+        // logic as before, just reusable across a variable number of files.
+        $audioFileRule = function ($attribute, $value, $fail) {
+            if (! $value) {
+                return; // no file is fine — metadata-only update
+            }
+
+            $allowed = [
+                'audio/webm',
+                'video/webm',   // Chrome sometimes labels webm recordings as video/webm
+                'audio/ogg',
+                'application/ogg',
+                'audio/wav',
+                'audio/wave',
+                'audio/x-wav',
+                'audio/mpeg',
+                'audio/mp3',
+                'audio/mp4',
+                'audio/m4a',
+                'audio/x-m4a',
+            ];
+
+            // getMimeType() reads the actual file bytes (finfo); getClientMimeType() is
+            // what the browser declared — check both so either can satisfy the rule.
+            $detectedMime = $value->getMimeType() ?? '';
+            $clientMime   = $value->getClientMimeType() ?? '';
+
+            foreach ([$detectedMime, $clientMime] as $mime) {
+                // Accept anything that starts with audio/
+                if (str_starts_with($mime, 'audio/')) {
+                    return;
+                }
+                // Also accept video/webm (Chrome's label for audio-only webm)
+                if (in_array($mime, $allowed, true)) {
+                    return;
+                }
+            }
+
+            $fail(
+                "The file field must be an audio file. " .
+                "Received: detected={$detectedMime}, client={$clientMime}. " .
+                "Supported: webm, wav, ogg, mp3, m4a."
+            );
+        };
+
         $validated = $request->validate([
             'profile_id' => 'required|string|max:100',
             'name'       => 'nullable|string|max:255',
             'status'     => 'nullable|string|max:50',
-            // Use a custom closure instead of `mimes` because browsers send
-            // audio/webm;codecs=opus which Laravel's mimes rule doesn't recognise.
-            // The closure checks the actual detected MIME and the client-sent MIME.
-            'file'       => [
-                'nullable',
-                'file',
-                'max:51200',
-                function ($attribute, $value, $fail) {
-                    if (! $value) {
-                        return; // no file is fine — metadata-only update
-                    }
-
-                    $allowed = [
-                        'audio/webm',
-                        'video/webm',   // Chrome sometimes labels webm recordings as video/webm
-                        'audio/ogg',
-                        'application/ogg',
-                        'audio/wav',
-                        'audio/wave',
-                        'audio/x-wav',
-                        'audio/mpeg',
-                        'audio/mp3',
-                        'audio/mp4',
-                        'audio/m4a',
-                        'audio/x-m4a',
-                    ];
-
-                    // getMimeType() reads the actual file bytes (finfo); getClientMimeType() is
-                    // what the browser declared — check both so either can satisfy the rule.
-                    $detectedMime = $value->getMimeType() ?? '';
-                    $clientMime   = $value->getClientMimeType() ?? '';
-
-                    foreach ([$detectedMime, $clientMime] as $mime) {
-                        // Accept anything that starts with audio/
-                        if (str_starts_with($mime, 'audio/')) {
-                            return;
-                        }
-                        // Also accept video/webm (Chrome's label for audio-only webm)
-                        if (in_array($mime, $allowed, true)) {
-                            return;
-                        }
-                    }
-
-                    $fail(
-                        "The file field must be an audio file. " .
-                        "Received: detected={$detectedMime}, client={$clientMime}. " .
-                        "Supported: webm, wav, ogg, mp3, m4a."
-                    );
-                },
-            ],
         ]);
+
+        // Normalize to a plain array of UploadedFile regardless of whether
+        // the client sent a single 'file' (legacy clients, or a
+        // metadata-only update with no new audio) or multiple clips under
+        // 'file[]' — matches the ai-engine's MAX_PROFILE_CLIPS, which
+        // averages XTTS conditioning latents across all of them.
+        $uploadedFiles = [];
+        if ($request->hasFile('file')) {
+            $raw = $request->file('file');
+            $uploadedFiles = is_array($raw) ? array_values($raw) : [$raw];
+        }
+
+        if (count($uploadedFiles) > \App\Services\VoiceProfileStore::MAX_CLIPS) {
+            return response()->json([
+                'message' => 'Maximum ' . \App\Services\VoiceProfileStore::MAX_CLIPS . ' reference clips per profile.',
+            ], 422);
+        }
+
+        foreach ($uploadedFiles as $i => $uploadedFile) {
+            if ($uploadedFile->getSize() > 51200 * 1024) {
+                return response()->json(['message' => "Clip " . ($i + 1) . " exceeds the 50MB size limit."], 422);
+            }
+            $failMsg = null;
+            $audioFileRule('file', $uploadedFile, function ($msg) use (&$failMsg) { $failMsg = $msg; });
+            if ($failMsg) {
+                return response()->json(['message' => "Clip " . ($i + 1) . ": {$failMsg}"], 422);
+            }
+        }
 
         $profileId = $validated['profile_id'];
 
@@ -110,25 +133,33 @@ class VoiceProfileController extends Controller
 
         $engineKey = $existingProfile?->engine_key ?? (string) Str::uuid();
 
-        // If a file was uploaded, forward it to the AI engine
-        if ($request->hasFile('file')) {
+        // If any clips were uploaded, forward all of them to the AI engine
+        // in one request. Attaching 'file' multiple times (once per clip)
+        // is what the ai-engine's list[UploadFile] binding expects — a
+        // single clip still arrives there as a one-item list, so this is
+        // fully backward compatible with the previous single-file behaviour.
+        if (! empty($uploadedFiles)) {
             $engineUrl = EngineResolver::activeUrl();
             $engineApiKey = config('services.ai_engine.key', '');
 
             try {
-                $file     = $request->file('file');
-                $fileName = $file->getClientOriginalName() ?: 'voice.webm';
+                // Longer timeout than the old single-clip call — the engine
+                // now transcribes + computes averaged XTTS latents across
+                // up to 4 clips instead of 1.
+                $httpRequest = Http::timeout(90)
+                    ->withHeaders($engineApiKey ? ['X-Engine-Key' => $engineApiKey] : []);
 
-                $response = Http::timeout(60)
-                    ->withHeaders($engineApiKey ? ['X-Engine-Key' => $engineApiKey] : [])
-                    ->attach(
+                foreach ($uploadedFiles as $uploadedFile) {
+                    $httpRequest = $httpRequest->attach(
                         'file',
-                        file_get_contents($file->getRealPath()),
-                        $fileName
-                    )
-                    ->post("{$engineUrl}/voice-profile/save", [
-                        'profile_id' => $engineKey,
-                    ]);
+                        file_get_contents($uploadedFile->getRealPath()),
+                        $uploadedFile->getClientOriginalName() ?: 'voice.webm'
+                    );
+                }
+
+                $response = $httpRequest->post("{$engineUrl}/voice-profile/save", [
+                    'profile_id' => $engineKey,
+                ]);
 
                 if (! $response->successful()) {
                     Log::error('AI engine voice-profile/save failed', [
@@ -142,10 +173,11 @@ class VoiceProfileController extends Controller
 
                 $engineData = $response->json();
                 $duration   = $engineData['duration_seconds'] ?? null;
+                $clipsSaved = $engineData['clips_saved'] ?? count($uploadedFiles);
 
-                // Keep a copy in shared storage so the profile can be used on
-                // any engine, not just the one that was active at save time.
-                VoiceProfileStore::put($engineKey, $file);
+                // Keep a copy of every clip in shared storage so the profile
+                // can be rebuilt on any engine, not just the one active now.
+                VoiceProfileStore::put($engineKey, $uploadedFiles);
 
             } catch (\Exception $e) {
                 Log::error('AI engine connection error', ['error' => $e->getMessage()]);
@@ -155,6 +187,8 @@ class VoiceProfileController extends Controller
             }
         } else {
             $duration = null;
+            $clipsSaved = 0;
+            $engineData = [];
         }
 
         // Upsert profile metadata in the database (one row per user+profile_id)
@@ -168,7 +202,11 @@ class VoiceProfileController extends Controller
             ]
         );
 
-        return response()->json($profile, 201);
+        return response()->json([
+            ...$profile->toArray(),
+            'clips_saved' => $clipsSaved,
+            'warning'     => $engineData['warning'] ?? null,
+        ], 201);
     }
 
     /**

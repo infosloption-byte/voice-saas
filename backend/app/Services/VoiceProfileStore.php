@@ -18,10 +18,21 @@ use Illuminate\Support\Facades\Storage;
  */
 class VoiceProfileStore
 {
-    /** S3 (or other shared disk) key for a profile's reference audio. */
-    public static function objectKey(string $engineKey): string
+    /** Must match MAX_PROFILE_CLIPS in ai-engine/main.py. */
+    public const MAX_CLIPS = 4;
+
+    /**
+     * S3 (or other shared disk) key for a profile's reference audio.
+     *
+     * $index is null for the legacy single-clip layout (kept so old
+     * profiles saved before multi-clip support still resolve). When a
+     * profile has 2+ clips they're stored individually as 0, 1, 2...
+     */
+    public static function objectKey(string $engineKey, ?int $index = null): string
     {
-        return "voice-profiles/{$engineKey}";
+        return $index === null
+            ? "voice-profiles/{$engineKey}"
+            : "voice-profiles/{$engineKey}/{$index}";
     }
 
     /** Is a shared disk actually configured? (skip silently in local dev) */
@@ -30,18 +41,36 @@ class VoiceProfileStore
         return (bool) config('filesystems.disks.s3.bucket');
     }
 
-    /** Persist the uploaded reference audio to shared storage. Best-effort. */
-    public static function put(string $engineKey, UploadedFile $file): void
+    /**
+     * Persist one or more uploaded reference clips to shared storage.
+     * Best-effort — accepts either a single UploadedFile (legacy call sites)
+     * or an array of up to MAX_CLIPS files.
+     */
+    public static function put(string $engineKey, UploadedFile|array $files): void
     {
         if (! self::enabled()) {
             return;
         }
 
+        $files = is_array($files) ? array_slice($files, 0, self::MAX_CLIPS) : [$files];
+
         try {
+            // Always keep clip 0 under the legacy unindexed key too, so
+            // profiles saved before this change (and any code path that
+            // still calls objectKey() with no index) keep working.
             Storage::disk('s3')->put(
                 self::objectKey($engineKey),
-                file_get_contents($file->getRealPath())
+                file_get_contents($files[0]->getRealPath())
             );
+
+            if (count($files) > 1) {
+                foreach ($files as $i => $file) {
+                    Storage::disk('s3')->put(
+                        self::objectKey($engineKey, $i),
+                        file_get_contents($file->getRealPath())
+                    );
+                }
+            }
         } catch (\Throwable $e) {
             // Non-fatal: the engine still has its local copy for now.
             Log::warning('VoiceProfileStore: failed to write to shared storage', [
@@ -51,7 +80,7 @@ class VoiceProfileStore
         }
     }
 
-    /** Remove a profile's reference audio from shared storage. Best-effort. */
+    /** Remove a profile's reference audio (all clips) from shared storage. Best-effort. */
     public static function delete(string $engineKey): void
     {
         if (! self::enabled()) {
@@ -59,7 +88,11 @@ class VoiceProfileStore
         }
 
         try {
-            Storage::disk('s3')->delete(self::objectKey($engineKey));
+            $keys = [self::objectKey($engineKey)];
+            for ($i = 0; $i < self::MAX_CLIPS; $i++) {
+                $keys[] = self::objectKey($engineKey, $i);
+            }
+            Storage::disk('s3')->delete($keys);
         } catch (\Throwable $e) {
             Log::warning('VoiceProfileStore: failed to delete from shared storage', [
                 'engine_key' => $engineKey,
@@ -103,12 +136,26 @@ class VoiceProfileStore
         }
 
         try {
-            $bytes = Storage::disk('s3')->get(self::objectKey($engineKey));
+            // Gather every stored clip (indexed 0..MAX_CLIPS-1) if present;
+            // fall back to the single legacy unindexed copy for profiles
+            // saved before multi-clip support existed.
+            $disk  = Storage::disk('s3');
+            $blobs = [];
+            for ($i = 0; $i < self::MAX_CLIPS; $i++) {
+                $key = self::objectKey($engineKey, $i);
+                if ($disk->exists($key)) {
+                    $blobs[] = $disk->get($key);
+                }
+            }
+            if (empty($blobs)) {
+                $blobs[] = $disk->get(self::objectKey($engineKey));
+            }
 
-            $resp = Http::timeout(60)
-                ->withHeaders($headers)
-                ->attach('file', $bytes, "{$engineKey}.audio")
-                ->post("{$engineUrl}/voice-profile/save", ['profile_id' => $engineKey]);
+            $request = Http::timeout(60)->withHeaders($headers);
+            foreach ($blobs as $i => $bytes) {
+                $request = $request->attach('file', $bytes, "{$engineKey}_{$i}.audio");
+            }
+            $resp = $request->post("{$engineUrl}/voice-profile/save", ['profile_id' => $engineKey]);
 
             return $resp->successful();
         } catch (\Throwable $e) {

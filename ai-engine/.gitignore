@@ -2,3 +2,8 @@
 venv
 voice_profiles__pycache__/
 *.pyc
+
+# RVC trained model weights are large binaries produced outside git —
+# only the directory structure / README are tracked.
+rvc_models/*/
+!rvc_models/README.md

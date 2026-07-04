@@ -60,7 +60,36 @@ F5_ALLOW_CPU   = os.getenv("F5_ALLOW_CPU", "0").strip().lower() in ("1", "true",
 # F5_LANGUAGES (e.g. "es" or "es,en") when loading a non-English F5 model.
 F5_LANGUAGES   = [c.strip().lower() for c in os.getenv("F5_LANGUAGES", "en").split(",") if c.strip()] or ["en"]
 
+# ── RVC post-processing (optional) ─────────────────────────────────
+# RVC re-maps XTTS/F5 output onto a trained target-speaker model, closing
+# the timbre gap zero-shot TTS conditioning alone can't close. IMPORTANT
+# CAVEAT (read before enabling in production): unlike XTTS/F5, RVC is NOT
+# zero-shot — it needs an actual trained model (a .pth checkpoint, plus an
+# optional .index for retrieval) per target voice. A 6-30s reference clip
+# is NOT enough on its own; that clip has to first go through an RVC
+# training run (typically a few minutes of audio, a GPU, ~10-30 min of
+# training via the RVC-WebUI trainer or equivalent) to produce that .pth.
+# This module only handles the INFERENCE side: given an already-trained
+# model for a profile, apply it to freshly synthesized audio. Producing
+# the model itself is a separate, out-of-band step — see
+# ai-engine/rvc/README.md for the training workflow this expects.
+RVC_ENABLED     = os.getenv("RVC_ENABLED", "0").strip().lower() in ("1", "true", "yes", "on")
+RVC_MODELS_DIR  = os.getenv("RVC_MODELS_DIR", os.path.join(os.path.dirname(__file__), "rvc_models"))
+RVC_DEVICE      = os.getenv("RVC_DEVICE", "cuda:0" if CUDA_AVAILABLE else "cpu")
+# Cap how many RVC models stay loaded in memory at once (~a few hundred MB
+# each) — profiles beyond this get lazily reloaded on next use instead of
+# accumulating forever.
+RVC_MAX_LOADED  = int(os.getenv("RVC_MAX_LOADED", "2"))
+
+try:
+    from rvc_python.infer import RVCInference  # optional dependency — see requirements-rvc.txt
+    RVC_LIB_AVAILABLE = True
+except ImportError:
+    RVC_LIB_AVAILABLE = False
+
 models: dict = {"stt": None, "xtts": None, "f5tts": None}
+_rvc_instances: "dict[str, object]" = {}   # profile_id -> loaded RVCInference
+_rvc_lru: list = []                         # most-recently-used profile_ids, front = newest
 
 
 def f5_usable() -> bool:
@@ -1073,6 +1102,83 @@ def parse_speaker_segments(text: str) -> list[tuple[str, str]]:
     return segments
 
 
+# ── RVC post-processing helpers ────────────────────────────────────
+def rvc_model_paths(profile_id: str | None) -> "tuple[str, str | None] | None":
+    """Return (pth_path, index_path_or_None) for a profile's TRAINED RVC
+    model, or None if it doesn't have one. Expected layout:
+        {RVC_MODELS_DIR}/{profile_id}/model.pth
+        {RVC_MODELS_DIR}/{profile_id}/model.index   (optional, improves timbre match)
+    A profile with no trained model here simply skips RVC — this is what
+    makes the feature safe to enable without breaking every existing
+    profile that was only ever recorded, never trained.
+    """
+    if not profile_id:
+        return None
+    model_dir = os.path.join(RVC_MODELS_DIR, profile_id)
+    pth_path = os.path.join(model_dir, "model.pth")
+    if not os.path.exists(pth_path):
+        return None
+    index_path = os.path.join(model_dir, "model.index")
+    return pth_path, (index_path if os.path.exists(index_path) else None)
+
+
+def _get_rvc_instance(profile_id: str, pth_path: str, index_path: str | None):
+    """Lazily load (and LRU-cache up to RVC_MAX_LOADED) an RVCInference for
+    this profile. Reloading a .pth on every synthesis call would add
+    seconds of latency per request, so loaded models are kept warm."""
+    global _rvc_instances, _rvc_lru
+
+    if profile_id in _rvc_instances:
+        _rvc_lru.remove(profile_id)
+        _rvc_lru.insert(0, profile_id)
+        return _rvc_instances[profile_id]
+
+    if len(_rvc_instances) >= RVC_MAX_LOADED:
+        oldest = _rvc_lru.pop()
+        _rvc_instances.pop(oldest, None)
+
+    rvc = RVCInference(device=RVC_DEVICE)
+    rvc.load_model(pth_path)
+    if index_path and hasattr(rvc, "set_params"):
+        try:
+            rvc.set_params(index_path=index_path)
+        except Exception as e:
+            print(f"[rvc] Could not set index for '{profile_id}' (continuing without it): {e}")
+
+    _rvc_instances[profile_id] = rvc
+    _rvc_lru.insert(0, profile_id)
+    return rvc
+
+
+def apply_rvc_conversion(wav_path: str, profile_id: str | None) -> str:
+    """Run the RVC post-processing pass on a freshly synthesized WAV.
+
+    Returns the path to the converted audio, or the ORIGINAL wav_path
+    unchanged if RVC is disabled, the library isn't installed, the profile
+    has no trained model, or conversion fails for any reason — RVC is a
+    quality enhancement, never a hard dependency for synthesis to succeed.
+    """
+    if not RVC_ENABLED or not RVC_LIB_AVAILABLE:
+        return wav_path
+
+    resolved = rvc_model_paths(profile_id)
+    if resolved is None:
+        return wav_path
+
+    pth_path, index_path = resolved
+    try:
+        rvc = _get_rvc_instance(profile_id, pth_path, index_path)
+        converted_path = tmp_path("rvc_out", ".wav")
+        rvc.infer_file(wav_path, converted_path)
+        if os.path.exists(converted_path) and os.path.getsize(converted_path) > 0:
+            return converted_path
+        print(f"[rvc] Conversion produced no output for '{profile_id}', keeping original audio.")
+        return wav_path
+    except Exception as e:
+        print(f"[rvc] Conversion failed for '{profile_id}' (non-fatal, keeping original audio): {e}")
+        return wav_path
+
+
 def synthesize_segment(text: str, engine: str,
                         language: str, temperature: float,
                         top_k: int, top_p: float,
@@ -1330,13 +1436,20 @@ def _perform_synthesis(
                 all_chunk_paths.extend(seg_chunks)
 
                 # Merge this segment's chunks into one wav
-                seg_out = tmp_path("seg_merged", ".wav")
-                seg_wavs.append(seg_out)
+                seg_merged = tmp_path("seg_merged", ".wav")
+                all_chunk_paths.append(seg_merged)
                 if len(seg_chunks) == 1:
-                    shutil.copy(seg_chunks[0], seg_out)
+                    shutil.copy(seg_chunks[0], seg_merged)
                 else:
-                    if not concatenate_wavs(seg_chunks, seg_out, gap_ms=gap_ms):
+                    if not concatenate_wavs(seg_chunks, seg_merged, gap_ms=gap_ms):
                         raise HTTPException(500, "Failed to merge segment chunks.")
+
+                # RVC pass, per speaker — each segment gets remapped onto
+                # its OWN speaker's trained model (if one exists), not a
+                # single model for the whole multi-voice output. Falls
+                # through to seg_merged unchanged if RVC isn't applicable.
+                seg_out = apply_rvc_conversion(seg_merged, seg_profile_id)
+                seg_wavs.append(seg_out)
 
             # Concatenate all segments (longer pause between speakers)
             if len(seg_wavs) == 1:
@@ -1432,6 +1545,16 @@ def _perform_synthesis(
             else:
                 if not concatenate_wavs(all_chunk_paths, out_path, gap_ms=gap_ms):
                     raise HTTPException(500, "Failed to merge audio chunks.")
+
+            # RVC pass on the finished single-voice output. Skipped for
+            # builtin XTTS speakers (no reference clip / trained model to
+            # target) and silently a no-op if this profile has no trained
+            # RVC model yet.
+            rvc_pid = None if is_builtin_voice else profile_id
+            converted = apply_rvc_conversion(out_path, rvc_pid)
+            if converted != out_path:
+                all_chunk_paths.append(out_path)  # original now superseded — clean it up too
+                out_path = converted
 
         return out_path
     except HTTPException:
@@ -1685,6 +1808,12 @@ async def clone(
             shutil.copy(chunk_paths[0], out_path)
         else:
             concatenate_wavs(chunk_paths, out_path)
+
+        # RVC pass — /clone-voice doesn't take a profile_id (it clones
+        # straight from the uploaded reference file each call), so there's
+        # no persistent profile to look up a trained model under. This is
+        # a no-op unless a caller starts passing a profile_id here too.
+        out_path = apply_rvc_conversion(out_path, None)
 
         return FileResponse(out_path, media_type="audio/wav")
     except HTTPException:

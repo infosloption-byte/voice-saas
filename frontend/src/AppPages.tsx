@@ -981,12 +981,21 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
   // Read current engine preference so preview uses the same engine as synthesis
   const { engine } = useTTSEngine()
 
+  // Must match VoiceProfileStore::MAX_CLIPS (Laravel) and MAX_PROFILE_CLIPS
+  // (ai-engine) — the number of reference clips a profile can hold.
+  const MAX_CLIPS = 4
+
   const [profileName, setProfileName] = useState('my-voice')
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
   const [msgWarn, setMsgWarn] = useState('')
   const [noiseSuppression, setNoiseSuppression] = useState(() => getAudioPrefs().noiseSuppression)
   const [gainVal, setGainVal] = useState(() => getAudioPrefs().defaultGain)
+  // Recorded takes waiting to be saved as one multi-clip profile. Guests
+  // still save a single clip immediately on stop (their local IndexedDB
+  // path doesn't support multi-clip yet); registered users record 1-4
+  // takes, review them, then save all of them together.
+  const [takes, setTakes] = useState<{ blob: Blob; secs: number; url: string }[]>([])
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [previewText, setPreviewText] = useState('Hello, this is a preview of my voice profile.')
   const [previewing, setPreviewing] = useState(false)
@@ -1000,6 +1009,10 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
       setMsg('Error: Please confirm you have the right to clone this voice before recording.')
       return
     }
+    if (takes.length >= MAX_CLIPS) {
+      setMsg(`Error: Maximum ${MAX_CLIPS} takes per profile. Delete one below to record another.`)
+      return
+    }
     try {
       await recorder.start(noiseSuppression, gainVal)
     } catch (e: unknown) {
@@ -1009,30 +1022,26 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
   }
 
   async function handleStop() {
-    setSaving(true); setMsg(''); setMsgWarn('')
+    setMsg(''); setMsgWarn('')
     const blob = await recorder.stop()
 
     if (!blob || blob.size === 0) {
       setMsg('Error: No audio captured. Please try again.')
-      setSaving(false)
       return
     }
 
     const secs = recorder.seconds
-    if (secs < 6) {
-      setMsgWarn(
-        `⚠ Recording is only ${secs}s. Both engines need 6-30 s of clear speech ` +
-        `for accurate voice cloning. Please re-record.`
-      )
+    if (secs < 4) {
+      setMsgWarn(`⚠ That take is only ${secs}s — aim for at least 4-6s of clear speech per take.`)
     } else if (secs > 35) {
-      setMsgWarn(
-        `⚠ Recording is ${secs}s — very long references can reduce quality. ` +
-        `10-20 s of clean speech is ideal.`
-      )
+      setMsgWarn(`⚠ That take is ${secs}s — for multi-take profiles, shorter 10-20s takes combine better than one very long one.`)
     }
 
-    // ── Guest save path (IndexedDB only, no engine call) ──────────
+    // ── Guest path: single clip only, saved immediately (unchanged) ──
+    // Guest profiles live in IndexedDB, not the Laravel multi-clip
+    // pipeline, so multi-take isn't available until they create an account.
     if (isGuest && onGuestSave) {
+      setSaving(true)
       const pCount = guestProfilesCount ?? 0
       if (pCount >= guestLimits.profile_limit) {
         onGuestGate?.('profile_limit')
@@ -1050,11 +1059,43 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
       return
     }
 
-    // ── Registered user save path ──────────────────────────────────
+    // ── Registered user: queue the take, don't save yet ──────────────
+    setTakes(prev => [...prev, { blob, secs, url: URL.createObjectURL(blob) }])
+  }
+
+  function removeTake(index: number) {
+    setTakes(prev => {
+      const removed = prev[index]
+      if (removed) URL.revokeObjectURL(removed.url)
+      return prev.filter((_, i) => i !== index)
+    })
+  }
+
+  async function handleSaveProfile() {
+    setMsg(''); setMsgWarn('')
+    if (!consented) {
+      setMsg('Error: Please confirm you have the right to clone this voice before saving.')
+      return
+    }
+    if (takes.length === 0) {
+      setMsg('Error: Record at least one take before saving.')
+      return
+    }
+
+    const totalSecs = takes.reduce((sum, t) => sum + t.secs, 0)
+    if (totalSecs < 6) {
+      setMsgWarn(`⚠ Total reference audio is only ${totalSecs}s across ${takes.length} take${takes.length !== 1 ? 's' : ''} — aim for 10-30s total for accurate cloning.`)
+    }
+
+    setSaving(true)
     const fd = new FormData()
-    const mime = blob.type.includes('wav') ? 'audio/wav' : 'audio/webm'
-    const ext  = blob.type.includes('wav') ? 'wav' : 'webm'
-    fd.append('file', new Blob([blob], { type: mime }), `voice.${ext}`)
+    takes.forEach((t, i) => {
+      const mime = t.blob.type.includes('wav') ? 'audio/wav' : 'audio/webm'
+      const ext  = t.blob.type.includes('wav') ? 'wav' : 'webm'
+      // Repeated 'file' entries — matches the ai-engine's list[UploadFile]
+      // binding and the Laravel controller's array normalization.
+      fd.append('file[]', new Blob([t.blob], { type: mime }), `voice_${i}.${ext}`)
+    })
     fd.append('profile_id', profileName.trim() || 'my-voice')
     fd.append('name', profileName.trim() || 'my-voice')
     fd.append('status', 'ready')
@@ -1063,7 +1104,10 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
       const raw = await api.post('/voice-profiles', fd)
       const data = raw as VoiceProfileSaveResult
       if (data?.warning) setMsgWarn(`⚠ ${data.warning}`)
-      setMsg(`✓ Profile "${data.profile_id ?? profileName}" saved${data.duration_seconds ? ` — ${data.duration_seconds}s` : ''}`)
+      const clipsSaved = data.clips_saved ?? takes.length
+      setMsg(`✓ Profile "${data.profile_id ?? profileName}" saved — ${clipsSaved} clip${clipsSaved !== 1 ? 's' : ''}${data.duration_seconds ? `, ${data.duration_seconds}s total` : ''}`)
+      takes.forEach(t => URL.revokeObjectURL(t.url))
+      setTakes([])
       onRefresh()
     } catch (e: unknown) {
       const err = e as Error
@@ -1204,9 +1248,51 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
             <MicBtn
               recording={recorder.recording}
               onClick={recorder.recording ? handleStop : handleStart}
-              disabled={saving || (!consented && !recorder.recording)}
-              label={saving ? 'Saving…' : recorder.recording ? 'Stop Recording' : 'Start Recording'}
+              disabled={saving || (!consented && !recorder.recording) || (!isGuest && !recorder.recording && takes.length >= MAX_CLIPS)}
+              label={
+                saving ? 'Saving…'
+                : recorder.recording ? 'Stop Recording'
+                : (!isGuest && takes.length > 0) ? `Record Take ${takes.length + 1} of ${MAX_CLIPS}`
+                : 'Start Recording'
+              }
             />
+
+            {/* Multi-take review list — registered users only. Guests save
+                a single clip immediately on stop, so there's never a queue
+                to show them. */}
+            {!isGuest && takes.length > 0 && (
+              <div className="takes-list">
+                <div className="takes-list__label">
+                  {takes.length} take{takes.length !== 1 ? 's' : ''} recorded
+                  {takes.length < MAX_CLIPS && ` — record up to ${MAX_CLIPS - takes.length} more for a stronger clone`}
+                </div>
+                {takes.map((t, i) => (
+                  <div key={t.url} className="takes-list__item">
+                    <span className="takes-list__index">{i + 1}</span>
+                    <audio src={t.url} controls style={{ height: 32, flex: 1 }} />
+                    <span className="takes-list__secs">{fmt(t.secs)}</span>
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--ghost"
+                      onClick={() => removeTake(i)}
+                      disabled={saving || recorder.recording}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={handleSaveProfile}
+                  disabled={saving || recorder.recording || !consented}
+                  style={{ marginTop: 10, width: '100%' }}
+                >
+                  {saving ? 'Saving…' : `Save Profile (${takes.length} clip${takes.length !== 1 ? 's' : ''})`}
+                </button>
+              </div>
+            )}
+
             {msgWarn && <div className="msg msg--warn">{msgWarn}</div>}
             {msg && <div className={`msg ${msg.startsWith('✓') ? 'msg--ok' : 'msg--err'}`}>{msg}</div>}
           </div>
