@@ -28,7 +28,7 @@ services:
       - ./backups:/backups
     environment:
       - DB_CONNECTION=mysql
-      - DB_HOST=172.17.0.1
+      - DB_HOST=mysql_shared
       - DB_PORT=3306
       - DB_DATABASE=voice_saas
       - DB_USERNAME=${DB_USERNAME:-root}
@@ -37,18 +37,15 @@ services:
       - AI_ENGINE_URL=http://ai-engine:8000
       - ADMIN_EMAIL=${ADMIN_EMAIL:-}
       - BACKUP_DIR=/backups
-      # Audio storage — leave AUDIO_DISK=local until S3 is provisioned
       - AUDIO_DISK=${AUDIO_DISK:-local}
       - AUDIO_PRUNE_DAYS=${AUDIO_PRUNE_DAYS:-90}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
       - AWS_BUCKET=${AWS_BUCKET:-}
-    depends_on:
-      db:
-        condition: service_healthy
     networks:
       - voice-network
+      - shared_net
 
   # React Frontend (Vite)
   frontend:
@@ -57,9 +54,6 @@ services:
       dockerfile: Dockerfile
       args:
         - VITE_API_URL=${VITE_API_URL:-https://usevoxora.online/api}
-        # Engine is reached via the backend proxy now; this stays only to satisfy
-        # the legacy fallback in api.ts. The engine API key is NO LONGER built
-        # into the frontend bundle — it lives server-side on the backend.
         - VITE_ENGINE_URL=${VITE_ENGINE_URL:-https://usevoxora.online/api/engine}
         - VITE_ADMIN_EMAIL=${VITE_ADMIN_EMAIL:-}
         - VITE_PAYPAL_CLIENT_ID=${VITE_PAYPAL_CLIENT_ID:-}
@@ -68,11 +62,11 @@ services:
     container_name: voice_frontend
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     networks:
       - voice-network
 
-  # Laravel Queue Worker — processes mail, bulk synthesis, and other queued jobs
+  # Laravel Queue Worker
   queue-worker:
     build:
       context: ./backend
@@ -85,7 +79,7 @@ services:
       - ./backups:/backups
     environment:
       - DB_CONNECTION=mysql
-      - DB_HOST=172.17.0.1
+      - DB_HOST=mysql_shared
       - DB_PORT=3306
       - DB_DATABASE=voice_saas
       - DB_USERNAME=${DB_USERNAME:-root}
@@ -100,20 +94,17 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
       - AWS_BUCKET=${AWS_BUCKET:-}
-    depends_on:
-      db:
-        condition: service_healthy
     networks:
       - voice-network
+      - shared_net
 
-  # Laravel Scheduler — runs artisan schedule:run every minute
+  # Laravel Scheduler
   scheduler:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: voice_scheduler
     restart: unless-stopped
-    # Sleep 60s, run the scheduler, repeat — no host cron needed
     command: >
       sh -c "while true; do php artisan schedule:run --no-interaction; sleep 60; done"
     volumes:
@@ -121,7 +112,7 @@ services:
       - ./backups:/backups
     environment:
       - DB_CONNECTION=mysql
-      - DB_HOST=172.17.0.1
+      - DB_HOST=mysql_shared
       - DB_PORT=3306
       - DB_DATABASE=voice_saas
       - DB_USERNAME=${DB_USERNAME:-root}
@@ -135,38 +126,34 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
       - AWS_BUCKET=${AWS_BUCKET:-}
-    depends_on:
-      db:
-        condition: service_healthy
     networks:
       - voice-network
+      - shared_net
 
-  # Python AI Engine (FastAPI)
+  # Python AI Engine (FastAPI) — XTTS v2, runs locally on this EC2
   ai-engine:
     build:
       context: ./ai-engine
       dockerfile: Dockerfile
     container_name: voice_ai
     restart: unless-stopped
-    # No public ports: the engine is reachable only on the internal Docker
-    # network (the backend calls it at http://ai-engine:8000). Exposing it to
-    # the host reopens free-GPU / IDOR holes, since the engine key alone is not
-    # a sufficient authorization boundary.
     expose:
       - "8000"
     volumes:
       - ./ai-engine:/app
       - voice_profiles:/app/voice_profiles
       - ai_models:/root/.cache/huggingface
-      - tts_models:/root/.local/share/tts  # Add this line!
+      - tts_models:/root/.local/share/tts
       - builtin_refs:/app/builtin_refs
     environment:
       - COQUI_TOS_AGREED=1
       - AI_ENGINE_API_KEY=${AI_ENGINE_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      # Concurrent synthesis jobs. Keep at 1 on CPU (serializes heavy work,
-      # avoids OOM); raise on a GPU host with headroom.
       - SYNTH_WORKERS=${SYNTH_WORKERS:-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+      - AWS_BUCKET=${AWS_BUCKET:-}
     command: uvicorn main:app --host 0.0.0.0 --port 8000
     networks:
       - voice-network
@@ -175,25 +162,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 10
-      start_period: 120s  # models take time to load
-
-  # Infrastructure
-  db:
-    image: mysql:8.0
-    container_name: voice_db
-    environment:
-      MYSQL_DATABASE: voice_saas
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-    volumes:
-      - mysql_data:/var/lib/mysql
-    networks:
-      - voice-network
-    healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
+      start_period: 120s
 
   redis:
     image: redis:alpine
@@ -207,11 +176,12 @@ services:
 networks:
   voice-network:
     driver: bridge
+  shared_net:
+    external: true
 
 volumes:
   voice_profiles:
   ai_models:
   tts_models:
   builtin_refs:
-  mysql_data:
   redis_data:
