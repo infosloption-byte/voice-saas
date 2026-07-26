@@ -205,11 +205,52 @@ class BulkSynthesisJob implements ShouldQueue
 
         // --- Persist ---
         if ($script->audio_url) {
-            Storage::disk('audio')->delete($script->audio_url);
+            $deleted = Storage::disk('audio')->delete($script->audio_url);
+            if (!$deleted) {
+                Log::warning("BulkSynthesisJob: failed to delete old audio for script {$script->id} at '{$script->audio_url}' (non-fatal, continuing).");
+            }
         }
 
         $filename = $this->userId . '/script_' . $script->id . '.' . $ext;
-        Storage::disk('audio')->put($filename, $processedData);
+
+        // IMPORTANT: the 'audio' disk has 'throw' => false, so put() returning
+        // false on a failed S3 write (bad credentials, wrong bucket/region,
+        // permission denied, network error) was previously silently ignored —
+        // the code went straight on to mark has_audio=true regardless of
+        // whether anything was actually stored. That is the single most
+        // likely explanation for "DB says has_audio=true / dashboard shows
+        // green, but the file can't be served back": the write never
+        // actually succeeded (or wrote to a location the read path can't
+        // reach) and nothing said so.
+        $putOk = Storage::disk('audio')->put($filename, $processedData);
+        if (!$putOk) {
+            Log::error(
+                "BulkSynthesisJob: Storage::put() returned false for script {$script->id}, " .
+                "disk=" . config('filesystems.disks.audio.driver') . ", key='{$filename}', " .
+                'bytes=' . strlen($processedData) . '. Refusing to mark has_audio=true.'
+            );
+            throw new \RuntimeException("Failed to store audio file to disk (put() returned false) for script {$script->id}.");
+        }
+
+        // Read-back verification: don't trust put()'s return value alone.
+        // If exists() can't see what we just wrote (e.g. write succeeded to
+        // one path/region but reads are scoped elsewhere, or eventual-
+        // consistency edge cases), fail loudly now instead of leaving a
+        // has_audio=true record that will 404 the first time anyone tries
+        // to actually play it back.
+        $verified = Storage::disk('audio')->exists($filename);
+        if (!$verified) {
+            Log::error(
+                "BulkSynthesisJob: post-write verification failed for script {$script->id} — " .
+                "put() reported success but exists('{$filename}') on disk=" .
+                config('filesystems.disks.audio.driver') . ' returned false immediately after. ' .
+                'This points at an IAM/bucket-policy asymmetry (write allowed, read/head denied) ' .
+                'or a region/bucket mismatch between write and read paths. Refusing to mark has_audio=true.'
+            );
+            throw new \RuntimeException("Audio file for script {$script->id} could not be verified after writing (exists() check failed).");
+        }
+
+        Log::info("BulkSynthesisJob: verified audio stored for script {$script->id} at '{$filename}' (disk=" . config('filesystems.disks.audio.driver') . ').');
 
         $script->update([
             'has_audio'      => true,

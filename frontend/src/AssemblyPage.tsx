@@ -147,19 +147,56 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
     return () => clearTimeout(timer)
   }, [laneSolo, laneMute])
 
-  // Load audio URLs from IndexedDB
+  // Load audio URLs from IndexedDB, falling back to the server when the
+  // blob isn't cached locally (different device/browser, cleared storage,
+  // or the clip was generated in a different tab). Without this fallback
+  // a clip can show up in the library (hasAudio=true) with no decoded
+  // buffer behind it, which makes the timeline "play" silently.
   useEffect(() => {
     withAudio.forEach(async s => {
-      if (!audioUrls[s.id]) {
-        const url = await loadAudioBlob(`audio_${s.id}`)
-        if (!url) return
-        audioUrlsRef.current.push(url)
-        setAudioUrls(prev => ({ ...prev, [s.id]: url }))
+      if (audioUrls[s.id]) return
+
+      let url = await loadAudioBlob(`audio_${s.id}`)
+
+      if (!url) {
+        console.warn(`[AssemblyPage] audio_${s.id} not in IndexedDB — fetching from server`)
         try {
-          if (!audioCtxRef.current) audioCtxRef.current = new AudioContext()
-          const arr = await (await fetch(url)).arrayBuffer()
-          audioBuffersRef.current[s.id] = await audioCtxRef.current.decodeAudioData(arr)
-        } catch { }
+          const blob = await api.get(`/scripts/${s.id}/audio`) as Blob
+          if (!(blob instanceof Blob) || blob.size === 0) {
+            console.error(`[AssemblyPage] server returned empty/invalid audio for script ${s.id}`, blob)
+            return
+          }
+          await saveAudioBlob(`audio_${s.id}`, blob)
+          url = await loadAudioBlob(`audio_${s.id}`)
+          if (!url) {
+            console.error(`[AssemblyPage] saveAudioBlob/loadAudioBlob round-trip failed for script ${s.id}`)
+            return
+          }
+          console.info(`[AssemblyPage] recovered audio_${s.id} from server and cached it`)
+        } catch (e) {
+          // This is the failure mode that used to be swallowed: hasAudio is
+          // true (DB/UI says the clip exists) but we can't actually fetch
+          // the bytes. Surfacing it here is the whole point of this catch.
+          console.error(
+            `[AssemblyPage] failed to fetch server audio for script ${s.id} ` +
+            `("${s.title}"). This means has_audio=true but the file could not ` +
+            `be retrieved from /scripts/${s.id}/audio — check the network tab ` +
+            `for a 404 (storage/permissions issue) vs a CORS/network error ` +
+            `(S3 bucket CORS or credentials issue).`,
+            e,
+          )
+          return
+        }
+      }
+
+      audioUrlsRef.current.push(url)
+      setAudioUrls(prev => ({ ...prev, [s.id]: url }))
+      try {
+        if (!audioCtxRef.current) audioCtxRef.current = new AudioContext()
+        const arr = await (await fetch(url)).arrayBuffer()
+        audioBuffersRef.current[s.id] = await audioCtxRef.current.decodeAudioData(arr)
+      } catch (e) {
+        console.error(`[AssemblyPage] decodeAudioData failed for script ${s.id} — file may be corrupt or truncated`, e)
       }
     })
   }, [project.scripts])
@@ -231,12 +268,21 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
     playStartCtxTimeRef.current = ctxNow
     playheadAtStartRef.current = fromPlayhead
     const anySolo = Object.values(laneSolo).some(Boolean)
-    timelineClips.filter(c => !c.isGap).forEach(clip => {
+    const playableClips = timelineClips.filter(c => !c.isGap)
+    const missingBufferClips: string[] = []
+    let scheduledCount = 0
+    playableClips.forEach(clip => {
       const lane = clip.lane ?? 0
       if (laneMute[lane]) return
       if (anySolo && !laneSolo[lane]) return
       const buf = audioBuffersRef.current[clip.scriptId]
-      if (!buf) return
+      if (!buf) {
+        // This used to fail silently: the clip would sit in the timeline,
+        // "play" would report success, and nothing would come out of the
+        // speakers. Surface it instead so it's obvious which clip is broken.
+        missingBufferClips.push(clip.scriptId)
+        return
+      }
       const offsetIntoClip = Math.max(0, fromPlayhead - clip.start)
       if (offsetIntoClip >= clip.dur) return
       const whenToStart = ctxNow + Math.max(0, clip.start - fromPlayhead)
@@ -249,7 +295,27 @@ export function AssemblyPage({ project, mergedUrl, mergedBlob, merging, onMerge,
       source.start(whenToStart, trimmedStart)
       source.stop(whenToStart + (clip.dur - offsetIntoClip))
       scheduledSourcesRef.current.push(source)
+      scheduledCount++
     })
+
+    if (missingBufferClips.length) {
+      console.error(
+        `[AssemblyPage] startPlayback: no decoded audio buffer for ${missingBufferClips.length} ` +
+        `clip(s) (scriptId(s): ${missingBufferClips.join(', ')}). These clips will be silent. ` +
+        `This means the audio-loading effect above failed to fetch/decode their audio — check ` +
+        `the console for the matching "[AssemblyPage] failed to fetch server audio" or ` +
+        `"decodeAudioData failed" entries.`
+      )
+    }
+
+    if (playableClips.length > 0 && scheduledCount === 0) {
+      // Nothing at all was scheduled (every clip missing a buffer, or every
+      // lane muted/soloed-out) — don't lie to the user with a "Playing"
+      // state and a moving playhead.
+      console.warn('[AssemblyPage] startPlayback: 0 sources scheduled — refusing to show "Playing" state')
+      toast.err('No audio could be played — the audio for this clip failed to load. Check the console/network tab.')
+      return
+    }
     setPlaying(true)
     playIntervalRef.current = setInterval(() => {
       const elapsed = audioCtxRef.current!.currentTime - playStartCtxTimeRef.current

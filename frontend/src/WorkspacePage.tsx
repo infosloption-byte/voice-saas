@@ -402,12 +402,39 @@ export function WorkspacePage({
           // Not in IndexedDB — try to restore from the server (multi-device sync)
           try {
             const blob = await api.get(`/scripts/${sid}/audio`) as Blob
-            if (blob instanceof Blob) {
+            if (blob instanceof Blob && blob.size > 0) {
               await saveAudioBlob(`audio_${sid}`, blob)
               const restored = await loadAudioBlob(`audio_${sid}`)
               if (restored) { setAudioUrl(restored); return }
+              console.error(`[WorkspacePage] saveAudioBlob/loadAudioBlob round-trip failed for script ${sid}`)
+            } else {
+              console.error(`[WorkspacePage] GET /scripts/${sid}/audio returned an empty/non-blob response`, blob)
             }
-          } catch { /* server restore failed */ }
+          } catch (e) {
+            // This used to be a bare `catch {}` — the exact failure (404 vs
+            // network/CORS error) was thrown away, which is why "hasAudio"
+            // kept flipping back to false for reasons nobody could diagnose.
+            const is404 = e instanceof ApiError && e.status === 404
+            console.error(
+              `[WorkspacePage] server audio restore failed for script ${sid} ` +
+              `(hasAudio was true, audioUrl="${audioUrl}"). ` +
+              (is404
+                ? 'Server returned 404 — the file is genuinely missing/unreadable ' +
+                  '(check storage disk config / S3 permissions / whether Storage::exists() ' +
+                  'can actually read the key that was written).'
+                : 'Non-404 error — likely a network/CORS failure fetching the audio ' +
+                  '(check Network tab: does the request redirect to S3, and does that ' +
+                  'redirected request fail with a CORS error in the console?).'),
+              e,
+            )
+            if (!is404) {
+              // Don't destroy a perfectly good has_audio=true record just because
+              // of a transient network/CORS hiccup — only a confirmed 404 means
+              // the file is actually gone.
+              setSynthErr('Could not load audio right now (network error). Your generated audio is still saved — try again.')
+              return
+            }
+          }
           onUpdateScript(sid, { hasAudio: false, duration: null, waveformPeaks: undefined })
           setSynthErr('Audio could not be loaded from the server. Please regenerate.')
         } else {
@@ -856,9 +883,34 @@ export function WorkspacePage({
   async function loadServerAudio(scriptId: string): Promise<string | null> {
     try {
       const blob = await api.get(`/scripts/${scriptId}/audio`) as Blob
+      if (!(blob instanceof Blob) || blob.size === 0) {
+        console.error(`[WorkspacePage] loadServerAudio(${scriptId}): server responded but body wasn't a usable audio blob`, blob)
+        setSynthErr('Generation finished, but the audio file could not be loaded (empty response from server).')
+        return null
+      }
       await saveAudioBlob(`audio_${scriptId}`, blob)
       return URL.createObjectURL(blob)
-    } catch {
+    } catch (e) {
+      // This bare catch used to hide exactly the bug being chased: audio
+      // generates fine (DB + S3 both confirm it), but the browser can't
+      // fetch it back, so the clip never appears in the Script section.
+      const is404 = e instanceof ApiError && e.status === 404
+      console.error(
+        `[WorkspacePage] loadServerAudio(${scriptId}) failed. ` +
+        (is404
+          ? 'Got HTTP 404 from /scripts/:id/audio even though generation reported success — ' +
+            'check Storage::disk(\'audio\')->exists() on the backend: is it able to actually ' +
+            'read back what BulkSynthesisJob just wrote (permissions/region/bucket mismatch)?'
+          : 'Non-404 failure — likely the request redirected to S3 and the browser fetch was ' +
+            'blocked (check the Network/Console tab for a CORS error on the S3 domain, or a ' +
+            'network timeout).'),
+        e,
+      )
+      setSynthErr(
+        is404
+          ? 'Audio was generated but the server could not find the file when asked to serve it. Check server logs.'
+          : 'Audio was generated but could not be downloaded to play (network/CORS error). Check the console.'
+      )
       return null
     }
   }

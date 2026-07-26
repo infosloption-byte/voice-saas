@@ -8,6 +8,7 @@ use App\Services\PlanLimits;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class ScriptController extends Controller
@@ -176,6 +177,7 @@ class ScriptController extends Controller
         // Convert WAV → MP3 via ffmpeg (smaller files, browser-native playback).
         // Falls back to storing raw WAV if ffmpeg is not installed.
         $tmpMp3 = tempnam(sys_get_temp_dir(), 'vox_audio_') . '.mp3';
+        $ffmpegError = null;
         try {
             $proc = proc_open(
                 ['ffmpeg', '-y', '-i', $tmpWav, '-codec:a', 'libmp3lame', '-q:a', '4', $tmpMp3],
@@ -183,13 +185,16 @@ class ScriptController extends Controller
                 $pipes
             );
             $ok = is_resource($proc) && proc_close($proc) === 0 && file_exists($tmpMp3);
-        } catch (\Throwable) {
+            if (!$ok) $ffmpegError = 'non-zero exit code or missing output file';
+        } catch (\Throwable $e) {
             $ok = false;
+            $ffmpegError = $e->getMessage();
         }
 
         if ($ok) {
             $bytes = file_get_contents($tmpMp3);
         } else {
+            Log::warning("ScriptController::saveAudio: ffmpeg conversion failed for script {$id} ({$ffmpegError}) — falling back to raw WAV.");
             // ffmpeg unavailable — store WAV as-is
             $bytes     = $uploaded->get();
             $ext       = 'wav';
@@ -202,8 +207,24 @@ class ScriptController extends Controller
         }
 
         try {
-            Storage::disk('audio')->put($storePath, $bytes);
+            $putOk = Storage::disk('audio')->put($storePath, $bytes);
         } catch (\Throwable $e) {
+            Log::error(
+                "ScriptController::saveAudio: Storage::put() threw for script {$id}, " .
+                "disk=" . config('filesystems.disks.audio.driver') . ", key='{$storePath}' — {$e->getMessage()}",
+                ['exception' => $e]
+            );
+            return response()->json(['message' => 'Failed to store audio file.'], 500);
+        }
+
+        // 'throw' => false on the audio disk means put() can return false on a
+        // failed write instead of throwing — check it explicitly, otherwise
+        // we'd mark audio_url as saved when nothing was actually stored.
+        if (!$putOk) {
+            Log::error(
+                "ScriptController::saveAudio: put() returned false (no exception) for script {$id}, " .
+                "disk=" . config('filesystems.disks.audio.driver') . ", key='{$storePath}', bytes=" . strlen($bytes)
+            );
             return response()->json(['message' => 'Failed to store audio file.'], 500);
         }
 
@@ -218,14 +239,64 @@ class ScriptController extends Controller
             $q->where('user_id', $request->user()->id);
         })->findOrFail($id);
 
-        if (!$script->audio_url || !Storage::disk('audio')->exists($script->audio_url)) {
+        $disk = config('filesystems.disks.audio.driver');
+
+        if (!$script->audio_url) {
+            Log::warning("ScriptController::serveAudio: script {$id} has has_audio={$script->has_audio} but audio_url is empty — 404'ing.");
             abort(404, 'Audio file not found');
         }
 
-        $isS3 = config('filesystems.disks.audio.driver') === 's3';
+        // NOTE: the 'audio' disk is configured with 'throw' => false, which means
+        // Storage::exists() swallows any underlying S3 error (permissions, wrong
+        // region/bucket, network) and just returns false. That makes a real
+        // permission problem look identical to "file genuinely missing" from here.
+        // Log loudly so the two cases can be told apart from the logs.
+        try {
+            $exists = Storage::disk('audio')->exists($script->audio_url);
+        } catch (\Throwable $e) {
+            // Shouldn't normally happen given 'throw' => false, but guard anyway
+            // so a config change elsewhere doesn't turn this into an unhandled 500.
+            Log::error(
+                "ScriptController::serveAudio: exists() THREW for script {$id}, " .
+                "disk={$disk}, key='{$script->audio_url}' — {$e->getMessage()}",
+                ['exception' => $e]
+            );
+            abort(404, 'Audio file not found');
+        }
+
+        if (!$exists) {
+            Log::warning(
+                "ScriptController::serveAudio: 404 for script {$id} — disk={$disk}, " .
+                "key='{$script->audio_url}', has_audio={$script->has_audio}. " .
+                "If you can see this exact key in the S3 console/CLI, this is almost " .
+                "certainly an IAM/bucket-policy issue: the app's credentials can write " .
+                "(PutObject) but cannot read back (GetObject/HeadObject) this key. " .
+                "Verify with the SAME credentials the app uses, not an admin/console session."
+            );
+            abort(404, 'Audio file not found');
+        }
+
+        $isS3 = $disk === 's3';
         if ($isS3) {
-            // Issue a temporary signed URL (10 min) and redirect.
-            $url = Storage::disk('audio')->temporaryUrl($script->audio_url, now()->addMinutes(10));
+            try {
+                // Issue a temporary signed URL (10 min) and redirect.
+                $url = Storage::disk('audio')->temporaryUrl($script->audio_url, now()->addMinutes(10));
+            } catch (\Throwable $e) {
+                // temporaryUrl() talks to the AWS SDK directly and is NOT covered by
+                // the disk's 'throw' => false setting — an exception here used to
+                // propagate as a raw, unlogged 500. Log it with enough detail to
+                // diagnose (credentials/region/signing), then fail loudly.
+                Log::error(
+                    "ScriptController::serveAudio: temporaryUrl() failed for script {$id}, " .
+                    "key='{$script->audio_url}' — {$e->getMessage()}",
+                    ['exception' => $e]
+                );
+                return response()->json([
+                    'message' => 'Could not generate a download URL for this audio file.',
+                ], 500);
+            }
+
+            Log::info("ScriptController::serveAudio: redirecting script {$id} to signed S3 URL (key='{$script->audio_url}')");
             return redirect($url);
         }
 

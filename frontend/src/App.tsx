@@ -311,19 +311,45 @@ export default function App() {
         if (existing) { hydratedAudioRef.current.add(s.id); return } // already in IndexedDB
         try {
           const blob = await api.get(`/scripts/${s.id}/audio`) as Blob
-          if (blob instanceof Blob) {
+          if (blob instanceof Blob && blob.size > 0) {
             await saveAudioBlob(`audio_${s.id}`, blob)
             hydratedAudioRef.current.add(s.id) // only mark done on success
+            console.info(`[App] hydrated audio_${s.id} from server into IndexedDB`)
+          } else {
+            console.error(`[App] GET /scripts/${s.id}/audio returned a non-blob/empty response — not caching, will retry`, blob)
           }
         } catch (e) {
           // 404 = the server has no file for this script even though has_audio
           // was set (stale flag). Clear it so the UI shows the script needs
           // re-synthesis, and stop re-requesting it on every load.
           if (e instanceof ApiError && e.status === 404) {
+            // THIS is the exact line that flips a script's status dot from
+            // green back to yellow. If you're seeing that happen for audio
+            // you can visibly confirm exists in S3, the problem is on the
+            // backend: Storage::disk('audio')->exists() (in ScriptController::
+            // serveAudio) is returning false for a key that really is there —
+            // almost always an IAM/bucket-policy permission gap (PutObject
+            // allowed, GetObject/HeadObject denied) combined with the
+            // 'throw' => false disk config silently swallowing that S3 error.
+            console.error(
+              `[App] script ${s.id} ("${s.title}") got 404 from /scripts/${s.id}/audio — ` +
+              `clearing hasAudio. Verify in the backend that Storage::disk('audio')->exists('${s.audioUrl}') ` +
+              `actually succeeds with the credentials the app uses (not just what you see in the S3 console).`,
+              e,
+            )
             hydratedAudioRef.current.add(s.id)
             updateScript(p.id, s.id, { hasAudio: false, duration: null })
+          } else {
+            // Previously this branch was completely silent. Non-404 here
+            // usually means a network/CORS failure fetching the redirected
+            // S3 URL — log it so repeated failures are visible instead of
+            // just quietly retrying forever.
+            console.warn(
+              `[App] non-404 error hydrating audio for script ${s.id} — will retry on next change. ` +
+              `If this repeats every time, check for a CORS error against the S3 domain in the console.`,
+              e,
+            )
           }
-          // other errors: non-critical; retried on next change
         }
       })
     })
