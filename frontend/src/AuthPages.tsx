@@ -19,9 +19,10 @@ function GoogleButton({ onCredential }: { onCredential: (credential: string) => 
         client_id: clientId,
         callback: (resp: { credential: string }) => onCredential(resp.credential),
       })
+      const width = Math.min(Math.max(ref.current?.offsetWidth ?? 360, 280), 400)
       // @ts-ignore
       window.google?.accounts.id.renderButton(ref.current, {
-        theme: 'outline', size: 'large', width: 360, text: 'continue_with',
+        theme: 'filled_black', size: 'large', width, shape: 'pill', text: 'continue_with',
       })
     }
 
@@ -34,7 +35,7 @@ function GoogleButton({ onCredential }: { onCredential: (credential: string) => 
     return () => clearInterval(interval)
   }, [onCredential])
 
-  return <div ref={ref} style={{ display: 'flex', justifyContent: 'center', margin: '6px 0' }} />
+  return <div ref={ref} style={{ display: 'flex', justifyContent: 'center', margin: '6px 0', width: '100%', overflow: 'hidden', borderRadius: 999 }} />
 }
 
 function OrDivider() {
@@ -58,11 +59,14 @@ function AuthShell({ children, visual }: { children: React.ReactNode; visual: Re
     }}>
       {/* Left: form panel */}
       <div className="auth-panel" style={{
-        display: 'flex', flexDirection: 'column',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
         padding: '48px 56px', background: 'var(--bg)',
-        justifyContent: 'center',
+        justifyContent: 'center', position: 'relative', overflow: 'hidden',
       }}>
-        {children}
+        <div className="auth-panel__glow" />
+        <div className="auth-card">
+          {children}
+        </div>
       </div>
 
       {/* Right: visual panel */}

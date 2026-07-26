@@ -2909,6 +2909,33 @@
   justify-content: center;
 }
 
+/* Soft ambient light behind the card, echoing the visual panel */
+.auth-panel__glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 18% 12%, var(--accent-lt) 0%, transparent 55%);
+  pointer-events: none;
+}
+
+/* The card itself — gives the form real weight instead of floating text */
+.auth-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 408px;
+  padding: 34px 32px;
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+}
+
+[data-theme="dark"] .auth-card {
+  background: linear-gradient(180deg, rgba(255, 240, 210, 0.045), rgba(255, 240, 210, 0.015));
+  border-color: rgba(255, 240, 210, 0.10);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
 .auth-visual {
   background: linear-gradient(145deg, #1a1208 0%, #2e1f0f 50%, #1a0e05 100%);
   display: flex;
@@ -3037,13 +3064,18 @@
   }
   .auth-visual { display: none !important; }
   .auth-panel {
-    padding: 36px 24px 44px !important;
-    justify-content: flex-start !important;
+    padding: 32px 20px !important;
+    justify-content: center !important;
+    align-items: center !important;
     flex: 1;
-    align-items: stretch;
     overflow-y: auto;
   }
   .auth-brand { margin-bottom: 28px !important; }
+  .auth-card {
+    padding: 26px 20px !important;
+    max-width: 420px !important;
+    box-shadow: none !important;
+  }
 
   /* Settings mobile — drill-down, no horizontal tabs */
   .settings-layout { display: block }
@@ -3082,5 +3114,6 @@
   /* Tighter button sizing in nav on tiny screens */
   .landing__nav .btn { padding: 5px 10px !important; font-size: 12px !important; }
 
-  .auth-panel { padding: 28px 16px 36px !important; }
+  .auth-panel { padding: 24px 14px !important; }
+  .auth-card { padding: 22px 16px !important; }
 }
