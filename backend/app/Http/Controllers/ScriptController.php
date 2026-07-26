@@ -218,16 +218,6 @@ class ScriptController extends Controller
             $q->where('user_id', $request->user()->id);
         })->findOrFail($id);
 
-        // TEMP DEBUG — remove after diagnosing the 404 mismatch.
-        \Illuminate\Support\Facades\Log::error('serveAudio debug', [
-            'script_id'    => $id,
-            'audio_url'    => $script->audio_url,
-            'disk_driver'  => config('filesystems.disks.audio.driver'),
-            'disk_bucket'  => config('filesystems.disks.audio.bucket'),
-            'disk_region'  => config('filesystems.disks.audio.region'),
-            'exists_check' => $script->audio_url ? Storage::disk('audio')->exists($script->audio_url) : 'no_audio_url',
-        ]);
-
         if (!$script->audio_url || !Storage::disk('audio')->exists($script->audio_url)) {
             abort(404, 'Audio file not found');
         }
