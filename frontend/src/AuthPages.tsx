@@ -89,32 +89,37 @@ function AuthShell({ children, visual }: { children: React.ReactNode; visual: Re
 
 function AuthVisualContent() {
   return (
-    <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 28 }}>
+    <div className="auth-visual__content" style={{ position: 'relative', zIndex: 1, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 22 }}>
       <LogoMark size={52} />
+      <span style={{
+        fontSize: 11, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase',
+        color: 'var(--accent-2)', opacity: 0.85, marginTop: 4,
+      }}>Voxora Studio</span>
       <h2 style={{
         fontFamily: 'var(--serif)', fontSize: 34, fontWeight: 400,
-        color: '#fff', letterSpacing: '-0.8px', lineHeight: 1.2,
+        color: '#fff', letterSpacing: '-0.8px', lineHeight: 1.2, margin: 0,
       }}>
         Your voice,<br /><span style={{ color: 'var(--accent-2)', fontStyle: 'italic' }}>amplified.</span>
       </h2>
-      <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.55)', maxWidth: 280, lineHeight: 1.7 }}>
+      <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.55)', maxWidth: 270, lineHeight: 1.7, margin: 0 }}>
         Clone your voice once. Generate endless audio in 16 languages — right from your browser.
       </p>
       {/* Mini waveform */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 2.5, height: 42, opacity: 0.7 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 2.5, height: 42, opacity: 0.8, marginTop: 6 }}>
         {Array.from({ length: 36 }, (_, i) => {
           const h = 6 + Math.abs(Math.sin(i * 0.42) * Math.cos(i * 0.17)) * 32
           return (
-            <div key={i} style={{
+            <div key={i} className="auth-wavebar" style={{
               width: 3.5, height: h, borderRadius: 2,
               background: 'var(--accent)',
               opacity: 0.5 + Math.abs(Math.sin(i * 0.6)) * 0.5,
+              animationDelay: `${(i % 12) * 0.09}s`,
             }} />
           )
         })}
       </div>
       {/* Feature pills */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', maxWidth: 300 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', maxWidth: 300, marginTop: 4 }}>
         {['16 languages', 'Voice cloning', 'Timeline editor', 'WAV export'].map(tag => (
           <span key={tag} style={{
             fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 99,
