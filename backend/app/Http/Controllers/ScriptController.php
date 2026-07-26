@@ -83,17 +83,16 @@ class ScriptController extends Controller
             'script_id'      => 'required|string|max:36',
             'title'          => 'nullable|string|max:500',
             'content'        => 'nullable|string|max:50000',
-            'has_audio'      => 'boolean',
             'profile_id'     => 'nullable|string|max:36',
             'language'       => 'string|max:10',
-            'duration'       => 'nullable|numeric|min:0|max:86400',
             'speed'          => 'numeric|min:0.25|max:4',
             'tone'           => 'nullable|string|max:50',
             'engine'         => 'nullable|string|in:xtts,f5',
             'speaker_map'    => 'nullable|array',
-            'waveform_peaks' => 'nullable|array',
             'advanced_params'=> 'nullable|array',
             'order_index'    => 'integer|min:0',
+            // See ScriptController::update() for why has_audio / audio_url /
+            // duration / waveform_peaks are excluded here.
         ]);
 
         if ($blocked = $this->enforcePlan($request, $validated)) {
@@ -116,17 +115,21 @@ class ScriptController extends Controller
         $validated = $request->validate([
             'title'       => 'nullable|string|max:500',
             'content'     => 'nullable|string|max:50000',
-            'has_audio'   => 'boolean',
             'profile_id'  => 'nullable|string|max:36',
             'language'    => 'string|max:10',
-            'duration'    => 'nullable|numeric|min:0|max:86400',
             'speed'       => 'numeric|min:0.25|max:4',
             'tone'        => 'nullable|string|max:50',
             'engine'          => 'nullable|string|in:xtts,f5',
             'speaker_map'     => 'nullable|array',
-            'waveform_peaks'  => 'nullable|array',
             'advanced_params' => 'nullable|array',
             'order_index'     => 'integer',
+            // has_audio / audio_url / duration / waveform_peaks are intentionally
+            // excluded — they are owned exclusively by the synthesis code paths
+            // (BulkSynthesisJob::synthesiseScript, ScriptController::saveAudio).
+            // Letting content-autosave write these caused a lost-update bug:
+            // a stale client-side copy of has_audio/duration would overwrite the
+            // values the synthesis job had just persisted, moments after the
+            // job finished, even though the audio file was correctly in S3.
         ]);
 
         if ($blocked = $this->enforcePlan($request, $validated)) {
