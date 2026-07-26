@@ -1,0 +1,12 @@
+[
+  {
+    "AllowedOrigins": [
+      "https://usevoxora.online",
+      "https://www.usevoxora.online",
+      "https://admin.usevoxora.online"
+    ],
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedHeaders": ["*"],
+    "MaxAgeSeconds": 3000
+  }
+]
