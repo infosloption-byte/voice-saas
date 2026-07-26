@@ -21,8 +21,14 @@ RUN pip install --no-cache-dir \
     torchaudio==2.2.2+cpu \
     --index-url https://download.pytorch.org/whl/cpu
 
+# transformers is pinned here too — f5-tts's own deps (accelerate,
+# transformers_stream_generator, datasets) have no upper bound and pip's
+# resolver will otherwise silently upgrade transformers past what
+# coqui-tts/XTTS v2 needs, breaking it even though f5-tts itself never
+# loads on a CPU-only box.
 RUN echo "torch==2.2.2+cpu" > /tmp/cpu_constraints.txt && \
-    echo "torchaudio==2.2.2+cpu" >> /tmp/cpu_constraints.txt
+    echo "torchaudio==2.2.2+cpu" >> /tmp/cpu_constraints.txt && \
+    echo "transformers==4.36.2" >> /tmp/cpu_constraints.txt
 
 # ── Core audio/API deps ──────────────────────────────────────────────
 RUN pip install --no-cache-dir \
@@ -36,7 +42,10 @@ RUN pip install --no-cache-dir \
     numpy
 
 # ── F5-TTS — installed with constraints so it can't pull CUDA torch ──
-# The -c flag forces pip to respect our CPU torch pin.
+# The -c flag forces pip to respect our CPU torch pin AND the transformers
+# pin above. If F5-TTS's deps need a newer transformers than 4.36.2, this
+# install will fail cleanly and fall through to the warning below —
+# XTTS v2 stays intact either way.
 RUN pip install --no-cache-dir \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     -c /tmp/cpu_constraints.txt \
