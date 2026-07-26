@@ -9,6 +9,7 @@ interface UseAuthReturn {
   checkUser: () => Promise<User | null>
   signIn: (email: string, password: string) => Promise<User | null>
   signUp: (name: string, email: string, password: string) => Promise<User | null>
+  signInWithGoogle: (credential: string) => Promise<User | null>
   signOut: () => Promise<void>
 }
 
@@ -54,6 +55,18 @@ export function useAuth(): UseAuthReturn {
     }
   }, [checkUser])
 
+  const signInWithGoogle = useCallback(async (credential: string): Promise<User | null> => {
+    setError(null)
+    try {
+      await api.post('/auth/google', { credential })
+      return checkUser()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Google sign-in failed'
+      setError(msg)
+      throw e
+    }
+  }, [checkUser])
+
   const signOut = useCallback(async (): Promise<void> => {
     try {
       await api.post('/logout')
@@ -64,5 +77,5 @@ export function useAuth(): UseAuthReturn {
     }
   }, [])
 
-  return { user, loading, error, checkUser, signIn, signUp, signOut }
+  return { user, loading, error, checkUser, signIn, signUp, signInWithGoogle, signOut }
 }

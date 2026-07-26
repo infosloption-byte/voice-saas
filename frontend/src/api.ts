@@ -21,7 +21,7 @@ function getCookie(name: string): string | null {
 
 // ── Path routing ──────────────────────────────────────────────────
 const LARAVEL_PATHS = [
-  '/login', '/logout', '/register', '/user',
+  '/login', '/logout', '/register', '/user', '/auth',
   '/projects', '/voice-profiles', '/scripts',
   '/forgot-password', '/reset-password',
   '/email', '/subscription', '/guest-limits',

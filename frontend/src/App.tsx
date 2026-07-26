@@ -171,7 +171,7 @@ export default function App() {
     localStorage.setItem('sidebar-collapsed', '0')
   }
 
-  const { user, loading: authLoading, checkUser, signIn, signUp, signOut: authSignOut } = useAuth()
+  const { user, loading: authLoading, checkUser, signIn, signUp, signInWithGoogle, signOut: authSignOut } = useAuth()
   const {
     projects, loadProjects,
     addProject: addProjectBase,
@@ -511,6 +511,12 @@ export default function App() {
       onSignUp={() => setPage('signup')}
       onBack={() => setPage('landing')}
       onForgotPassword={() => setPage('forgot-password')}
+      onGoogleCredential={async (credential) => {
+        await signInWithGoogle(credential)
+        if (guestMode) await migrateGuestData()
+        await loadProjects()
+        setPage('dashboard')
+      }}
     />
   )
 
@@ -527,6 +533,12 @@ export default function App() {
       onTerms={() => setPage('terms')}
       onPrivacy={() => setPage('privacy')}
       onAcceptableUse={() => setPage('acceptable-use')}
+      onGoogleCredential={async (credential) => {
+        await signInWithGoogle(credential)
+        if (guestMode) await migrateGuestData()
+        await loadProjects()
+        setPage('dashboard')
+      }}
     />
   )
 

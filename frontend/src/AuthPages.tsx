@@ -1,7 +1,51 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { api } from './api'
 import { icons } from './constants'
 import { LogoMark } from './LandingPage'
+
+// ═══════════════════════════════════════════════════════════════════
+// GOOGLE SIGN-IN BUTTON
+// ═══════════════════════════════════════════════════════════════════
+function GoogleButton({ onCredential }: { onCredential: (credential: string) => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
+    if (!clientId || !ref.current) return
+
+    function render() {
+      // @ts-ignore — loaded via the <script> tag in index.html
+      window.google?.accounts.id.initialize({
+        client_id: clientId,
+        callback: (resp: { credential: string }) => onCredential(resp.credential),
+      })
+      // @ts-ignore
+      window.google?.accounts.id.renderButton(ref.current, {
+        theme: 'outline', size: 'large', width: 360, text: 'continue_with',
+      })
+    }
+
+    // @ts-ignore
+    if (window.google?.accounts?.id) { render(); return }
+    const interval = setInterval(() => {
+      // @ts-ignore
+      if (window.google?.accounts?.id) { render(); clearInterval(interval) }
+    }, 100)
+    return () => clearInterval(interval)
+  }, [onCredential])
+
+  return <div ref={ref} style={{ display: 'flex', justifyContent: 'center', margin: '6px 0' }} />
+}
+
+function OrDivider() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0' }}>
+      <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+      <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>OR</span>
+      <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+    </div>
+  )
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // SHARED AUTH SHELL (split-panel layout)
@@ -87,9 +131,10 @@ interface SignInPageProps {
   onSignUp?: () => void
   onBack?: () => void
   onForgotPassword?: () => void
+  onGoogleCredential?: (credential: string) => void
 }
 
-export function SignInPage({ onSignIn, onSignUp, onBack, onForgotPassword }: SignInPageProps) {
+export function SignInPage({ onSignIn, onSignUp, onBack, onForgotPassword, onGoogleCredential }: SignInPageProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
@@ -125,6 +170,13 @@ export function SignInPage({ onSignIn, onSignUp, onBack, onForgotPassword }: Sig
           Sign in to your workspace to continue.
         </p>
       </div>
+
+      {onGoogleCredential && (
+        <>
+          <GoogleButton onCredential={onGoogleCredential} />
+          <OrDivider />
+        </>
+      )}
 
       <form onSubmit={e => { e.preventDefault(); handleSubmit(); }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {/* Email */}
@@ -211,9 +263,10 @@ interface SignUpPageProps {
   onTerms?: () => void
   onPrivacy?: () => void
   onAcceptableUse?: () => void
+  onGoogleCredential?: (credential: string) => void
 }
 
-export function SignUpPage({ onSignUp, onSignIn, onBack, onTerms, onPrivacy, onAcceptableUse }: SignUpPageProps) {
+export function SignUpPage({ onSignUp, onSignIn, onBack, onTerms, onPrivacy, onAcceptableUse, onGoogleCredential }: SignUpPageProps) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -264,6 +317,13 @@ export function SignUpPage({ onSignUp, onSignIn, onBack, onTerms, onPrivacy, onA
           Free forever. No credit card required.
         </p>
       </div>
+
+      {onGoogleCredential && (
+        <>
+          <GoogleButton onCredential={onGoogleCredential} />
+          <OrDivider />
+        </>
+      )}
 
       <form onSubmit={e => { e.preventDefault(); handleSubmit(); }} style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
         {/* Name */}

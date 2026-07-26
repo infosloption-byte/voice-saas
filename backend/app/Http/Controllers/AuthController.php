@@ -77,6 +77,70 @@ class AuthController extends Controller
         ]);
     }
 
+    public function google(Request $request)
+    {
+        $request->validate(['credential' => 'required|string']);
+
+        $verify = Http::get('https://oauth2.googleapis.com/tokeninfo', [
+            'id_token' => $request->credential,
+        ]);
+
+        if (!$verify->ok()) {
+            throw ValidationException::withMessages(['credential' => ['Invalid Google token.']]);
+        }
+
+        $payload = $verify->json();
+
+        if (($payload['aud'] ?? null) !== config('services.google.client_id')) {
+            throw ValidationException::withMessages(['credential' => ['Token was not issued for this app.']]);
+        }
+        if (($payload['email_verified'] ?? 'false') !== 'true') {
+            throw ValidationException::withMessages(['credential' => ['Google email is not verified.']]);
+        }
+
+        $googleId = $payload['sub'];
+        $email    = $payload['email'];
+        $name     = $payload['name'] ?? explode('@', $email)[0];
+
+        $user = User::where('google_id', $googleId)->first()
+            ?? User::where('email', $email)->first();
+
+        if ($user) {
+            if (!$user->google_id) {
+                $user->google_id = $googleId;
+                $user->email_verified_at ??= now();
+                $user->save();
+            }
+        } else {
+            $user = User::create([
+                'name' => $name,
+                'email' => $email,
+                'google_id' => $googleId,
+                'password' => null,
+                'email_verified_at' => now(),
+            ]);
+            try {
+                Mail::to($user)->send(new WelcomeMail($user));
+            } catch (\Throwable) { /* mail failure must not block sign-up */ }
+        }
+
+        if ($user->isSuspended() && !$user->isAdmin()) {
+            AuditLog::record('auth.login.suspended', ['email' => $email]);
+            return response()->json([
+                'message' => 'This account has been suspended. Contact support.',
+            ], 403);
+        }
+
+        Auth::login($user);
+        $request->session()->regenerate();
+        AuditLog::record('auth.login.google', ['email' => $email], $user->id);
+
+        return response()->json([
+            'user' => $user,
+            'message' => 'Signed in with Google',
+        ]);
+    }
+
     public function logout(Request $request)
     {
         AuditLog::record('auth.logout', [], $request->user()?->id);
