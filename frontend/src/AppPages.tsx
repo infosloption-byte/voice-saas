@@ -11,6 +11,19 @@ import { DEFAULT_GUEST_LIMITS } from './hooks/useGuestLimits'
 import { activityLog, type LogEntry } from './activityLog'
 import type { Project, Script, VoiceProfile, VoiceProfileSaveResult, EngineCaps, GuestLimits, User } from './types'
 
+// Rotating scripts for voice-profile recording. Reading a different
+// sentence for each take — rather than the same one four times — gives
+// the clone a wider spread of phonemes/intonation to learn from, and
+// keeps the reader from settling into a flat, memorized-sounding cadence
+// on repeats 2-4. Index by current take count (wraps if MAX_CLIPS ever
+// exceeds this list).
+const RECORD_PROMPTS = [
+  'Have you ever stood on a hilltop and watched the sunset? The colours shift from gold to deep red. There is nothing quite like it. I think everyone should see it at least once.',
+  'The old market was already busy by seven in the morning. Vendors called out prices, carts rattled over the cobblestones, and the smell of fresh bread drifted from the corner bakery.',
+  'Could you pass me that folder on the shelf? Thanks. I need to check a few numbers before the meeting starts, otherwise we will be guessing all afternoon.',
+  'It rained for three days straight, so we stayed inside and played cards by the window, watching the storm roll slowly across the valley below.',
+]
+
 // ── Wave visualiser ────────────────────────────────────────────────
 export function WaveVisualiser({ active }: { active: boolean }) {
   return (
@@ -1207,8 +1220,10 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
               </div>
             )}
             <div className="record-script">
-              <div className="record-script__label">Read this aloud</div>
-              <p className="record-script__text">"Have you ever stood on a hilltop and watched the sunset? The colours shift from gold to deep red. There is nothing quite like it. I think everyone should see it at least once."</p>
+              <div className="record-script__label">
+                Read this aloud{!isGuest && ` — take ${Math.min(takes.length + 1, MAX_CLIPS)} of ${MAX_CLIPS}`}
+              </div>
+              <p className="record-script__text">"{RECORD_PROMPTS[takes.length % RECORD_PROMPTS.length]}"</p>
             </div>
             <div className="noise-controls">
               <label className="noise-toggle">
