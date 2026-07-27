@@ -2318,6 +2318,17 @@
   gap: 10px;
 }
 
+/* Native <audio controls> has a browser-enforced minimum intrinsic width
+   (~200-250px in Chrome) that `flex: 1` alone can't shrink below, because
+   flex items default to `min-width: auto` (= content's min size). Without
+   this override, that one element forces the whole row — and every
+   ancestor up to .profiles-layout — wider than a mobile viewport, causing
+   horizontal scroll on the Record Voice Profile panel. */
+.takes-list__item audio {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .takes-list__index {
   font-family: var(--mono);
   font-size: 11px;
@@ -2790,6 +2801,14 @@
   .assembly-item__right audio { width: 100px }
   .assembly-item { flex-wrap: wrap; gap: 8px }
   .assembly-item__name { min-width: 60% }
+
+  /* Voice Profile "takes" review row (index + audio player + duration +
+     Remove button) — same overflow bug as assembly-item__right above.
+     Shrink the audio player and drop the fixed-width Remove button down
+     to icon-only sizing so the row fits a narrow viewport. */
+  .takes-list__item { flex-wrap: wrap; gap: 6px }
+  .takes-list__item audio { flex: 1 1 140px; width: auto }
+  .takes-list__item .btn--sm { padding: 4px 8px; font-size: 11px }
 
   .profiles-layout { grid-template-columns: 1fr; gap: 20px }
 
