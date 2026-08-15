@@ -1784,8 +1784,8 @@ function SystemCheckSection() {
                     <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-1)' }}>{c.label}</span>
                     <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{c.value}</span>
                   </div>
-                  {c.hint && c.status !== 'pass' && (
-                    <div style={{ fontSize: 11, color: st.dot, marginTop: 3, lineHeight: 1.5 }}>{c.hint}</div>
+                  {c.hint && (
+                    <div style={{ fontSize: 11, color: c.status === 'pass' ? 'var(--text-3)' : st.dot, marginTop: 3, lineHeight: 1.5 }}>{c.hint}</div>
                   )}
                 </div>
                 <span style={{

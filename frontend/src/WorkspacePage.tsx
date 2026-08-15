@@ -1213,7 +1213,11 @@ export function WorkspacePage({
               {
                 id: 'f5' as TTSEngine,
                 label: 'F5-TTS',
-                desc: 'Flow-matching · natural prosody · English · all voices',
+                desc: `Flow-matching · natural prosody · ${
+                  (engineCaps.f5_languages && engineCaps.f5_languages.length)
+                    ? engineCaps.f5_languages.join('/').toUpperCase()
+                    : 'English'
+                } · all voices`,
                 color: '#4278c9',
                 available: engineCaps.f5,
               },

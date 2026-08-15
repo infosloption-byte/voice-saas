@@ -30,6 +30,7 @@ class SystemCheckController extends Controller
         $checks = [];
         foreach ([
             'database', 'redis', 'scheduler', 'queueWorker', 'aiEngine',
+            'voiceEngineFeatures',
             'geminiKey', 'paypalCredentials', 'paypalPlans', 'mailConfig',
             'storageWritable', 'recentBackup', 'diskSpace',
             'pendingMigrations', 'alertWebhooks', 'settingsDecryption',
@@ -167,6 +168,55 @@ class SystemCheckController extends Controller
         } catch (\Throwable $e) {
             return $this->result('engine', 'AI Engine', 'fail', 'unreachable',
                 "Cannot reach {$url}. Check the container: docker compose ps · docker logs voice_ai");
+        }
+    }
+
+    /**
+     * Surfaces the real, current state of the optional engines (F5-TTS,
+     * RVC) that are otherwise silent — F5 falls back to XTTS without
+     * explanation and RVC has no UI at all, so this is the only place an
+     * operator can see whether they're actually usable and what to do
+     * about it if not.
+     */
+    private function voiceEngineFeatures(): array
+    {
+        $url = rtrim(EngineResolver::activeUrl(), '/');
+        $key = config('services.ai_engine.key', '');
+        try {
+            $resp = Http::withHeaders($key ? ['X-Engine-Key' => $key] : [])
+                ->timeout(6)->get($url . '/');
+            if (!$resp->successful()) {
+                return $this->result('voice_engines', 'F5-TTS / RVC', 'warn', 'could not read engine status',
+                    'AI Engine did not return a valid status response — see the "AI Engine" check above.');
+            }
+            $body = $resp->json();
+            $f5  = $body['engines']['f5']  ?? false;
+            $gpu = $body['gpu']            ?? false;
+            $rvc = $body['rvc']            ?? ['enabled' => false, 'lib_installed' => false, 'usable' => false];
+
+            $parts = [];
+            $parts[] = 'F5-TTS: ' . ($f5 ? 'ready' : ($gpu ? 'not installed' : 'needs GPU'));
+            $parts[] = 'RVC: ' . ($rvc['usable']
+                ? 'enabled (per-profile still requires a trained model — see docs)'
+                : (!$rvc['enabled'] ? 'disabled (RVC_ENABLED=0)' : 'library not installed'));
+            $value = implode(' · ', $parts);
+
+            // These are optional engines — being off is a valid default, not
+            // a problem, so this stays 'pass' unless something's actually
+            // misconfigured (operator turned RVC on but the dependency
+            // never installed, which silently no-ops every synthesis).
+            $rvcMisconfigured = $rvc['enabled'] && !$rvc['lib_installed'];
+            if ($rvcMisconfigured) {
+                return $this->result('voice_engines', 'F5-TTS / RVC', 'warn', $value,
+                    'RVC_ENABLED=1 but the rvc-python library is not installed on the AI Engine — RVC is silently skipped for every synthesis. Install it (see requirements-rvc.txt) or set RVC_ENABLED=0.');
+            }
+            return $this->result('voice_engines', 'F5-TTS / RVC', 'pass', $value,
+                (!$f5 || !$rvc['usable'])
+                    ? 'Both optional — XTTS v2 remains the default either way. F5-TTS needs a GPU host + pip install f5-tts. RVC needs RVC_ENABLED=1, pip install rvc-python, and a trained model.pth per voice profile under RVC_MODELS_DIR.'
+                    : null);
+        } catch (\Throwable $e) {
+            return $this->result('voice_engines', 'F5-TTS / RVC', 'warn', 'unreachable',
+                'Cannot reach the AI Engine to read F5/RVC status — see the "AI Engine" check above.');
         }
     }
 

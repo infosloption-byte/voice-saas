@@ -724,6 +724,17 @@ async def status():
             # English; set F5_LANGUAGES alongside a non-English checkpoint.
             "f5_languages": F5_LANGUAGES if f5_usable() else [],
         },
+        "rvc": {
+            # System-level readiness: operator opted in (RVC_ENABLED=1) AND
+            # the optional rvc-python dependency actually imported. Neither
+            # of these says anything about a specific voice profile — RVC
+            # only ever runs for a profile that also has a trained model on
+            # disk (see rvc_model_paths()), which has no self-serve UI yet.
+            "enabled":       RVC_ENABLED,
+            "lib_installed": RVC_LIB_AVAILABLE,
+            "usable":        RVC_ENABLED and RVC_LIB_AVAILABLE,
+            "device":        RVC_DEVICE if (RVC_ENABLED and RVC_LIB_AVAILABLE) else None,
+        },
         "gpu": CUDA_AVAILABLE,
     }
 

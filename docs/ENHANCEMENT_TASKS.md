@@ -8,7 +8,7 @@
 |---|---|---|---|
 | 1 | Fix pricing/Terms mismatch | P0 | ✅ Done — Aug 15, 2026 |
 | 2 | Self-hosted infrastructure marketing | P1 | ✅ Done — Aug 15, 2026 |
-| 3 | Honest-ify RVC/F5-TTS UI state | P1 | Not started |
+| 3 | Honest-ify RVC/F5-TTS UI state | P1 | ✅ Done — Aug 15, 2026 |
 | 4 | Public API tier | P1 | Not started |
 | 5 | Video dubbing MVP | P1 | Not started |
 | 6 | Base model quality tier | P1 | Not started |
@@ -69,11 +69,19 @@ Each task includes: what it is, why it matters, rough effort, and what "done" lo
 
 **Correction (Aug 15, 2026):** The first version of this copy said "white-label ready" and included a "Your Brand, Your Domain" card implying Voxora could be rebranded/resold under a different name or logo. That was a misread of intent — Voxora is not meant to be white-labeled; it's a single branded platform, and the self-hosting story is only about running the platform on your own infrastructure/domain, not about rebranding it. All "white-label" wording was removed from `LandingPage.tsx`, `PricingPage.tsx`, and this doc, and the card was renamed to "Your Own Domain" with copy that no longer implies rebrand capability.
 
-### 3. Honest-ify RVC and F5-TTS instead of half-advertising them
+### 3. Honest-ify RVC and F5-TTS instead of half-advertising them ✅ DONE
 - **What:** Either (a) hide RVC and F5-TTS from the picker until an operator has actually configured them (trained model / GPU + checkpoint), or (b) add plain-language in-app messaging explaining the prerequisite instead of a silent failure or confusing "unavailable" state.
 - **Why:** Right now these are capabilities that exist in code but aren't usable by a typical operator without manual, undocumented ops work. Shipping a feature that looks broken is worse than not shipping it.
 - **Effort:** Small–Medium. Mostly conditional UI logic + admin-panel messaging; the `f5_usable()` / `f5_languages` and RVC-loaded checks already exist server-side — this is about surfacing that state honestly in the UI.
 - **Done when:** A user/admin can tell at a glance whether F5/RVC are actually usable on their deployment, with a clear next step if not.
+
+**What was actually done:** On investigation, F5-TTS's *user-facing* UI was already in good shape (a "Ready"/"Needs GPU" pill in the engine picker, auto-fallback to XTTS, toast + tooltip explaining the GPU requirement) — the original report overstated that gap. RVC, by contrast, had **zero frontend presence at all** — it's applied silently as a post-processing pass with no toggle, no indicator, and no way for anyone to know whether it ran. Since RVC is fundamentally an ops-level feature (env-var gated, requires a pre-trained model placed on disk per voice profile with no self-serve training flow), the fix targets the audience that actually controls it — admins — rather than building a misleading user-facing toggle for a feature end users can't configure anyway:
+- `ai-engine/main.py` — added an `"rvc"` block to the `/` status endpoint (`enabled`, `lib_installed`, `usable`, `device`), mirroring the existing `f5`/`f5_languages` reporting pattern. Previously RVC state wasn't exposed anywhere, even internally.
+- `backend/app/Http/Controllers/Admin/SystemCheckController.php` — added a new `voiceEngineFeatures` probe (registered alongside the existing 15 checks) that reads the engine's F5/RVC/GPU state and reports it in the admin System Check panel. Stays `pass` when F5/RVC are simply off (that's a valid default, not a problem) with an informational hint on exactly how to enable each one; only flips to `warn` on a genuine misconfiguration (`RVC_ENABLED=1` but the library never installed, meaning RVC silently no-ops on every synthesis without anyone knowing).
+- `frontend/src/AdminPage.tsx` — the System Check list previously only rendered a check's `hint` when its status wasn't `pass`; changed it to always render when present, since the new check's "here's how to enable this" hint is informational and needs to show even on a clean pass. Confirmed no existing check relied on hiding a hint on pass (all pass elsewhere with `hint: null`), so this is non-breaking.
+- `frontend/src/WorkspacePage.tsx` — fixed a smaller honesty gap in the F5 engine-picker description, which hardcoded "English" regardless of the actual configured checkpoint; now reads `engineCaps.f5_languages` and displays whatever language(s) the operator's F5 checkpoint actually speaks.
+- Verified via `tsc -b`, `vite build` (both clean), and `python3 -m py_compile` on the engine file (no PHP linter available in this sandbox — reviewed the PHP edit manually and confirmed brace/paren balance across the file).
+- Did not build a self-serve RVC training flow or a per-voice-profile "enhanced" badge — that's a materially larger feature (training pipeline, storage, UI) and is better scoped as its own task if there's demand; this task closes the "invisible/silent" gap, not the "no self-serve training" gap.
 
 ### 4. Public API tier for developers
 - **What:** Issue scoped API keys per user/plan, meter usage against the existing `SynthesisQuota` / `TranslationQuota` services, publish basic docs (endpoints, auth, rate limits, example request).
@@ -151,9 +159,9 @@ Each task includes: what it is, why it matters, rough effort, and what "done" lo
 
 ## Suggested execution order (combining priority + difficulty)
 
-1. Fix pricing/Terms mismatch *(P0, trivial — do this today)*
-2. Add self-hosted infrastructure messaging to marketing *(P1, easy)*
-3. Honest-ify RVC/F5-TTS UI state *(P1, easy–medium)*
+1. Fix pricing/Terms mismatch *(P0, trivial — do this today)* ✅
+2. Add self-hosted infrastructure messaging to marketing *(P1, easy)* ✅
+3. Honest-ify RVC/F5-TTS UI state *(P1, easy–medium)* ✅
 4. Public API tier *(P1, medium)*
 5. System-health public status page *(P2, easy — can slot in anytime as a quick win)*
 6. Video dubbing MVP *(P1, medium–large)*
