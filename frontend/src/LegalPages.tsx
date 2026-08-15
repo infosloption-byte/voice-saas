@@ -212,8 +212,9 @@ export function TermsPage({ onBack }: { onBack?: () => void }) {
         </p>
         <ul style={{ paddingLeft: 20, marginTop: 8, marginBottom: 10 }}>
           <li style={{ marginBottom: 6 }}><strong>Free:</strong> Limited usage with basic features. No payment required.</li>
-          <li style={{ marginBottom: 6 }}><strong>Starter ($9.99/month):</strong> Increased synthesis quota and voice profiles.</li>
-          <li><strong>Pro ($24.99/month):</strong> Unlimited synthesis, all features.</li>
+          <li style={{ marginBottom: 6 }}><strong>Starter ($9/month):</strong> Increased synthesis quota, voice profiles, and projects.</li>
+          <li style={{ marginBottom: 6 }}><strong>Creator ($29/month):</strong> Higher synthesis quota, more voice profiles, and priority synthesis queue.</li>
+          <li><strong>Pro ($79/month):</strong> Highest synthesis quota, most voice profiles, unlimited translations, and data export.</li>
         </ul>
         <p>
           Subscriptions are billed monthly through PayPal. You may cancel your subscription at
@@ -421,8 +422,9 @@ export function RefundPolicyPage({ onBack }: { onBack?: () => void }) {
           {COMPANY} offers the following paid subscription plans, billed monthly:
         </p>
         <ul style={{ paddingLeft: 20, marginTop: 8, marginBottom: 10 }}>
-          <li style={{ marginBottom: 6 }}><strong>Starter — $9.99/month:</strong> Increased synthesis quota and voice profiles.</li>
-          <li><strong>Pro — $24.99/month:</strong> Unlimited synthesis and access to all features.</li>
+          <li style={{ marginBottom: 6 }}><strong>Starter — $9/month:</strong> Increased synthesis quota, voice profiles, and projects.</li>
+          <li style={{ marginBottom: 6 }}><strong>Creator — $29/month:</strong> Higher synthesis quota, more voice profiles, and priority synthesis queue.</li>
+          <li><strong>Pro — $79/month:</strong> Highest synthesis quota, most voice profiles, unlimited translations, and data export.</li>
         </ul>
         <p>
           All payments are processed securely through PayPal. Subscription fees are charged at

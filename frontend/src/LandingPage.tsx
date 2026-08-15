@@ -527,7 +527,36 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow, onNavigate }: Landin
 
       <hr className="vox-rule" />
 
-      {/* ── Pricing teaser ── */}
+      {/* ── Self-hosted / white-label ── */}
+      <section id="self-hosted" className="vox-section">
+        <div className="vox-wrap">
+          <div className="vox-section-head">
+            <h2 className="vox-h2">Run it on <span className="vox-grad-text">your own infrastructure</span></h2>
+            <p className="vox-lead">Voxora is self-hostable and white-label ready — deploy under your own domain, keep every byte of audio and voice data on infrastructure you control.</p>
+          </div>
+          <div className="vox-grid vox-grid-3">
+            <div className="vox-card">
+              <div className="vox-card-icon">{icons.shield}</div>
+              <div className="vox-card-title">Full Data Residency</div>
+              <div className="vox-card-desc">Voice profiles, scripts, and generated audio never leave infrastructure you control. No third-party SaaS processor in the loop unless you choose one.</div>
+            </div>
+            <div className="vox-card">
+              <div className="vox-card-icon">{icons.template}</div>
+              <div className="vox-card-title">Your Brand, Your Domain</div>
+              <div className="vox-card-desc">Deploy under your own domain and branding for internal teams, agency clients, or a product of your own — no Voxora logo required.</div>
+            </div>
+            <div className="vox-card">
+              <div className="vox-card-icon">{icons.api}</div>
+              <div className="vox-card-title">No Per-Seat Lock-In</div>
+              <div className="vox-card-desc">Run it on your own servers and scale usage without per-seat SaaS pricing working against you as your team or customer base grows.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <hr className="vox-rule" />
+
+
       <section className="vox-section" id="pricing">
         <div className="vox-wrap">
           <div className="vox-section-head">

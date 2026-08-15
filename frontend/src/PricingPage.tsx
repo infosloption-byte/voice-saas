@@ -309,6 +309,10 @@ export function PricingPage({ user, onBack, onSignUp, onSubscribed, onSignIn, on
             All plans include a 7-day free trial in guest mode. Subscriptions auto-renew monthly — cancel any time from Settings. Payments processed securely by PayPal.
           </p>
 
+          <p style={{ fontSize: 12.5, color: 'var(--vx-text-3)', textAlign: 'center', marginTop: 6, lineHeight: 1.8 }}>
+            Need full data residency or your own domain? Voxora is self-hostable and white-label ready — <button onClick={() => onNavigate?.('landing')} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--vx-accent, #6c5ce7)', textDecoration: 'underline', cursor: 'pointer', fontSize: 'inherit' }}>learn more</button>.
+          </p>
+
           {!PAYPAL_CLIENT_ID && (
             <div style={{
               maxWidth: 440, margin: '14px auto 0',

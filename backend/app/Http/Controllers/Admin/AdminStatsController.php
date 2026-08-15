@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\DB;
 class AdminStatsController extends Controller
 {
     /** Monthly price per plan in USD — mirrors the pricing page. */
-    public const PLAN_PRICES = ['starter' => 9.99, 'pro' => 24.99];
+    public const PLAN_PRICES = ['starter' => 9, 'creator' => 29, 'pro' => 79];
 
     /** GET /admin/stats — platform KPIs */
     public function index()
@@ -30,11 +30,18 @@ class AdminStatsController extends Controller
         // Active subscribers + revenue
         $starterSubs = DB::table('subscriptions')
             ->where('status', 'active')->where('plan', 'starter')->count();
+        $creatorSubs = DB::table('subscriptions')
+            ->where('status', 'active')->where('plan', 'creator')->count();
         $proSubs = DB::table('subscriptions')
             ->where('status', 'active')->where('plan', 'pro')->count();
-        $mrr = round($starterSubs * self::PLAN_PRICES['starter'] + $proSubs * self::PLAN_PRICES['pro'], 2);
+        $mrr = round(
+            $starterSubs * self::PLAN_PRICES['starter']
+            + $creatorSubs * self::PLAN_PRICES['creator']
+            + $proSubs * self::PLAN_PRICES['pro'],
+            2
+        );
 
-        $paidUsers = $starterSubs + $proSubs;
+        $paidUsers = $starterSubs + $creatorSubs + $proSubs;
         $newSubsMonth = DB::table('subscriptions')
             ->where('created_at', '>=', now()->startOfMonth())->count();
         $churnMonth = DB::table('subscriptions')
@@ -204,6 +211,7 @@ class AdminStatsController extends Controller
             ],
             'subscriptions' => [
                 'starter' => $starterSubs,
+                'creator' => $creatorSubs,
                 'pro'     => $proSubs,
                 'free'    => $totalUsers - $paidUsers,
             ],

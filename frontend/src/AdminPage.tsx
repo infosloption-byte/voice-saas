@@ -246,6 +246,7 @@ function OverviewSection() {
         <KpiCard label="MRR" value={`$${stats.revenue.mrr}`} color="#10b981" sub={`${stats.revenue.paid_users} paid users`} />
         <KpiCard label="Conversion" value={`${stats.revenue.conversion_rate}%`} sub="free → paid" />
         <KpiCard label="Starter Subs" value={stats.subscriptions.starter} color="#3b82f6" />
+        <KpiCard label="Creator Subs" value={stats.subscriptions.creator} color="#f59e0b" />
         <KpiCard label="Pro Subs" value={stats.subscriptions.pro} color="#a855f7" />
         <KpiCard label="New Subs (month)" value={stats.revenue.new_subs_month} />
         <KpiCard label="Churn (month)" value={stats.revenue.churn_month}

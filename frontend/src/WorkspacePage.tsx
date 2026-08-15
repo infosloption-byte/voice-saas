@@ -168,14 +168,19 @@ function EngineBadge({ engine }: { engine: TTSEngine }) {
 // ── Upgrade popup shown when the synthesis quota is exhausted ──────
 const UPGRADE_PLANS = [
   {
-    id: 'starter', name: 'Starter', price: '$9.99', period: '/month',
-    tagline: 'For creators and podcasters', featured: false,
-    features: ['100 voice syntheses / month', '50 translations / month', '5 voice profiles', '10 projects', 'Up to 5,000 words per script', 'Multi-voice & timeline assembly'],
+    id: 'starter', name: 'Starter', price: '$9', period: '/month',
+    tagline: 'For individuals getting started', featured: false,
+    features: ['150 voice syntheses / month', '50 translations / month', '3 voice profiles', '10 projects', 'Up to 5,000 words per script', 'Multi-voice & timeline assembly'],
   },
   {
-    id: 'pro', name: 'Pro', price: '$24.99', period: '/month',
-    tagline: 'Unlimited for power users', featured: true,
-    features: ['Unlimited voice syntheses', 'Unlimited translations', 'Unlimited voice profiles & projects', 'No word limit per script', 'Priority synthesis queue', 'Data export (GDPR)'],
+    id: 'creator', name: 'Creator', price: '$29', period: '/month',
+    tagline: 'For creators & podcasters', featured: true,
+    features: ['600 voice syntheses / month', '200 translations / month', '10 voice profiles', 'Unlimited projects', 'No word limit per script', 'Priority synthesis queue'],
+  },
+  {
+    id: 'pro', name: 'Pro', price: '$79', period: '/month',
+    tagline: 'For power users & studios', featured: false,
+    features: ['2,000 voice syntheses / month', 'Unlimited translations', '25 voice profiles', 'Data export (GDPR)', 'Priority synthesis queue'],
   },
 ]
 
