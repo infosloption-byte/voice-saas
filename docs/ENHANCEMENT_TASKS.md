@@ -7,7 +7,7 @@
 | # | Task | Tier | Status |
 |---|---|---|---|
 | 1 | Fix pricing/Terms mismatch | P0 | ✅ Done — Aug 15, 2026 |
-| 2 | Self-hosted/white-label marketing | P1 | ✅ Done — Aug 15, 2026 |
+| 2 | Self-hosted infrastructure marketing | P1 | ✅ Done — Aug 15, 2026 |
 | 3 | Honest-ify RVC/F5-TTS UI state | P1 | Not started |
 | 4 | Public API tier | P1 | Not started |
 | 5 | Video dubbing MVP | P1 | Not started |
@@ -55,17 +55,19 @@ Each task includes: what it is, why it matters, rough effort, and what "done" lo
 
 *Ordered easy → hard.*
 
-### 2. Add the self-hosted / white-label story to marketing ✅ DONE
+### 2. Add the self-hosted infrastructure story to marketing ✅ DONE
 - **What:** State clearly on the landing page and pricing page that Voxora can be deployed under the buyer's own domain/infrastructure — full data residency, no per-seat SaaS lock-in.
 - **Why:** This is a genuine structural advantage over every competitor reviewed (ElevenLabs, Murf, Speechify, Descript) and it currently appears nowhere in the marketing copy. Free, high-leverage.
 - **Effort:** Small (copywriting + maybe one new landing section). No backend work.
-- **Done when:** Landing page has a dedicated section/FAQ entry on self-hosting/white-labeling; pricing page or a new "Enterprise/Agency" tier references it explicitly.
+- **Done when:** Landing page has a dedicated section on self-hosted deployment; pricing page references it.
 
 **What was actually done:**
-- `frontend/src/LandingPage.tsx` — added a new dedicated section (`id="self-hosted"`) between "How it works" and "Pricing", titled "Run it on your own infrastructure," with three feature cards matching the existing design system (same `vox-card` grid used elsewhere on the page): **Full Data Residency**, **Your Brand, Your Domain**, **No Per-Seat Lock-In**. Reused existing icons (`shield`, `template`, `api`) already available in `constants.tsx` — no new assets needed.
-- `frontend/src/PricingPage.tsx` — added a one-line callout below the existing trial/payment disclaimer: *"Need full data residency or your own domain? Voxora is self-hostable and white-label ready — learn more,"* linking back to the landing page, so the message reaches people at the moment they're evaluating cost.
+- `frontend/src/LandingPage.tsx` — added a new dedicated section (`id="self-hosted"`) between "How it works" and "Pricing", titled "Run on your own infrastructure," with three feature cards matching the existing design system (same `vox-card` grid used elsewhere on the page): **Full Data Residency**, **Your Own Domain**, **No Per-Seat Lock-In**. Reused existing icons (`shield`, `template`, `api`) already available in `constants.tsx` — no new assets needed.
+- `frontend/src/PricingPage.tsx` — added a one-line callout below the existing trial/payment disclaimer: *"Need full data residency or your own domain? Voxora is self-hostable — learn more,"* linking back to the landing page, so the message reaches people at the moment they're evaluating cost.
 - Did not add a dedicated FAQ component since the repo has no existing FAQ pattern to extend — the new landing section covers the "done when" requirement directly instead.
 - Verified via `tsc -b` and `vite build` — both clean.
+
+**Correction (Aug 15, 2026):** The first version of this copy said "white-label ready" and included a "Your Brand, Your Domain" card implying Voxora could be rebranded/resold under a different name or logo. That was a misread of intent — Voxora is not meant to be white-labeled; it's a single branded platform, and the self-hosting story is only about running the platform on your own infrastructure/domain, not about rebranding it. All "white-label" wording was removed from `LandingPage.tsx`, `PricingPage.tsx`, and this doc, and the card was renamed to "Your Own Domain" with copy that no longer implies rebrand capability.
 
 ### 3. Honest-ify RVC and F5-TTS instead of half-advertising them
 - **What:** Either (a) hide RVC and F5-TTS from the picker until an operator has actually configured them (trained model / GPU + checkpoint), or (b) add plain-language in-app messaging explaining the prerequisite instead of a silent failure or confusing "unavailable" state.
@@ -150,7 +152,7 @@ Each task includes: what it is, why it matters, rough effort, and what "done" lo
 ## Suggested execution order (combining priority + difficulty)
 
 1. Fix pricing/Terms mismatch *(P0, trivial — do this today)*
-2. Add self-hosted/white-label messaging to marketing *(P1, easy)*
+2. Add self-hosted infrastructure messaging to marketing *(P1, easy)*
 3. Honest-ify RVC/F5-TTS UI state *(P1, easy–medium)*
 4. Public API tier *(P1, medium)*
 5. System-health public status page *(P2, easy — can slot in anytime as a quick win)*

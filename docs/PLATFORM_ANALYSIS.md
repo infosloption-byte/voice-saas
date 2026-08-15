@@ -6,7 +6,7 @@
 
 ## 1. What Voxora actually is today
 
-A self-hosted, white-label AI voice SaaS: Laravel 11 backend, React 19 + TypeScript frontend, and a FastAPI Python engine running XTTS v2 (17-language zero-shot cloning) and optionally F5-TTS (GPU-only, per-checkpoint single-language) with optional RVC post-processing. Core loop: record/upload a reference clip → clone a voice → write scripts → synthesize → assemble multi-lane timelines with background music → export.
+A self-hosted AI voice SaaS: Laravel 11 backend, React 19 + TypeScript frontend, and a FastAPI Python engine running XTTS v2 (17-language zero-shot cloning) and optionally F5-TTS (GPU-only, per-checkpoint single-language) with optional RVC post-processing. Core loop: record/upload a reference clip → clone a voice → write scripts → synthesize → assemble multi-lane timelines with background music → export.
 
 **Confirmed feature set** (from code, not marketing copy):
 - Voice cloning (zero-shot, 6–30s reference) via XTTS; F5-TTS as a GPU-only alternate engine
@@ -47,12 +47,12 @@ These aren't roadmap items — they're live discrepancies I found by reading the
 | **Speechify** | ~$139/yr Premium | $249/yr Premium+ for full cloning | Premium+ | Limited | Minimal | Best for reading/accessibility, not production voiceover |
 | **Descript** | $16–24/mo Hobbyist | $24–35/mo Creator | Hobbyist+ | ❌ | ❌ | Edit-by-transcript workflow; replaces a DAW, not a pure TTS tool |
 | **Play.ht** | *(shut down in 2026 — market consolidating)* | — | — | — | ✅ was API-first | Its exit is pushing former users toward ElevenLabs/Murf now |
-| **Voxora (this project)** | $9/mo Starter | $29/mo Creator | **Free tier already includes cloning** | ❌ Not built | ❌ Not built | Self-hosted/white-label, undercuts everyone on price, but behind on model quality & dubbing |
+| **Voxora (this project)** | $9/mo Starter | $29/mo Creator | **Free tier already includes cloning** | ❌ Not built | ❌ Not built | Self-hosted, undercuts everyone on price, but behind on model quality & dubbing |
 
 **Where Voxora already wins on paper:**
 - **Cloning-on-Free-tier** is a genuine differentiator — Murf gates cloning entirely behind Enterprise, ElevenLabs requires a paid tier. Voxora giving every user (even free) a cloned voice is more generous than any competitor above.
 - **Price.** $9/$29/$79 undercuts ElevenLabs ($22/$99) and Murf ($19-29/$66-99) at every comparable tier for a self-hosted, presumably-cheaper-to-operate stack.
-- **Self-hosted / white-label.** None of the five competitors above are self-hostable — this is a structurally different offering (you can run it under your own brand/domain, control data residency, avoid per-seat SaaS lock-in). That's a real story for agencies and privacy-sensitive buyers, but it's currently *not stated anywhere* in the marketing pages I reviewed.
+- **Self-hosted deployment.** None of the five competitors above are self-hostable — this is a structurally different offering (you control the infrastructure, data residency, and avoid per-seat SaaS lock-in). That's a real story for privacy-sensitive buyers and internal/enterprise teams, but it's currently *not stated anywhere* in the marketing pages I reviewed. Note: this is about running Voxora on your own infrastructure under your own domain, not a resellable/rebrandable white-label offering.
 - **Multi-lane timeline assembly** built directly into the product — Murf and ElevenLabs don't have a comparable in-house audio timeline editor; that's closer to Descript's territory, but Descript doesn't do zero-shot cloning-first workflows.
 
 **Where Voxora is behind:**
@@ -69,7 +69,7 @@ These aren't roadmap items — they're live discrepancies I found by reading the
 
 ### Quick wins (days, not sprints)
 1. **Fix the pricing/Terms mismatch** — this is the highest-priority item in this whole report; it's a live discrepancy, not a suggestion.
-2. **Add the self-hosted/white-label story to marketing.** It's a real structural advantage that isn't mentioned anywhere in the landing/pricing copy right now.
+2. **Add the self-hosted infrastructure story to marketing.** It's a real structural advantage that isn't mentioned anywhere in the landing/pricing copy right now.
 3. **Surface RVC honestly** — either hide it until there's a self-serve training flow, or add a lightweight "upload 5+ minutes for enhanced clone quality" flow that queues an async RVC training job.
 4. **Un-gate F5-TTS multilingual reality** — document (in-app, not just code comments) that F5 needs GPU + per-language checkpoints, or hide the picker until an operator has configured a language.
 
@@ -92,4 +92,4 @@ These aren't roadmap items — they're live discrepancies I found by reading the
 
 ## 5. Bottom line
 
-Voxora is a well-built, feature-complete voice SaaS with real production hardening — it's not a prototype. Its two genuine structural advantages (cloning available on every tier including free, and self-hosted/white-label deployment) are currently underused in positioning. Its two biggest competitive gaps (base model quality, dubbing) are the ones the market is consolidating around fastest in 2026, so they're worth prioritizing over pure feature breadth. The pricing/Terms mismatch should be fixed immediately regardless of any roadmap decision.
+Voxora is a well-built, feature-complete voice SaaS with real production hardening — it's not a prototype. Its two genuine structural advantages (cloning available on every tier including free, and self-hosted deployment) are currently underused in positioning. Its two biggest competitive gaps (base model quality, dubbing) are the ones the market is consolidating around fastest in 2026, so they're worth prioritizing over pure feature breadth. The pricing/Terms mismatch should be fixed immediately regardless of any roadmap decision.

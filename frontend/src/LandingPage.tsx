@@ -527,12 +527,12 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow, onNavigate }: Landin
 
       <hr className="vox-rule" />
 
-      {/* ── Self-hosted / white-label ── */}
+      {/* ── Self-hosted infrastructure ── */}
       <section id="self-hosted" className="vox-section">
         <div className="vox-wrap">
           <div className="vox-section-head">
-            <h2 className="vox-h2">Run it on <span className="vox-grad-text">your own infrastructure</span></h2>
-            <p className="vox-lead">Voxora is self-hostable and white-label ready — deploy under your own domain, keep every byte of audio and voice data on infrastructure you control.</p>
+            <h2 className="vox-h2">Run on <span className="vox-grad-text">your own infrastructure</span></h2>
+            <p className="vox-lead">Voxora is self-hostable — deploy under your own domain and keep every byte of audio and voice data on infrastructure you control.</p>
           </div>
           <div className="vox-grid vox-grid-3">
             <div className="vox-card">
@@ -542,8 +542,8 @@ export function LandingPage({ onSignIn, onSignUp, onTryNow, onNavigate }: Landin
             </div>
             <div className="vox-card">
               <div className="vox-card-icon">{icons.template}</div>
-              <div className="vox-card-title">Your Brand, Your Domain</div>
-              <div className="vox-card-desc">Deploy under your own domain and branding for internal teams, agency clients, or a product of your own — no Voxora logo required.</div>
+              <div className="vox-card-title">Your Own Domain</div>
+              <div className="vox-card-desc">Deploy Voxora under your own domain for your team, studio, or organization — fully under your control end to end.</div>
             </div>
             <div className="vox-card">
               <div className="vox-card-icon">{icons.api}</div>
