@@ -1,77 +1,32 @@
-# Changed files — tasks #1, #2, #3, #4
+# Hotfix: Docker build failure on `docker compose up --build ai-engine`
 
-Drop each file into your repo at the same relative path (overwriting the existing one). Covers four completed enhancement tasks (see `docs/ENHANCEMENT_TASKS.md` for full detail on each).
+## The error you hit
+```
+ERROR: Could not find a version that satisfies the requirement flit_core<4,>=3.11 (from versions: none)
+ERROR: No matching distribution found for flit_core
+```
+Happened in the `torch`/`torchaudio` install step.
 
-## Task #1 — Fix pricing/Terms mismatch (P0)
-| File | What changed |
-|---|---|
-| `frontend/src/LegalPages.tsx` | Terms of Service & Refund Policy pricing corrected to match live 4-tier plans (Free/$9/$29/$79) |
-| `frontend/src/WorkspacePage.tsx` | "Quota exhausted" upgrade modal fixed — was showing stale 2-tier pricing, missing Creator tier |
-| `backend/app/Http/Controllers/Admin/AdminStatsController.php` | **Bug fix**: Creator-tier subscribers were excluded from MRR/revenue calculations entirely — now included |
-| `frontend/src/AdminPage.tsx` | Added "Creator Subs" KPI card to admin dashboard |
+## Root cause
+`ai-engine/Dockerfile` used `--index-url` for the torch/torchaudio install, which **replaces** the default PyPI index entirely instead of adding to it. Pip had nowhere to resolve a transitive build dependency (`flit_core`, needed to build `typing_extensions` from source) and the build failed. The fix further down in the same Dockerfile (the F5-TTS install) already correctly used `--extra-index-url` — the primary torch install just never matched it.
 
-## Task #2 — Self-hosted infrastructure marketing (P1)
-| File | What changed |
-|---|---|
-| `frontend/src/LandingPage.tsx` | Added "Run on your own infrastructure" section — self-hosted deployment messaging (no white-label/rebrand claims — Voxora is a single branded platform, not resellable) |
-| `frontend/src/PricingPage.tsx` | Added a callout under the pricing disclaimer linking to it |
+## What's in this package
+1. **`ai-engine/Dockerfile`** — fixed `--index-url` → `--extra-index-url` for the torch install. Also adds a proper `chatterbox-tts` install step (mirroring F5-TTS's pattern with the same CPU-constraint protection and non-fatal fallback) — this was a bug in the previous delivery: `requirements.txt` was updated to include `chatterbox-tts` but the Dockerfile never actually reads that file, so Chatterbox was never really getting installed in your deployment.
+2. **`ai-engine/requirements.txt`** — annotated as a manual-setup reference only (not the Docker build's source of truth), and fixed the same `--index-url` mistake in its own torch line.
+3. **`docs/ENHANCEMENT_TASKS.md`** — updated with a correction note documenting both bugs.
 
-## Task #3 — Honest-ify RVC/F5-TTS state (P1)
-| File | What changed |
-|---|---|
-| `ai-engine/main.py` | Added an `rvc` block to the `/` status endpoint (enabled/lib_installed/usable/device) |
-| `backend/app/Http/Controllers/Admin/SystemCheckController.php` | New `voiceEngineFeatures` probe in the admin System Check panel with actionable hints |
-| `frontend/src/AdminPage.tsx` | System Check hints now always render when present (was hidden unless status ≠ pass) |
-| `frontend/src/WorkspacePage.tsx` | F5 engine-picker description now reflects the actually-configured language(s) |
-
-## Task #4 — Add Chatterbox as a third TTS engine (P1)
-MIT-licensed alternative to XTTS (CPML) / F5-TTS (CC-BY-NC), added **alongside** both — not a replacement.
-
-| File | What changed |
-|---|---|
-| `ai-engine/main.py` | Chatterbox model loading, `synthesize_chunk_chatterbox()`, `chatterbox_usable()`, status reporting, dispatch branches in all 3 synthesis call sites |
-| `ai-engine/requirements.txt` | Added `chatterbox-tts` |
-| `backend/app/Services/EngineResolver.php` | New shared `SUPPORTED_TTS_ENGINES` constant + `engineValidationRule()`, replacing 4 hardcoded validation strings |
-| `backend/app/Http/Controllers/EngineSynthesisProxyController.php` | Uses the shared validation rule |
-| `backend/app/Http/Controllers/ScriptController.php` | Uses the shared validation rule (3 occurrences) |
-| `backend/app/Http/Controllers/EngineCapabilitiesController.php` | Passes through `chatterbox`/`chatterbox_languages` fields (would've been silently dropped otherwise) |
-| `frontend/src/hooks/useTTSEngine.ts` | `TTSEngine` type extended, localStorage restore fixed |
-| `frontend/src/types.ts` | `EngineCaps` extended |
-| `frontend/src/App.tsx` | Capability fetch/defaults updated |
-| `frontend/src/WorkspacePage.tsx` | Engine picker card, badge, auto-fallback, error messages, warning banner/tooltip, language filter — all extended to cover Chatterbox |
-| `frontend/src/SettingsPage.tsx` | Second, separate engine picker (Settings page) extended the same way |
-| `frontend/src/AppPages.tsx` | Engine label/color helpers extended |
-
-**Known gap, left for a follow-up:** Chatterbox's own tone knobs (exaggeration/cfg_weight/temperature) aren't wired to the UI yet — every generation uses sensible defaults. Noted in `docs/ENHANCEMENT_TASKS.md`.
-
-Also included: `docs/PLATFORM_ANALYSIS.md` and `docs/ENHANCEMENT_TASKS.md` — full audit + prioritized roadmap, kept current as tasks complete.
-
-## Apply via git
+## Apply and rebuild
 
 ```bash
-git add ai-engine/main.py \
-        ai-engine/requirements.txt \
-        backend/app/Http/Controllers/Admin/AdminStatsController.php \
-        backend/app/Http/Controllers/Admin/SystemCheckController.php \
-        backend/app/Http/Controllers/EngineCapabilitiesController.php \
-        backend/app/Http/Controllers/EngineSynthesisProxyController.php \
-        backend/app/Http/Controllers/ScriptController.php \
-        backend/app/Services/EngineResolver.php \
-        frontend/src/AdminPage.tsx \
-        frontend/src/App.tsx \
-        frontend/src/AppPages.tsx \
-        frontend/src/LandingPage.tsx \
-        frontend/src/LegalPages.tsx \
-        frontend/src/PricingPage.tsx \
-        frontend/src/SettingsPage.tsx \
-        frontend/src/WorkspacePage.tsx \
-        frontend/src/hooks/useTTSEngine.ts \
-        frontend/src/types.ts \
-        docs/PLATFORM_ANALYSIS.md \
-        docs/ENHANCEMENT_TASKS.md
+# copy ai-engine/Dockerfile, ai-engine/requirements.txt, docs/ENHANCEMENT_TASKS.md
+# into your repo at those paths, then:
 
-git commit -m "Fix pricing mismatch, add self-hosted messaging, honest-ify F5/RVC state, add Chatterbox engine"
+git add ai-engine/Dockerfile ai-engine/requirements.txt docs/ENHANCEMENT_TASKS.md
+git commit -m "Fix Docker build failure and wire chatterbox-tts into the real Dockerfile"
 git push origin main
+
+# on the server:
+docker compose up -d --build ai-engine frontend backend
 ```
 
-If you're running the AI engine yourself, also run `pip install chatterbox-tts -r ai-engine/requirements.txt` (or just re-run your normal requirements install) to actually enable the new engine — without it, Chatterbox will correctly show as "Unavailable" in the picker rather than error out.
+The build should now complete. F5-TTS and Chatterbox both install with non-fatal fallbacks — if either fails for any other reason, you'll see a `WARNING: ... install failed` line but the build will still succeed and XTTS v2 will remain available.

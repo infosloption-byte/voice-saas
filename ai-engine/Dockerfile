@@ -16,10 +16,18 @@ RUN apt-get update && apt-get install -y \
 # ── Pin torch to CPU-only BEFORE anything else ──────────────────────
 # This constraints file prevents pip from upgrading torch to a CUDA
 # variant when f5-tts (or any other package) resolves its dependencies.
+#
+# --extra-index-url (not --index-url): --index-url REPLACES the default
+# PyPI index entirely, so pip has nowhere to resolve transitive deps
+# (typing_extensions, flit_core, etc.) that aren't fully mirrored on
+# PyTorch's own index — this reliably breaks the build with a
+# "No matching distribution found for flit_core" error. --extra-index-url
+# keeps PyPI as a fallback while still preferring the CPU wheel index for
+# torch/torchaudio itself. Same pattern already used below for f5-tts.
 RUN pip install --no-cache-dir \
     torch==2.2.2+cpu \
     torchaudio==2.2.2+cpu \
-    --index-url https://download.pytorch.org/whl/cpu
+    --extra-index-url https://download.pytorch.org/whl/cpu
 
 # transformers is pinned here too — f5-tts's own deps (accelerate,
 # transformers_stream_generator, datasets) have no upper bound and pip's
@@ -51,6 +59,17 @@ RUN pip install --no-cache-dir \
     -c /tmp/cpu_constraints.txt \
     f5-tts || \
     echo "WARNING: f5-tts install failed — XTTS v2 still available"
+
+# ── Chatterbox (Resemble AI, MIT-licensed) — same constrained pattern ──
+# Added alongside XTTS/F5, not replacing either. Same -c constraints
+# protection as f5-tts above so it can't drag in a CUDA torch build or a
+# transformers version that breaks XTTS. Failure here is non-fatal —
+# XTTS v2 and F5-TTS (if it installed) both remain available either way.
+RUN pip install --no-cache-dir \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    -c /tmp/cpu_constraints.txt \
+    chatterbox-tts || \
+    echo "WARNING: chatterbox-tts install failed — XTTS v2 / F5-TTS still available"
 
 COPY . .
 

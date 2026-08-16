@@ -1,3 +1,13 @@
+# NOTE: this file is NOT used by the Docker build (ai-engine/Dockerfile
+# installs everything via explicit, staged `pip install` commands with
+# CPU-only constraints — see the Dockerfile for the actual build process
+# and why it's staged that way). This file exists as a rough reference
+# for a manual, non-Docker local setup only, and is not kept in lockstep
+# with the Dockerfile's careful CPU-vs-CUDA pinning. If you're setting up
+# manually, install torch/torchaudio FIRST from the line below, then the
+# rest — don't just `pip install -r requirements.txt` in one shot, or
+# pip's resolver can pull in an unwanted CUDA build of torch while
+# resolving f5-tts/chatterbox-tts's own dependencies.
 fastapi
 uvicorn
 openai-whisper
@@ -7,4 +17,4 @@ numpy
 soundfile
 f5-tts
 chatterbox-tts
-torch --index-url https://download.pytorch.org/whl/cpu
+torch --extra-index-url https://download.pytorch.org/whl/cpu
