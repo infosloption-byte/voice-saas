@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { VoxNav, VoxFooter } from './LandingPage'
-import { icons } from './constants'
-import { api } from './api'
+import { icons } from '../lib/constants'
+import { api } from '../lib/api'
 import './landing.css'
 
 interface PageProps {

@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
-import { clearAllAudio } from './audio'
-import { api } from './api'
-import { toast } from './toast'
-import { icons } from './constants'
+import { clearAllAudio } from '../lib/audio'
+import { api } from '../lib/api'
+import { toast } from '../lib/toast'
+import { icons } from '../lib/constants'
 import { LogoMark } from './LandingPage'
-import { useTTSEngine, type TTSEngine } from './hooks/useTTSEngine'
-import { getAudioPrefs, saveAudioPrefs, getAppearancePrefs, saveAppearancePrefs } from './hooks/useAudioSettings'
-import type { EngineCaps, Subscription, Plan } from './types'
+import { useTTSEngine, type TTSEngine } from '../hooks/useTTSEngine'
+import { getAudioPrefs, saveAudioPrefs, getAppearancePrefs, saveAppearancePrefs } from '../hooks/useAudioSettings'
+import type { EngineCaps, Subscription, Plan } from '../lib/types'
 
 // ═══════════════════════════════════════════════════════════════════
 type SettingsSection =

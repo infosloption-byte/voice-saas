@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { api } from './api'
-import { toast } from './toast'
-import { icons } from './constants'
-import type { User } from './types'
+import { api } from '../lib/api'
+import { toast } from '../lib/toast'
+import { icons } from '../lib/constants'
+import type { User } from '../lib/types'
 
 // ── Helpers ────────────────────────────────────────────────────────
 function fmtDate(s: string) {

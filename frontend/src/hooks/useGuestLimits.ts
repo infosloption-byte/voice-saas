@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { api } from '../api'
-import type { GuestLimits } from '../types'
+import { api } from '../lib/api'
+import type { GuestLimits } from '../lib/types'
 
 export const DEFAULT_GUEST_LIMITS: GuestLimits = {
   synth_limit:    1,

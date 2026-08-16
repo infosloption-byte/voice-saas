@@ -1,5 +1,5 @@
 import { LogoMark } from './LandingPage'
-import { icons } from './constants'
+import { icons } from '../lib/constants'
 
 const COMPANY = 'Voxora'
 const EMAIL   = 'legal@voicestudio.app'

@@ -1,8 +1,8 @@
 import { useState, useCallback, useRef } from 'react'
 import JSZip from 'jszip'
-import { toast } from '../toast'
-import { loadAudioRawBlob, audioBufferToWav } from '../audio'
-import type { TimelineClip, Script } from '../types'
+import { toast } from '../lib/toast'
+import { loadAudioRawBlob, audioBufferToWav } from '../lib/audio'
+import type { TimelineClip, Script } from '../lib/types'
 
 interface BgMusic { blob: Blob; volume: number }
 

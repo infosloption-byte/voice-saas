@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
-import { api } from './api'
-import { toast, subscribeToast, type ToastItem } from './toast'
-import { AdminPage } from './AdminPage'
-import type { User } from './types'
+import { api } from '../lib/api'
+import { toast, subscribeToast, type ToastItem } from '../lib/toast'
+import { AdminPage } from '../pages/AdminPage'
+import type { User } from '../lib/types'
 import './App.css'
 
 // ── Toast container (standalone, mirrored from App.tsx) ────────────

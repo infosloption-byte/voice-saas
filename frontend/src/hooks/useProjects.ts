@@ -1,8 +1,8 @@
 import { useState, useCallback } from 'react'
-import { api, mapProject, ApiError } from '../api'
-import { toast } from '../toast'
-import { deleteAudioBlob, uid } from '../audio'
-import type { Project, Script } from '../types'
+import { api, mapProject, ApiError } from '../lib/api'
+import { toast } from '../lib/toast'
+import { deleteAudioBlob, uid } from '../lib/audio'
+import type { Project, Script } from '../lib/types'
 
 /** Surface plan-limit (422 with a plan_* code) errors to the user via toast. */
 export function notifyPlanLimit(e: unknown): boolean {
@@ -28,7 +28,7 @@ interface UseProjectsReturn {
   updateScript: (projectId: string, scriptId: string, update: Partial<Script>) => Promise<void>
   deleteScript: (projectId: string, scriptId: string) => Promise<void>
   reorderScripts: (projectId: string, scripts: Script[]) => Promise<void>
-  saveTimeline: (projectId: string, clips: import('../types').TimelineClip[]) => Promise<void>
+  saveTimeline: (projectId: string, clips: import('../lib/types').TimelineClip[]) => Promise<void>
   uploadAudio: (scriptId: string, blob: Blob) => Promise<void>
   saveLaneConfig: (projectId: string, config: { solo: Record<number, boolean>; mute: Record<number, boolean> }) => Promise<void>
 }
@@ -255,7 +255,7 @@ export function useProjects(): UseProjectsReturn {
 
   const saveTimeline = useCallback(async (
     projectId: string,
-    clips: import('../types').TimelineClip[]
+    clips: import('../lib/types').TimelineClip[]
   ): Promise<void> => {
     setProjects(prev => prev.map(p =>
       p.id === projectId ? { ...p, timelineClips: clips } : p

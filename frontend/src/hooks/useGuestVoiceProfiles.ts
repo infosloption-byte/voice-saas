@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { uid, saveAudioBlob, loadAudioRawBlob, deleteAudioBlob } from '../audio'
-import type { VoiceProfile } from '../types'
+import { uid, saveAudioBlob, loadAudioRawBlob, deleteAudioBlob } from '../lib/audio'
+import type { VoiceProfile } from '../lib/types'
 import type { GuestSession } from './useGuestSession'
 import { DEFAULT_GUEST_LIMITS } from './useGuestLimits'
 

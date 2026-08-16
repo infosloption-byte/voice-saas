@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
-import { api } from '../api'
-import type { User } from '../types'
+import { api } from '../lib/api'
+import type { User } from '../lib/types'
 
 interface UseAuthReturn {
   user: User | null

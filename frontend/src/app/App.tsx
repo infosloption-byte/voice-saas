@@ -1,33 +1,33 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import './App.css'
-import { LandingPage } from './LandingPage'
-import { SignInPage, SignUpPage, ForgotPasswordPage, ResetPasswordPage } from './AuthPages'
-import { SettingsPage } from './SettingsPage'
-import { PrivacyPage, TermsPage, RefundPolicyPage, AcceptableUsePage } from './LegalPages'
-import { PricingPage } from './PricingPage'
-import { StudioPage, VoicesPage, TranslationPage, TimelinePage, AudiobooksPage } from './MarketingPages'
-import { EmailVerifiedPage } from './EmailVerifiedPage'
-import { api, ApiError } from './api'
-import { toast, subscribeToast, type ToastItem } from './toast'
-import { activityLog } from './activityLog'
-import { useAuth } from './hooks/useAuth'
-import { useProjects, notifyPlanLimit } from './hooks/useProjects'
-import { useAudio } from './hooks/useAudio'
-import { useGuestSession, type GateType } from './hooks/useGuestSession'
-import { useGuestProject } from './hooks/useGuestProject'
-import { useGuestVoiceProfiles } from './hooks/useGuestVoiceProfiles'
-import { useGuestLimits } from './hooks/useGuestLimits'
-import { GuestBanner } from './GuestBanner'
-import { GuestUpgradeModal } from './GuestUpgradeModal'
-import { icons } from './constants'
-import { loadAudioRawBlob, saveAudioBlob, uid } from './audio'
+import { LandingPage } from '../pages/LandingPage'
+import { SignInPage, SignUpPage, ForgotPasswordPage, ResetPasswordPage } from '../pages/AuthPages'
+import { SettingsPage } from '../pages/SettingsPage'
+import { PrivacyPage, TermsPage, RefundPolicyPage, AcceptableUsePage } from '../pages/LegalPages'
+import { PricingPage } from '../pages/PricingPage'
+import { StudioPage, VoicesPage, TranslationPage, TimelinePage, AudiobooksPage } from '../pages/MarketingPages'
+import { EmailVerifiedPage } from '../pages/EmailVerifiedPage'
+import { api, ApiError } from '../lib/api'
+import { toast, subscribeToast, type ToastItem } from '../lib/toast'
+import { activityLog } from '../lib/activityLog'
+import { useAuth } from '../hooks/useAuth'
+import { useProjects, notifyPlanLimit } from '../hooks/useProjects'
+import { useAudio } from '../hooks/useAudio'
+import { useGuestSession, type GateType } from '../hooks/useGuestSession'
+import { useGuestProject } from '../hooks/useGuestProject'
+import { useGuestVoiceProfiles } from '../hooks/useGuestVoiceProfiles'
+import { useGuestLimits } from '../hooks/useGuestLimits'
+import { GuestBanner } from '../components/GuestBanner'
+import { GuestUpgradeModal } from '../components/GuestUpgradeModal'
+import { icons } from '../lib/constants'
+import { loadAudioRawBlob, saveAudioBlob, uid } from '../lib/audio'
 import {
   DashboardPage, ProjectsPage, ProfilesPage,
   NewProjectModal, ShortcutsModal, ActivityLogPanel,
-} from './AppPages'
-import { WorkspacePage } from './WorkspacePage'
-import { AssemblyPage } from './AssemblyPage'
-import type { Page, WorkspaceTab, VoiceProfile, EngineStatus, EngineCaps } from './types'
+} from '../pages/AppPages'
+import { WorkspacePage } from '../pages/WorkspacePage'
+import { AssemblyPage } from '../pages/AssemblyPage'
+import type { Page, WorkspaceTab, VoiceProfile, EngineStatus, EngineCaps } from '../lib/types'
 
 // ── Cookie consent ────────────────────────────────────────────────
 const COOKIE_KEY = 'vs_cookie_consent'
@@ -782,7 +782,7 @@ export default function App() {
             <button className="btn btn--sm" style={{ fontSize: 11, background: '#f59e0b', color: '#000', border: 'none' }}
               onClick={async () => {
                 try {
-                  const { api } = await import('./api')
+                  const { api } = await import('../lib/api')
                   const res = await api.post('/impersonation/stop', {}) as { user: any }
                   window.location.href = '/admin'
                   // eslint-disable-next-line @typescript-eslint/no-unused-vars

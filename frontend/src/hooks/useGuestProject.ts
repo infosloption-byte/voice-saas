@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { uid } from '../audio'
-import type { Project, Script } from '../types'
+import { uid } from '../lib/audio'
+import type { Project, Script } from '../lib/types'
 import type { GuestSession } from './useGuestSession'
 import { DEFAULT_GUEST_LIMITS } from './useGuestLimits'
 

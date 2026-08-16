@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react'
-import { api } from './api'
-import { toast } from './toast'
+import { api } from '../lib/api'
+import { toast } from '../lib/toast'
 import { LogoMark, VoxNav, VoxFooter } from './LandingPage'
 import './landing.css'
-import type { Plan, User } from './types'
+import type { Plan, User } from '../lib/types'
 
 const PAYPAL_CLIENT_ID    = import.meta.env.VITE_PAYPAL_CLIENT_ID    as string | undefined
 const PAYPAL_PLAN_STARTER = import.meta.env.VITE_PAYPAL_PLAN_STARTER as string | undefined

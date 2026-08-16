@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { api } from './api'
-import { icons } from './constants'
+import { api } from '../lib/api'
+import { icons } from '../lib/constants'
 import { LogoMark } from './LandingPage'
 
 // ═══════════════════════════════════════════════════════════════════

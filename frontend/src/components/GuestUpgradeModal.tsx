@@ -1,7 +1,7 @@
-import { useEscapeKey } from './hooks/useEscapeKey'
-import { type GateType } from './hooks/useGuestSession'
-import { DEFAULT_GUEST_LIMITS } from './hooks/useGuestLimits'
-import type { GuestLimits } from './types'
+import { useEscapeKey } from '../hooks/useEscapeKey'
+import { type GateType } from '../hooks/useGuestSession'
+import { DEFAULT_GUEST_LIMITS } from '../hooks/useGuestLimits'
+import type { GuestLimits } from '../lib/types'
 
 function buildContent(limits: GuestLimits): Record<GateType, { title: string; message: string; icon: string }> {
   return {

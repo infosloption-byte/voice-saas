@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { icons } from './constants'
+import { icons } from '../lib/constants'
 import './landing.css'
 
 // ── Logo ──────────────────────────────────────────────────────────

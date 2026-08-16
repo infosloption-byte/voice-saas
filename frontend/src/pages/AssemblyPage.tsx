@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useReducer, useCallback } from 'react'
-import { toast } from './toast'
-import { api } from './api'
-import { icons, CLIP_COLORS, CLIP_LIGHTS } from './constants'
-import { useEscapeKey } from './hooks/useEscapeKey'
-import { loadAudioBlob, loadAudioRawBlob, saveAudioBlob, deleteAudioBlob, timelineReducer, uid, fmt } from './audio'
-import type { Project, Script, TimelineClip, TimelineHistory } from './types'
-import type { GateType } from './hooks/useGuestSession'
-import type { LaneMix } from './hooks/useAudio'
+import { toast } from '../lib/toast'
+import { api } from '../lib/api'
+import { icons, CLIP_COLORS, CLIP_LIGHTS } from '../lib/constants'
+import { useEscapeKey } from '../hooks/useEscapeKey'
+import { loadAudioBlob, loadAudioRawBlob, saveAudioBlob, deleteAudioBlob, timelineReducer, uid, fmt } from '../lib/audio'
+import type { Project, Script, TimelineClip, TimelineHistory } from '../lib/types'
+import type { GateType } from '../hooks/useGuestSession'
+import type { LaneMix } from '../hooks/useAudio'
 
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL as string | undefined
 const GUTTER_W = 68  // px width of the per-lane controls gutter
