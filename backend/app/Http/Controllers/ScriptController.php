@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Project;
 use App\Models\Script;
+use App\Services\EngineResolver;
 use App\Services\PlanLimits;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -61,7 +62,7 @@ class ScriptController extends Controller
             'duration'       => 'nullable|numeric|min:0|max:86400',
             'speed'          => 'numeric|min:0.25|max:4',
             'tone'           => 'nullable|string|max:50',
-            'engine'         => 'nullable|string|in:xtts,f5',
+            'engine'         => 'nullable|string|' . EngineResolver::engineValidationRule(),
             'speaker_map'    => 'nullable|array',
             'waveform_peaks' => 'nullable|array',
             'advanced_params'=> 'nullable|array',
@@ -88,7 +89,7 @@ class ScriptController extends Controller
             'language'       => 'string|max:10',
             'speed'          => 'numeric|min:0.25|max:4',
             'tone'           => 'nullable|string|max:50',
-            'engine'         => 'nullable|string|in:xtts,f5',
+            'engine'         => 'nullable|string|' . EngineResolver::engineValidationRule(),
             'speaker_map'    => 'nullable|array',
             'advanced_params'=> 'nullable|array',
             'order_index'    => 'integer|min:0',
@@ -120,7 +121,7 @@ class ScriptController extends Controller
             'language'    => 'string|max:10',
             'speed'       => 'numeric|min:0.25|max:4',
             'tone'        => 'nullable|string|max:50',
-            'engine'          => 'nullable|string|in:xtts,f5',
+            'engine'          => 'nullable|string|' . EngineResolver::engineValidationRule(),
             'speaker_map'     => 'nullable|array',
             'advanced_params' => 'nullable|array',
             'order_index'     => 'integer',

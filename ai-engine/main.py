@@ -60,6 +60,23 @@ F5_ALLOW_CPU   = os.getenv("F5_ALLOW_CPU", "0").strip().lower() in ("1", "true",
 # F5_LANGUAGES (e.g. "es" or "es,en") when loading a non-English F5 model.
 F5_LANGUAGES   = [c.strip().lower() for c in os.getenv("F5_LANGUAGES", "en").split(",") if c.strip()] or ["en"]
 
+# ── Chatterbox (Resemble AI, MIT-licensed) — third TTS engine ──────
+# Added alongside XTTS/F5, not replacing either: XTTS v2 is CPML and F5-TTS
+# weights are CC-BY-NC — neither is properly licensed for a commercial
+# product without separately contacting the respective authors. Chatterbox
+# is MIT-licensed, so it's the one engine here genuinely free for commercial
+# use out of the box. Unlike F5, Chatterbox's own docs support device="cpu"
+# directly (no OOM-kill risk reported), so — unlike F5_ALLOW_CPU — it is not
+# gated behind an opt-in flag; it simply runs slower on CPU than on GPU.
+CHATTERBOX_ENABLED   = os.getenv("CHATTERBOX_ENABLED", "1").strip().lower() in ("1", "true", "yes", "on")
+# Chatterbox Multilingual v3 covers 21 languages + 4 dialects as of the
+# June 2026 release. Kept as an env override in case a future Chatterbox
+# release changes coverage without needing a code change here.
+CHATTERBOX_LANGUAGES = [c.strip().lower() for c in os.getenv(
+    "CHATTERBOX_LANGUAGES",
+    "en,es,fr,de,it,pt,pl,tr,ru,nl,cs,ar,zh,ja,ko,hi,hu,vi,uk,el,sv,fi,he"
+).split(",") if c.strip()]
+
 # ── RVC post-processing (optional) ─────────────────────────────────
 # RVC re-maps XTTS/F5 output onto a trained target-speaker model, closing
 # the timbre gap zero-shot TTS conditioning alone can't close. IMPORTANT
@@ -87,7 +104,7 @@ try:
 except ImportError:
     RVC_LIB_AVAILABLE = False
 
-models: dict = {"stt": None, "xtts": None, "f5tts": None}
+models: dict = {"stt": None, "xtts": None, "f5tts": None, "chatterbox": None}
 _rvc_instances: "dict[str, object]" = {}   # profile_id -> loaded RVCInference
 _rvc_lru: list = []                         # most-recently-used profile_ids, front = newest
 
@@ -96,6 +113,13 @@ def f5_usable() -> bool:
     """F5-TTS is only usable if it loaded AND we can run it without crashing
     the process (GPU present, or operator explicitly allowed CPU)."""
     return models["f5tts"] is not None and (CUDA_AVAILABLE or F5_ALLOW_CPU)
+
+
+def chatterbox_usable() -> bool:
+    """Chatterbox has no CPU OOM-kill risk reported (unlike F5), so
+    availability is just: did it load. Runs on GPU when present, CPU
+    otherwise — slower on CPU, but not process-crashing."""
+    return models["chatterbox"] is not None
 
 VOICES_DIR = "voice_profiles"
 os.makedirs(VOICES_DIR, exist_ok=True)
@@ -468,7 +492,73 @@ def synthesize_chunk_f5(
     sf.write(chunk_path, wav, sr, subtype="PCM_16")
 
 
-# ── XTTS conditioning-latent cache (similarity optimization) ──────
+def synthesize_chunk_chatterbox(
+    chunk: str, ref_wav: "str | None", speed: float, chunk_path: str,
+    exaggeration: float = 0.5, cfg_weight: float = 0.5, temperature: float = 0.8,
+    language_id: str = "en",
+) -> None:
+    """
+    Synthesize a single text chunk using Chatterbox and save to chunk_path.
+
+    exaggeration / cfg_weight / temperature are Chatterbox's own inference
+    knobs and are how we express "tone" here (it has no top_k/top_p like
+    XTTS, and no target_rms/sway_sampling_coef like F5). Higher exaggeration
+    = more expressive delivery (and tends to speed up pacing — lowering
+    cfg_weight compensates with slower, more deliberate pacing).
+
+    ref_wav is optional: Chatterbox can generate in its own default voice
+    with no reference at all, unlike XTTS (needs speaker= or speaker_wav=)
+    and F5 (always needs a reference). We still expect a real profile clip
+    in practice, since Voxora's whole point is cloning, not stock voices.
+
+    speed is accepted for interface parity with synthesize_chunk_f5/XTTS
+    but Chatterbox has no native speed parameter, and nothing downstream
+    currently time-stretches its output — a speed value other than 1.0 is
+    silently ignored on this engine today. If per-engine speed control
+    matters, add an ffmpeg atempo pass here (or in the caller) rather than
+    pretend Chatterbox is honoring the value.
+    """
+    cb = models["chatterbox"]
+    if cb is None:
+        raise RuntimeError("Chatterbox model not loaded")
+
+    try:
+        kwargs: dict = {
+            "exaggeration": max(0.0, min(2.0, exaggeration)),
+            "cfg_weight":   max(0.0, min(1.0, cfg_weight)),
+            "temperature":  max(0.05, min(2.0, temperature)),
+        }
+        if ref_wav:
+            kwargs["audio_prompt_path"] = ref_wav
+        # Multilingual builds accept language_id; the English-only build
+        # doesn't take the kwarg at all — try with it first, fall back
+        # without on TypeError rather than assuming which build loaded.
+        try:
+            wav = cb.generate(chunk, language_id=language_id, **kwargs)
+        except TypeError:
+            wav = cb.generate(chunk, **kwargs)
+    except Exception as e:
+        raise RuntimeError(f"Chatterbox generate() failed: {e}") from e
+
+    if wav is None:
+        raise RuntimeError("Chatterbox returned no audio data")
+
+    sr = getattr(cb, "sr", 24000)
+
+    # ── Normalise to numpy float32 (identical shape to synthesize_chunk_f5) ──
+    if hasattr(wav, "cpu"):          # torch tensor
+        wav = wav.cpu().numpy()
+    wav = np.array(wav, dtype=np.float32)
+
+    if wav.ndim > 1:
+        wav = wav.reshape(-1) if wav.shape[0] == 1 else wav[0]
+
+    if wav.size == 0:
+        raise RuntimeError("Chatterbox produced empty audio array")
+
+    sf.write(chunk_path, wav, sr, subtype="PCM_16")
+
+
 # XTTS's tts_to_file(speaker_wav=...) recomputes the speaker's conditioning
 # latents (gpt_cond_latent, speaker_embedding) from the reference WAV on
 # EVERY call. Two problems with that: (1) it's wasted compute for a saved
@@ -626,82 +716,103 @@ async def load_all_models():
     # Skip loading entirely on CPU-only servers: loading the model wastes
     # memory and, more importantly, inference would OOM-kill the worker and
     # take XTTS down with it. Set F5_ALLOW_CPU=1 to override on a big box.
-    if not (CUDA_AVAILABLE or F5_ALLOW_CPU):
+    # NOTE: this only skips F5 specifically — Chatterbox loading (below)
+    # still runs on CPU-only servers, since Chatterbox's own docs support
+    # device="cpu" without the same OOM-kill risk F5 has.
+    f5_skip_cpu_only = not (CUDA_AVAILABLE or F5_ALLOW_CPU)
+    if f5_skip_cpu_only:
         print("ℹ F5-TTS disabled — no CUDA GPU detected (set F5_ALLOW_CPU=1 to force).")
         print("  XTTS v2 remains fully available.")
-        print("--- Model Loading Complete ---")
-        return
+    else:
+        # F5-TTS — optional, graceful fallback.
+        #
+        # The default (no args) loads F5's standard English checkpoint. F5 has no
+        # language id — each checkpoint speaks the language(s) it was trained on,
+        # and reads the input text directly. To run a different-language F5 model:
+        #   F5_MODEL       — a model name known to your f5_tts version
+        #   F5_CKPT_FILE   — path / hf://repo/file of a custom checkpoint
+        #   F5_VOCAB_FILE  — matching vocab.txt (hf:// allowed)
+        #   F5_LANGUAGES   — comma-separated codes the checkpoint speaks (e.g. "es"
+        #                    or "es,en"); drives which languages the UI offers for F5
+        # Example (Spanish):
+        #   F5_CKPT_FILE=hf://jpgallegoar/F5-Spanish/model_1250000.safetensors
+        #   F5_VOCAB_FILE=hf://jpgallegoar/F5-Spanish/vocab.txt
+        #   F5_LANGUAGES=es
+        f5_model      = os.getenv("F5_MODEL", "").strip()
+        f5_ckpt_file  = os.getenv("F5_CKPT_FILE", "").strip()
+        f5_vocab_file = os.getenv("F5_VOCAB_FILE", "").strip()
 
-    # F5-TTS — optional, graceful fallback.
-    #
-    # The default (no args) loads F5's standard English checkpoint. F5 has no
-    # language id — each checkpoint speaks the language(s) it was trained on,
-    # and reads the input text directly. To run a different-language F5 model:
-    #   F5_MODEL       — a model name known to your f5_tts version
-    #   F5_CKPT_FILE   — path / hf://repo/file of a custom checkpoint
-    #   F5_VOCAB_FILE  — matching vocab.txt (hf:// allowed)
-    #   F5_LANGUAGES   — comma-separated codes the checkpoint speaks (e.g. "es"
-    #                    or "es,en"); drives which languages the UI offers for F5
-    # Example (Spanish):
-    #   F5_CKPT_FILE=hf://jpgallegoar/F5-Spanish/model_1250000.safetensors
-    #   F5_VOCAB_FILE=hf://jpgallegoar/F5-Spanish/vocab.txt
-    #   F5_LANGUAGES=es
-    f5_model      = os.getenv("F5_MODEL", "").strip()
-    f5_ckpt_file  = os.getenv("F5_CKPT_FILE", "").strip()
-    f5_vocab_file = os.getenv("F5_VOCAB_FILE", "").strip()
+        # Resolve hf:// references to local files (the F5TTS constructor wants paths).
+        def _resolve(ref: str) -> str:
+            if ref.startswith("hf://"):
+                try:
+                    from cached_path import cached_path
+                    return str(cached_path(ref))
+                except Exception as e:
+                    print(f"⚠ Could not resolve {ref} via cached_path: {e}")
+            return ref
 
-    # Resolve hf:// references to local files (the F5TTS constructor wants paths).
-    def _resolve(ref: str) -> str:
-        if ref.startswith("hf://"):
+        f5_kwargs: dict = {}
+        if f5_model:
+            f5_kwargs["model"] = f5_model
+        if f5_ckpt_file:
+            f5_kwargs["ckpt_file"] = _resolve(f5_ckpt_file)
+        if f5_vocab_file:
+            f5_kwargs["vocab_file"] = _resolve(f5_vocab_file)
+
+        f5_loaded = False
+        for import_path in [
+            ("f5_tts.api", "F5TTS"),
+            ("f5_tts",     "F5TTS"),
+            ("f5tts",      "F5TTS"),
+        ]:
+            module_name, class_name = import_path
             try:
-                from cached_path import cached_path
-                return str(cached_path(ref))
+                import importlib
+                mod = importlib.import_module(module_name)
+                F5TTSClass = getattr(mod, class_name)
+                desc = f"model={f5_model or 'default'}" + (", custom ckpt" if f5_ckpt_file else "")
+                print(f"Loading F5-TTS (from {module_name}, {desc})…")
+                try:
+                    models["f5tts"] = F5TTSClass(**f5_kwargs) if f5_kwargs else F5TTSClass()
+                except TypeError as te:
+                    # Older f5_tts whose constructor doesn't accept these kwargs —
+                    # fall back to the default model rather than failing outright.
+                    print(f"⚠ F5-TTS ignored custom model kwargs ({te}); loading default.")
+                    models["f5tts"] = F5TTSClass()
+                print("✓ F5-TTS ready")
+                f5_loaded = True
+                break
+            except ImportError:
+                continue
             except Exception as e:
-                print(f"⚠ Could not resolve {ref} via cached_path: {e}")
-        return ref
+                print(f"✗ F5-TTS failed to load from {module_name}: {e}")
+                break
 
-    f5_kwargs: dict = {}
-    if f5_model:
-        f5_kwargs["model"] = f5_model
-    if f5_ckpt_file:
-        f5_kwargs["ckpt_file"] = _resolve(f5_ckpt_file)
-    if f5_vocab_file:
-        f5_kwargs["vocab_file"] = _resolve(f5_vocab_file)
+        if not f5_loaded:
+            print("ℹ F5-TTS not installed — XTTS v2 remains available")
+            print("  To enable: pip install f5-tts")
 
-    f5_loaded = False
-    for import_path in [
-        ("f5_tts.api", "F5TTS"),
-        ("f5_tts",     "F5TTS"),
-        ("f5tts",      "F5TTS"),
-    ]:
-        module_name, class_name = import_path
+    # Chatterbox (Resemble AI) — optional, graceful fallback. Runs on either
+    # GPU or CPU (device chosen automatically below), so — unlike F5 — this
+    # block is NOT skipped on CPU-only servers.
+    if not CHATTERBOX_ENABLED:
+        print("ℹ Chatterbox disabled (CHATTERBOX_ENABLED=0)")
+    else:
+        chatterbox_device = "cuda" if CUDA_AVAILABLE else "cpu"
         try:
-            import importlib
-            mod = importlib.import_module(module_name)
-            F5TTSClass = getattr(mod, class_name)
-            desc = f"model={f5_model or 'default'}" + (", custom ckpt" if f5_ckpt_file else "")
-            print(f"Loading F5-TTS (from {module_name}, {desc})…")
-            try:
-                models["f5tts"] = F5TTSClass(**f5_kwargs) if f5_kwargs else F5TTSClass()
-            except TypeError as te:
-                # Older f5_tts whose constructor doesn't accept these kwargs —
-                # fall back to the default model rather than failing outright.
-                print(f"⚠ F5-TTS ignored custom model kwargs ({te}); loading default.")
-                models["f5tts"] = F5TTSClass()
-            print("✓ F5-TTS ready")
-            f5_loaded = True
-            break
+            print(f"Loading Chatterbox (Multilingual, device={chatterbox_device})…")
+            from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+            models["chatterbox"] = ChatterboxMultilingualTTS.from_pretrained(device=chatterbox_device)
+            print("✓ Chatterbox ready")
         except ImportError:
-            continue
+            print("ℹ Chatterbox not installed — XTTS v2 / F5-TTS remain available")
+            print("  To enable: pip install chatterbox-tts")
         except Exception as e:
-            print(f"✗ F5-TTS failed to load from {module_name}: {e}")
-            break
-
-    if not f5_loaded:
-        print("ℹ F5-TTS not installed — XTTS v2 remains available")
-        print("  To enable: pip install f5-tts")
+            print(f"✗ Chatterbox failed to load: {e}")
 
     print("--- Model Loading Complete ---")
+
 
 
 # ── Status ────────────────────────────────────────────────────────
@@ -713,6 +824,7 @@ async def status():
             "transcription":       "Ready" if models["stt"]  else "Unavailable",
             "voice_cloning_xtts":  "Ready" if models["xtts"] else "Unavailable",
             "voice_cloning_f5":    "Ready" if f5_usable()    else "Unavailable",
+            "voice_cloning_chatterbox": "Ready" if chatterbox_usable() else "Unavailable",
         },
         "engines": {
             "xtts": models["xtts"] is not None,
@@ -723,6 +835,10 @@ async def status():
             # offers exactly these in the F5 language picker. Defaults to
             # English; set F5_LANGUAGES alongside a non-English checkpoint.
             "f5_languages": F5_LANGUAGES if f5_usable() else [],
+            # Chatterbox — unlike F5, runs fine on CPU, so "usable" here is
+            # just "did it load", not gated on GPU presence.
+            "chatterbox": chatterbox_usable(),
+            "chatterbox_languages": CHATTERBOX_LANGUAGES if chatterbox_usable() else [],
         },
         "rvc": {
             # System-level readiness: operator opted in (RVC_ENABLED=1) AND
@@ -1230,6 +1346,13 @@ def synthesize_segment(text: str, engine: str,
             synthesize_chunk_f5(chunk=chunk, ref_wav=f5_ref, speed=speed, chunk_path=chunk_path,
                                 cfg_strength=cfg_strength, target_rms=target_rms,
                                 sway_sampling_coef=sway_sampling_coef, ref_text=ref_text)
+        elif engine == "chatterbox":
+            # Same "resolve a reference WAV even for a built-in speaker" pattern as F5.
+            cb_ref = ref_wav
+            if cb_ref is None and speaker_name:
+                cb_ref = get_builtin_ref_wav(speaker_name)
+            synthesize_chunk_chatterbox(chunk=chunk, ref_wav=cb_ref, speed=speed, chunk_path=chunk_path,
+                                        language_id=(language or "en"))
         else:
             if speaker_name:
                 models["xtts"].tts_to_file(
@@ -1372,7 +1495,7 @@ def _perform_synthesis(
     if not is_builtin_voice:
         profile_id = sanitize_profile_id(profile_id)
     engine = tts_engine.lower().strip()
-    if engine not in ("xtts", "f5"):
+    if engine not in ("xtts", "f5", "chatterbox"):
         engine = "xtts"
 
     if engine == "f5" and not f5_usable():
@@ -1386,6 +1509,9 @@ def _perform_synthesis(
             detail = ("F5-TTS is not available on this server. "
                       "Please switch to XTTS v2 in the engine selector.")
         raise HTTPException(503, detail)
+    if engine == "chatterbox" and not chatterbox_usable():
+        raise HTTPException(503,
+            "Chatterbox is not available on this server. Please switch to XTTS v2 or F5-TTS in the engine selector.")
     if engine == "xtts" and not models["xtts"]:
         raise HTTPException(503, "XTTS v2 model is not available.")
 
@@ -1473,8 +1599,8 @@ def _perform_synthesis(
         else:
             # ── Single-voice path ─────────────────────────────────
             if is_builtin_voice:
-                if engine == "f5":
-                    # F5 needs an actual WAV — lazily generate & cache from XTTS.
+                if engine in ("f5", "chatterbox"):
+                    # F5 and Chatterbox both need an actual WAV — lazily generate & cache from XTTS.
                     ref_wav_path: str | None = get_builtin_ref_wav(builtin_speaker)
                 else:
                     ref_wav_path = None   # XTTS uses speaker= kwarg instead
@@ -1503,6 +1629,9 @@ def _perform_synthesis(
                     synthesize_chunk_f5(chunk=chunk, ref_wav=ref_wav_path, speed=speed, chunk_path=chunk_path,
                                         cfg_strength=cfg_strength, target_rms=target_rms,
                                         sway_sampling_coef=sway_sampling_coef, ref_text=f5_ref_text)
+                elif engine == "chatterbox":
+                    synthesize_chunk_chatterbox(chunk=chunk, ref_wav=ref_wav_path, speed=speed, chunk_path=chunk_path,
+                                                language_id=(language or "en"))
                 elif is_builtin_voice:
                     models["xtts"].tts_to_file(
                         text=chunk, language=language, file_path=chunk_path,
@@ -1720,13 +1849,15 @@ async def clone(
     _key: None = Depends(verify_api_key),
 ):
     engine = tts_engine.lower().strip()
-    if engine not in ("xtts", "f5"):
+    if engine not in ("xtts", "f5", "chatterbox"):
         engine = "xtts"
 
     if engine == "f5" and not f5_usable():
         raise HTTPException(503,
             "F5-TTS requires a GPU server and is disabled on this CPU-only instance. "
             "Please switch to XTTS v2.")
+    if engine == "chatterbox" and not chatterbox_usable():
+        raise HTTPException(503, "Chatterbox is not available on this server. Please switch to XTTS v2 or F5-TTS.")
     if engine == "xtts" and not models["xtts"]:
         raise HTTPException(503, "XTTS v2 model is not available.")
 
@@ -1785,6 +1916,10 @@ async def clone(
                                     chunk_path=cp,
                                     cfg_strength=cfg_strength, target_rms=target_rms,
                                     sway_sampling_coef=sway_sampling_coef, ref_text=ref_text)
+            elif engine == "chatterbox":
+                synthesize_chunk_chatterbox(chunk=chunk, ref_wav=ref_path,
+                                            speed=max(0.5, min(2.0, speed)),
+                                            chunk_path=cp, language_id="en")
             elif one_shot_latents is not None:
                 gpt_cond_latent, speaker_embedding = one_shot_latents
                 try:

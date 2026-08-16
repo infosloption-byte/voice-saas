@@ -6,4 +6,5 @@ python-multipart
 numpy
 soundfile
 f5-tts
+chatterbox-tts
 torch --index-url https://download.pytorch.org/whl/cpu

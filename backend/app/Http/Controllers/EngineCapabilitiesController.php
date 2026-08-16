@@ -22,12 +22,20 @@ class EngineCapabilitiesController extends Controller
                         (array) ($engines['f5_languages'] ?? []),
                         'is_string'
                     )),
+                    'chatterbox'           => ($engines['chatterbox'] ?? false) === true,
+                    'chatterbox_languages' => array_values(array_filter(
+                        (array) ($engines['chatterbox_languages'] ?? []),
+                        'is_string'
+                    )),
                 ]);
             }
         } catch (\Throwable) {
             // fall through to offline defaults
         }
 
-        return response()->json(['xtts' => false, 'f5' => false, 'f5_languages' => []]);
+        return response()->json([
+            'xtts' => false, 'f5' => false, 'f5_languages' => [],
+            'chatterbox' => false, 'chatterbox_languages' => [],
+        ]);
     }
 }

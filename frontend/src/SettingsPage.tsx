@@ -360,6 +360,7 @@ function AudioSettings({ engineCaps, onSave }: { engineCaps: EngineCaps; onSave:
   const engineOptions: { id: TTSEngine; label: string; desc: string; color: string; bg: string; border: string; available: boolean }[] = [
     { id: 'xtts', label: 'XTTS v2', desc: '16 languages', color: 'var(--accent)', bg: 'var(--accent-lt)', border: 'var(--accent)', available: engineCaps.xtts },
     { id: 'f5',   label: 'F5-TTS',  desc: 'English-first', color: '#4278c9', bg: 'rgba(66,120,201,0.08)', border: '#4278c9', available: engineCaps.f5 },
+    { id: 'chatterbox', label: 'Chatterbox', desc: 'MIT-licensed', color: '#e0703c', bg: 'rgba(224,112,60,0.08)', border: '#e0703c', available: engineCaps.chatterbox ?? false },
   ]
 
   return (
@@ -382,6 +383,11 @@ function AudioSettings({ engineCaps, onSave }: { engineCaps: EngineCaps; onSave:
               F5-TTS is not installed. Run <code style={{ fontFamily: 'var(--mono)' }}>pip install f5-tts</code> or switch to XTTS v2.
             </div>
           )}
+          {engine === 'chatterbox' && !(engineCaps.chatterbox ?? false) && (
+            <div style={{ fontSize: 11.5, color: 'var(--warn)', lineHeight: 1.55, background: 'var(--warn-lt)', border: '1px solid rgba(160,117,48,0.25)', borderRadius: 'var(--radius-sm)', padding: '6px 10px' }}>
+              Chatterbox is not installed. Run <code style={{ fontFamily: 'var(--mono)' }}>pip install chatterbox-tts</code> or switch to XTTS v2 / F5-TTS.
+            </div>
+          )}
           {engine === 'xtts' && !engineCaps.xtts && (
             <div style={{ fontSize: 11.5, color: 'var(--warn)', lineHeight: 1.55, background: 'var(--warn-lt)', border: '1px solid rgba(160,117,48,0.25)', borderRadius: 'var(--radius-sm)', padding: '6px 10px' }}>
               XTTS v2 is not available on this server. Check the engine logs.
@@ -392,8 +398,12 @@ function AudioSettings({ engineCaps, onSave }: { engineCaps: EngineCaps; onSave:
       <SettingsRow label="Default language" hint="Used when creating new scripts. XTTS v2 is multilingual; F5-TTS speaks its loaded model's language(s).">
         {(() => {
           const f5Langs = engineCaps?.f5_languages ?? []
-          const langList = engine === 'f5' ? languages.filter(l => f5Langs.includes(l.code)) : languages
-          const langDisabled = engine === 'f5' && langList.length <= 1
+          const cbLangs = engineCaps?.chatterbox_languages ?? []
+          const langList =
+            engine === 'f5' ? languages.filter(l => f5Langs.includes(l.code)) :
+            engine === 'chatterbox' && cbLangs.length ? languages.filter(l => cbLangs.includes(l.code)) :
+            languages
+          const langDisabled = (engine === 'f5' || engine === 'chatterbox') && langList.length <= 1
           return (
           <select className="full-input" value={defaultLang} onChange={e => setDefaultLang(e.target.value)} disabled={langDisabled} style={{ width: 160, padding: '6px 10px', opacity: langDisabled ? 0.45 : 1 }}>
             {(langList.length ? langList : languages).map(l => <option key={l.code} value={l.code}>{l.label}</option>)}

@@ -277,7 +277,7 @@ class EngineSynthesisProxyController extends Controller
         $validated = $request->validate([
             'script_ids' => ['required', 'array', 'min:1', 'max:50'],
             'script_ids.*' => ['string', 'max:50'],
-            'engine'     => ['required', 'string', 'in:xtts,f5'],
+            'engine'     => ['required', 'string', EngineResolver::engineValidationRule()],
             'project_id' => ['required', 'string', 'max:50'],
         ]);
 

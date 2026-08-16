@@ -115,6 +115,10 @@ export interface EngineCaps {
   f5: boolean
   /** Language codes the loaded F5 checkpoint speaks (e.g. ['es'] or ['en']). */
   f5_languages?: string[]
+  /** Chatterbox — unlike F5, runs on CPU too, so this isn't GPU-gated. */
+  chatterbox?: boolean
+  /** Language codes the loaded Chatterbox model speaks. */
+  chatterbox_languages?: string[]
 }
 
 export interface GuestLimits {

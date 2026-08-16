@@ -1195,10 +1195,10 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
   }
 
   // Engine label shown next to the preview input
-  const engineLabel = engine === 'f5' ? 'F5-TTS' : 'XTTS v2'
-  const engineColor = engine === 'f5' ? '#4278c9' : 'var(--accent)'
-  const engineBg    = engine === 'f5' ? 'rgba(66,120,201,0.10)' : 'var(--accent-lt)'
-  const engineBorder = engine === 'f5' ? 'rgba(66,120,201,0.25)' : 'var(--accent-mid)'
+  const engineLabel = engine === 'f5' ? 'F5-TTS' : engine === 'chatterbox' ? 'Chatterbox' : 'XTTS v2'
+  const engineColor = engine === 'f5' ? '#4278c9' : engine === 'chatterbox' ? '#e0703c' : 'var(--accent)'
+  const engineBg    = engine === 'f5' ? 'rgba(66,120,201,0.10)' : engine === 'chatterbox' ? 'rgba(224,112,60,0.10)' : 'var(--accent-lt)'
+  const engineBorder = engine === 'f5' ? 'rgba(66,120,201,0.25)' : engine === 'chatterbox' ? 'rgba(224,112,60,0.25)' : 'var(--accent-mid)'
 
   return (
     <div>

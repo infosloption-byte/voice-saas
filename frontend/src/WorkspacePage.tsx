@@ -155,12 +155,12 @@ function EngineBadge({ engine }: { engine: TTSEngine }) {
       textTransform: 'uppercase' as const,
       padding: '2px 6px',
       borderRadius: 4,
-      background: engine === 'f5' ? 'rgba(66,120,201,0.12)' : 'var(--accent-lt)',
-      color: engine === 'f5' ? '#4278c9' : 'var(--accent)',
-      border: engine === 'f5' ? '1px solid rgba(66,120,201,0.25)' : '1px solid var(--accent-mid)',
+      background: engine === 'f5' ? 'rgba(66,120,201,0.12)' : engine === 'chatterbox' ? 'rgba(224,112,60,0.12)' : 'var(--accent-lt)',
+      color: engine === 'f5' ? '#4278c9' : engine === 'chatterbox' ? '#e0703c' : 'var(--accent)',
+      border: engine === 'f5' ? '1px solid rgba(66,120,201,0.25)' : engine === 'chatterbox' ? '1px solid rgba(224,112,60,0.25)' : '1px solid var(--accent-mid)',
       flexShrink: 0,
     }}>
-      {engine === 'f5' ? 'F5' : 'XTTS'}
+      {engine === 'f5' ? 'F5' : engine === 'chatterbox' ? 'CBX' : 'XTTS'}
     </span>
   )
 }
@@ -380,15 +380,22 @@ export function WorkspacePage({
     typeof window !== 'undefined' && window.innerWidth < 768
 
   // Is the currently selected engine actually available on the server?
-  const currentEngineAvailable = engine === 'f5' ? engineCaps.f5 : engineCaps.xtts
+  const currentEngineAvailable =
+    engine === 'f5' ? engineCaps.f5 :
+    engine === 'chatterbox' ? (engineCaps.chatterbox ?? false) :
+    engineCaps.xtts
 
-  // If a saved F5 preference can't run here (e.g. CPU-only server), fall back
-  // to XTTS automatically so the user isn't stuck on an unusable engine.
+  // If a saved F5/Chatterbox preference can't run here (e.g. dependency not
+  // installed), fall back to XTTS automatically so the user isn't stuck on
+  // an unusable engine.
   useEffect(() => {
     if (engine === 'f5' && engineCaps.f5 === false && engineCaps.xtts) {
       setEngine('xtts')
     }
-  }, [engine, engineCaps.f5, engineCaps.xtts, setEngine])
+    if (engine === 'chatterbox' && engineCaps.chatterbox === false && engineCaps.xtts) {
+      setEngine('xtts')
+    }
+  }, [engine, engineCaps.f5, engineCaps.chatterbox, engineCaps.xtts, setEngine])
 
   // ── Reset editor when active script changes ───────────────────────
   useEffect(() => {
@@ -956,6 +963,8 @@ export function WorkspacePage({
       setSynthErr(
         engine === 'f5'
           ? 'F5-TTS is not installed on this server. Switch to XTTS v2 or run: pip install f5-tts'
+          : engine === 'chatterbox'
+          ? 'Chatterbox is not installed on this server. Switch to XTTS v2 or run: pip install chatterbox-tts'
           : 'XTTS v2 is not available on this server.'
       )
       return
@@ -1031,6 +1040,8 @@ export function WorkspacePage({
       toast.err(
         engine === 'f5'
           ? 'F5-TTS is not installed on this server. Switch to XTTS v2 in the engine selector.'
+          : engine === 'chatterbox'
+          ? 'Chatterbox is not installed on this server. Switch to XTTS v2 in the engine selector.'
           : 'XTTS v2 is not available on this server.'
       )
       return
@@ -1150,7 +1161,7 @@ export function WorkspacePage({
         {/* Warning dot when selected engine is unavailable */}
         {!currentEngineAvailable && (
           <span
-            title={`${engine === 'f5' ? 'F5-TTS' : 'XTTS v2'} is not available on this server`}
+            title={`${engine === 'f5' ? 'F5-TTS' : engine === 'chatterbox' ? 'Chatterbox' : 'XTTS v2'} is not available on this server`}
             style={{
               width: 7, height: 7, borderRadius: '50%',
               background: 'var(--warn)', flexShrink: 0,
@@ -1221,13 +1232,28 @@ export function WorkspacePage({
                 color: '#4278c9',
                 available: engineCaps.f5,
               },
+              {
+                id: 'chatterbox' as TTSEngine,
+                label: 'Chatterbox',
+                desc: `MIT-licensed · expressive · ${
+                  (engineCaps.chatterbox_languages && engineCaps.chatterbox_languages.length)
+                    ? `${engineCaps.chatterbox_languages.length} languages`
+                    : 'multilingual'
+                }`,
+                color: '#e0703c',
+                available: engineCaps.chatterbox ?? false,
+              },
             ] as const).map(opt => (
               <button
                 key={opt.id}
                 disabled={!opt.available}
                 onClick={() => {
                   if (!opt.available) {
-                    toast.info(`${opt.label} is unavailable on this server. ${opt.id === 'f5' ? 'F5-TTS needs a GPU — use XTTS v2 instead.' : ''}`)
+                    const hint =
+                      opt.id === 'f5' ? 'F5-TTS needs a GPU — use XTTS v2 instead.' :
+                      opt.id === 'chatterbox' ? 'Chatterbox is not installed on this server — use XTTS v2 or F5-TTS instead.' :
+                      ''
+                    toast.info(`${opt.label} is unavailable on this server. ${hint}`)
                     return
                   }
                   setEngine(opt.id); setShowEngineMenu(false)
@@ -1718,6 +1744,8 @@ export function WorkspacePage({
               <div className="msg msg--warn" style={{ margin: '8px 14px 0' }}>
                 {engine === 'f5'
                   ? 'F5-TTS is not installed on this server. Switch to XTTS v2 or run: pip install f5-tts'
+                  : engine === 'chatterbox'
+                  ? 'Chatterbox is not installed on this server. Switch to XTTS v2 or run: pip install chatterbox-tts'
                   : 'XTTS v2 is not available on this server.'}
               </div>
             )}
@@ -1918,12 +1946,16 @@ export function WorkspacePage({
               {(() => {
                 // XTTS is multilingual. F5 speaks only its checkpoint's
                 // language(s), reported by the engine as f5_languages.
+                // Chatterbox is multilingual too but we still filter to
+                // whatever languages the loaded model actually reports.
                 const f5Langs = engineCaps.f5_languages ?? []
-                const langOptions = engine === 'f5'
-                  ? LANGUAGES.filter(l => f5Langs.includes(l.code))
-                  : LANGUAGES
+                const cbLangs = engineCaps.chatterbox_languages ?? []
+                const langOptions =
+                  engine === 'f5' ? LANGUAGES.filter(l => f5Langs.includes(l.code)) :
+                  engine === 'chatterbox' && cbLangs.length ? LANGUAGES.filter(l => cbLangs.includes(l.code)) :
+                  LANGUAGES
                 // Disable only when there's nothing meaningful to choose.
-                const disabled = engine === 'f5' && langOptions.length <= 1
+                const disabled = (engine === 'f5' || engine === 'chatterbox') && langOptions.length <= 1
                 const currentLang = LANGUAGES.find(l => l.code === (activeScript.language || 'en'))
                 return (
                   <div style={{ position: 'relative' }}>
