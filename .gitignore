@@ -9,3 +9,7 @@ backend/.env
 !backend/.env.example
 .claude/worktrees/
 backups/
+
+# Python bytecode cache (ai-engine, chatterbox-engine)
+__pycache__/
+*.pyc

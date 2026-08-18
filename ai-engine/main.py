@@ -5,6 +5,8 @@ from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 import torch
 import types
+import time
+import httpx
 
 # ── Compatibility shim ─────────────────────────────────────────────
 # torch.xpu (Intel XPU device support) was added in PyTorch 2.4.
@@ -65,17 +67,22 @@ F5_LANGUAGES   = [c.strip().lower() for c in os.getenv("F5_LANGUAGES", "en").spl
 # weights are CC-BY-NC — neither is properly licensed for a commercial
 # product without separately contacting the respective authors. Chatterbox
 # is MIT-licensed, so it's the one engine here genuinely free for commercial
-# use out of the box. Unlike F5, Chatterbox's own docs support device="cpu"
-# directly (no OOM-kill risk reported), so — unlike F5_ALLOW_CPU — it is not
-# gated behind an opt-in flag; it simply runs slower on CPU than on GPU.
-CHATTERBOX_ENABLED   = os.getenv("CHATTERBOX_ENABLED", "1").strip().lower() in ("1", "true", "yes", "on")
-# Chatterbox Multilingual v3 covers 21 languages + 4 dialects as of the
-# June 2026 release. Kept as an env override in case a future Chatterbox
-# release changes coverage without needing a code change here.
-CHATTERBOX_LANGUAGES = [c.strip().lower() for c in os.getenv(
-    "CHATTERBOX_LANGUAGES",
-    "en,es,fr,de,it,pt,pl,tr,ru,nl,cs,ar,zh,ja,ko,hi,hu,vi,uk,el,sv,fi,he"
-).split(",") if c.strip()]
+# use out of the box.
+#
+# UNLIKE F5, Chatterbox runs as a SEPARATE microservice (see
+# ../chatterbox-engine/), not loaded in-process here. It hard-pins
+# torch==2.6.0 + transformers==4.46.3, which is unresolvable against
+# XTTS's own torch==2.2.2+cpu / transformers==4.36.2 pins — confirmed via
+# a real `pip install chatterbox-tts` ResolutionImpossible error, not a
+# theoretical concern. This engine proxies synthesis requests to it over
+# HTTP instead of importing it directly.
+CHATTERBOX_ENGINE_URL = os.getenv("CHATTERBOX_ENGINE_URL", "http://chatterbox-engine:8100").rstrip("/")
+CHATTERBOX_ENABLED    = os.getenv("CHATTERBOX_ENABLED", "1").strip().lower() in ("1", "true", "yes", "on")
+# How long to trust a cached reachability check before polling
+# chatterbox-engine again. Keeps the / status endpoint (polled fairly
+# often by the frontend) from making a network call on every single hit.
+_CHATTERBOX_CACHE_TTL = 15.0
+_chatterbox_cache: dict = {"checked_at": 0.0, "usable": False, "languages": []}
 
 # ── RVC post-processing (optional) ─────────────────────────────────
 # RVC re-maps XTTS/F5 output onto a trained target-speaker model, closing
@@ -104,7 +111,7 @@ try:
 except ImportError:
     RVC_LIB_AVAILABLE = False
 
-models: dict = {"stt": None, "xtts": None, "f5tts": None, "chatterbox": None}
+models: dict = {"stt": None, "xtts": None, "f5tts": None}
 _rvc_instances: "dict[str, object]" = {}   # profile_id -> loaded RVCInference
 _rvc_lru: list = []                         # most-recently-used profile_ids, front = newest
 
@@ -115,11 +122,44 @@ def f5_usable() -> bool:
     return models["f5tts"] is not None and (CUDA_AVAILABLE or F5_ALLOW_CPU)
 
 
+def _refresh_chatterbox_status() -> None:
+    """Poll chatterbox-engine's / status endpoint and update the cache.
+    Never raises — a timeout/connection error just means 'not usable',
+    same as any other unavailable-engine state elsewhere in this file."""
+    now = time.monotonic()
+    if now - _chatterbox_cache["checked_at"] < _CHATTERBOX_CACHE_TTL:
+        return
+    _chatterbox_cache["checked_at"] = now
+    if not CHATTERBOX_ENABLED:
+        _chatterbox_cache["usable"] = False
+        _chatterbox_cache["languages"] = []
+        return
+    try:
+        resp = httpx.get(f"{CHATTERBOX_ENGINE_URL}/", timeout=2.0)
+        if resp.status_code == 200:
+            body = resp.json()
+            engines = body.get("engines", {})
+            _chatterbox_cache["usable"] = bool(engines.get("chatterbox", False))
+            _chatterbox_cache["languages"] = engines.get("chatterbox_languages", []) or []
+        else:
+            _chatterbox_cache["usable"] = False
+            _chatterbox_cache["languages"] = []
+    except Exception:
+        _chatterbox_cache["usable"] = False
+        _chatterbox_cache["languages"] = []
+
+
 def chatterbox_usable() -> bool:
-    """Chatterbox has no CPU OOM-kill risk reported (unlike F5), so
-    availability is just: did it load. Runs on GPU when present, CPU
-    otherwise — slower on CPU, but not process-crashing."""
-    return models["chatterbox"] is not None
+    """True only if chatterbox-engine is reachable AND reports its model
+    loaded. Backed by an HTTP health check (TTL-cached) instead of a local
+    in-process model reference — see CHATTERBOX_ENGINE_URL above for why."""
+    _refresh_chatterbox_status()
+    return _chatterbox_cache["usable"]
+
+
+def chatterbox_languages() -> list:
+    _refresh_chatterbox_status()
+    return _chatterbox_cache["languages"]
 
 VOICES_DIR = "voice_profiles"
 os.makedirs(VOICES_DIR, exist_ok=True)
@@ -498,65 +538,55 @@ def synthesize_chunk_chatterbox(
     language_id: str = "en",
 ) -> None:
     """
-    Synthesize a single text chunk using Chatterbox and save to chunk_path.
+    Synthesize a single text chunk via the separate chatterbox-engine
+    service (see CHATTERBOX_ENGINE_URL above for why it's not in-process)
+    and save the result to chunk_path.
 
-    exaggeration / cfg_weight / temperature are Chatterbox's own inference
-    knobs and are how we express "tone" here (it has no top_k/top_p like
-    XTTS, and no target_rms/sway_sampling_coef like F5). Higher exaggeration
-    = more expressive delivery (and tends to speed up pacing — lowering
-    cfg_weight compensates with slower, more deliberate pacing).
-
-    ref_wav is optional: Chatterbox can generate in its own default voice
-    with no reference at all, unlike XTTS (needs speaker= or speaker_wav=)
-    and F5 (always needs a reference). We still expect a real profile clip
-    in practice, since Voxora's whole point is cloning, not stock voices.
+    ref_wav is uploaded as actual file bytes (multipart), not passed as a
+    shared-volume path. Some callers of this function (e.g. the
+    /clone-voice preview endpoint) use an ephemeral tmp_path() reference
+    file that lives only in THIS container's local /tmp — a separate
+    container has no way to see it. Uploading the bytes directly avoids
+    needing to reason about which callers' paths happen to live on a
+    shared volume vs. local-only ephemeral storage.
 
     speed is accepted for interface parity with synthesize_chunk_f5/XTTS
     but Chatterbox has no native speed parameter, and nothing downstream
     currently time-stretches its output — a speed value other than 1.0 is
-    silently ignored on this engine today. If per-engine speed control
-    matters, add an ffmpeg atempo pass here (or in the caller) rather than
-    pretend Chatterbox is honoring the value.
+    silently ignored on this engine today.
     """
-    cb = models["chatterbox"]
-    if cb is None:
-        raise RuntimeError("Chatterbox model not loaded")
+    files = {}
+    if ref_wav:
+        if not os.path.exists(ref_wav):
+            raise RuntimeError(f"Chatterbox reference audio not found: {ref_wav}")
+        files["ref_audio"] = ("ref.wav", open(ref_wav, "rb"), "audio/wav")
 
     try:
-        kwargs: dict = {
-            "exaggeration": max(0.0, min(2.0, exaggeration)),
-            "cfg_weight":   max(0.0, min(1.0, cfg_weight)),
-            "temperature":  max(0.05, min(2.0, temperature)),
-        }
-        if ref_wav:
-            kwargs["audio_prompt_path"] = ref_wav
-        # Multilingual builds accept language_id; the English-only build
-        # doesn't take the kwarg at all — try with it first, fall back
-        # without on TypeError rather than assuming which build loaded.
-        try:
-            wav = cb.generate(chunk, language_id=language_id, **kwargs)
-        except TypeError:
-            wav = cb.generate(chunk, **kwargs)
-    except Exception as e:
-        raise RuntimeError(f"Chatterbox generate() failed: {e}") from e
+        resp = httpx.post(
+            f"{CHATTERBOX_ENGINE_URL}/synthesize",
+            data={
+                "text": chunk,
+                "language_id": language_id,
+                "exaggeration": max(0.0, min(2.0, exaggeration)),
+                "cfg_weight":   max(0.0, min(1.0, cfg_weight)),
+                "temperature":  max(0.05, min(2.0, temperature)),
+            },
+            files=files or None,
+            headers={"X-Engine-Key": _ENGINE_API_KEY} if _ENGINE_API_KEY else {},
+            timeout=120.0,   # CPU synthesis can be slow; this is a same-host/LAN hop
+        )
+    except httpx.RequestError as e:
+        raise RuntimeError(f"Could not reach chatterbox-engine at {CHATTERBOX_ENGINE_URL}: {e}") from e
+    finally:
+        if "ref_audio" in files:
+            files["ref_audio"][1].close()
 
-    if wav is None:
-        raise RuntimeError("Chatterbox returned no audio data")
+    if resp.status_code != 200:
+        detail = resp.text[:300]
+        raise RuntimeError(f"chatterbox-engine returned {resp.status_code}: {detail}")
 
-    sr = getattr(cb, "sr", 24000)
-
-    # ── Normalise to numpy float32 (identical shape to synthesize_chunk_f5) ──
-    if hasattr(wav, "cpu"):          # torch tensor
-        wav = wav.cpu().numpy()
-    wav = np.array(wav, dtype=np.float32)
-
-    if wav.ndim > 1:
-        wav = wav.reshape(-1) if wav.shape[0] == 1 else wav[0]
-
-    if wav.size == 0:
-        raise RuntimeError("Chatterbox produced empty audio array")
-
-    sf.write(chunk_path, wav, sr, subtype="PCM_16")
+    with open(chunk_path, "wb") as f:
+        f.write(resp.content)
 
 
 # XTTS's tts_to_file(speaker_wav=...) recomputes the speaker's conditioning
@@ -793,23 +823,18 @@ async def load_all_models():
             print("ℹ F5-TTS not installed — XTTS v2 remains available")
             print("  To enable: pip install f5-tts")
 
-    # Chatterbox (Resemble AI) — optional, graceful fallback. Runs on either
-    # GPU or CPU (device chosen automatically below), so — unlike F5 — this
-    # block is NOT skipped on CPU-only servers.
+    # Chatterbox — no longer loaded in-process (see CHATTERBOX_ENGINE_URL
+    # above for why). Just log whether the separate service is reachable
+    # at boot, for a useful startup summary; chatterbox_usable() re-checks
+    # this on its own TTL regardless of what's printed here.
     if not CHATTERBOX_ENABLED:
         print("ℹ Chatterbox disabled (CHATTERBOX_ENABLED=0)")
+    elif chatterbox_usable():
+        print(f"✓ Chatterbox ready (via {CHATTERBOX_ENGINE_URL})")
     else:
-        chatterbox_device = "cuda" if CUDA_AVAILABLE else "cpu"
-        try:
-            print(f"Loading Chatterbox (Multilingual, device={chatterbox_device})…")
-            from chatterbox.mtl_tts import ChatterboxMultilingualTTS
-            models["chatterbox"] = ChatterboxMultilingualTTS.from_pretrained(device=chatterbox_device)
-            print("✓ Chatterbox ready")
-        except ImportError:
-            print("ℹ Chatterbox not installed — XTTS v2 / F5-TTS remain available")
-            print("  To enable: pip install chatterbox-tts")
-        except Exception as e:
-            print(f"✗ Chatterbox failed to load: {e}")
+        print(f"ℹ Chatterbox not reachable yet at {CHATTERBOX_ENGINE_URL} "
+              "— XTTS v2 / F5-TTS remain available. It may still be starting up; "
+              "this is rechecked automatically.")
 
     print("--- Model Loading Complete ---")
 
@@ -838,7 +863,7 @@ async def status():
             # Chatterbox — unlike F5, runs fine on CPU, so "usable" here is
             # just "did it load", not gated on GPU presence.
             "chatterbox": chatterbox_usable(),
-            "chatterbox_languages": CHATTERBOX_LANGUAGES if chatterbox_usable() else [],
+            "chatterbox_languages": chatterbox_languages() if chatterbox_usable() else [],
         },
         "rvc": {
             # System-level readiness: operator opted in (RVC_ENABLED=1) AND

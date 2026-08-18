@@ -61,12 +61,36 @@ services:
     environment:
       - COQUI_TOS_AGREED=1
       - ALLOWED_ORIGINS=https://usevoxora.online
+      - CHATTERBOX_ENGINE_URL=http://chatterbox-engine:8100
     command: uvicorn main:app --host 0.0.0.0 --port 8000
     restart: unless-stopped
     networks:
       - voice-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+
+  # Chatterbox (Resemble AI, MIT-licensed) — separate service from
+  # ai-engine because it hard-pins torch==2.6.0 + transformers==4.46.3,
+  # unresolvable against ai-engine's XTTS pins. See the main
+  # docker-compose.yml for the full explanation. Not required for
+  # XTTS/F5 to keep working.
+  chatterbox-engine:
+    build:
+      context: ./chatterbox-engine
+      dockerfile: Dockerfile
+    container_name: voice_chatterbox
+    restart: unless-stopped
+    volumes:
+      - chatterbox_models:/root/.cache/huggingface
+    command: uvicorn main:app --host 0.0.0.0 --port 8100
+    networks:
+      - voice-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/"]
       interval: 15s
       timeout: 10s
       retries: 10
@@ -112,3 +136,4 @@ volumes:
   db_data:
   redis_data:
   backend_storage:
+  chatterbox_models:

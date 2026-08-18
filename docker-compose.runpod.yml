@@ -10,6 +10,16 @@
 #   AI_ENGINE_API_KEY   — shared secret; must match the value on the main server
 #   GEMINI_API_KEY      — for the Translate feature (optional)
 #
+# NOTE on Chatterbox: chatterbox-engine is NOT included in this file.
+# It's a CPU-friendly, separate service (see ../chatterbox-engine/) that
+# has no reason to move to a GPU pod — it stays on your main server via
+# the primary docker-compose.yml. ai-engine on this pod still reaches it
+# over the network: set CHATTERBOX_ENGINE_URL below to your main
+# server's reachable address (e.g. http://YOUR_MAIN_SERVER_IP:8100 with
+# that port exposed, or a domain if you've put it behind your reverse
+# proxy) — the default http://chatterbox-engine:8100 only resolves
+# inside the main server's own Docker network, not from this pod.
+#
 # After the pod starts, copy its public URL into the Admin → AI Engines
 # panel on your Voxora dashboard and click Activate.
 
@@ -36,6 +46,9 @@ services:
       - SYNTH_WORKERS=${SYNTH_WORKERS:-2}
       # Allow F5-TTS (it requires CUDA — the GPU image has it)
       - F5_ALLOW_CPU=0
+      # See the Chatterbox note above — this needs to point back at your
+      # main server, not the in-cluster default, when running remotely.
+      - CHATTERBOX_ENGINE_URL=${CHATTERBOX_ENGINE_URL:-http://chatterbox-engine:8100}
       # Optional different-language F5 checkpoint. Leave blank for the default
       # English model. Example — Spanish (jpgallegoar/F5-Spanish):
       #   F5_CKPT_FILE=hf://jpgallegoar/F5-Spanish/model_1250000.safetensors

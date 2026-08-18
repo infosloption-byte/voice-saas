@@ -13,6 +13,16 @@
 # Required env vars (in .env on the VM):
 #   AI_ENGINE_API_KEY   — must match AI_ENGINE_API_KEY on your main server
 #   GEMINI_API_KEY      — for Translate feature (optional)
+#
+# NOTE on Chatterbox: chatterbox-engine is NOT included in this file.
+# It's a CPU-friendly, separate service (see ../chatterbox-engine/) that
+# has no reason to move to a GPU box — it stays on your main server via
+# the primary docker-compose.yml. ai-engine on this GPU VM still reaches
+# it over the network: set CHATTERBOX_ENGINE_URL below to your main
+# server's reachable address (e.g. http://YOUR_MAIN_SERVER_IP:8100 with
+# that port exposed, or a domain if you've put it behind your reverse
+# proxy) — the default http://chatterbox-engine:8100 only resolves
+# inside the main server's own Docker network, not from this VM.
 
 services:
   ai-engine:
@@ -35,6 +45,9 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - SYNTH_WORKERS=${SYNTH_WORKERS:-2}
       - F5_ALLOW_CPU=0
+      # See the Chatterbox note above — this needs to point back at your
+      # main server, not the in-cluster default, when running remotely.
+      - CHATTERBOX_ENGINE_URL=${CHATTERBOX_ENGINE_URL:-http://chatterbox-engine:8100}
       # Optional: run a different-language F5 checkpoint. F5 has no language id;
       # each checkpoint speaks the language(s) it was trained on. Leave blank for
       # the default English model. Example — Spanish (jpgallegoar/F5-Spanish):

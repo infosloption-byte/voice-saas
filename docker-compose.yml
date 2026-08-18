@@ -150,6 +150,7 @@ services:
       - AI_ENGINE_API_KEY=${AI_ENGINE_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - SYNTH_WORKERS=${SYNTH_WORKERS:-1}
+      - CHATTERBOX_ENGINE_URL=http://chatterbox-engine:8100
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
@@ -163,6 +164,34 @@ services:
       timeout: 10s
       retries: 10
       start_period: 120s
+
+  # Chatterbox (Resemble AI, MIT-licensed) — separate service from
+  # ai-engine because it hard-pins torch==2.6.0 + transformers==4.46.3,
+  # which is unresolvable against ai-engine's XTTS pins (torch==2.2.2+cpu,
+  # transformers==4.36.2). ai-engine proxies to this container over HTTP
+  # instead of loading Chatterbox in-process. Not required for XTTS/F5 to
+  # keep working — ai-engine degrades gracefully if this is unreachable.
+  chatterbox-engine:
+    build:
+      context: ./chatterbox-engine
+      dockerfile: Dockerfile
+    container_name: voice_chatterbox
+    restart: unless-stopped
+    expose:
+      - "8100"
+    volumes:
+      - chatterbox_models:/root/.cache/huggingface
+    environment:
+      - CHATTERBOX_ENGINE_API_KEY=${AI_ENGINE_API_KEY:-}
+    command: uvicorn main:app --host 0.0.0.0 --port 8100
+    networks:
+      - voice-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
 
   redis:
     image: redis:alpine
@@ -184,4 +213,5 @@ volumes:
   ai_models:
   tts_models:
   builtin_refs:
+  chatterbox_models:
   redis_data:

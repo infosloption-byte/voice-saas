@@ -60,16 +60,13 @@ RUN pip install --no-cache-dir \
     f5-tts || \
     echo "WARNING: f5-tts install failed — XTTS v2 still available"
 
-# ── Chatterbox (Resemble AI, MIT-licensed) — same constrained pattern ──
-# Added alongside XTTS/F5, not replacing either. Same -c constraints
-# protection as f5-tts above so it can't drag in a CUDA torch build or a
-# transformers version that breaks XTTS. Failure here is non-fatal —
-# XTTS v2 and F5-TTS (if it installed) both remain available either way.
-RUN pip install --no-cache-dir \
-    --extra-index-url https://download.pytorch.org/whl/cpu \
-    -c /tmp/cpu_constraints.txt \
-    chatterbox-tts || \
-    echo "WARNING: chatterbox-tts install failed — XTTS v2 / F5-TTS still available"
+# httpx — used to proxy Chatterbox requests to the separate chatterbox-engine
+# service (see ../chatterbox-engine/). Chatterbox cannot be installed here:
+# it hard-pins torch==2.6.0 + transformers==4.46.3, which is unresolvable
+# against XTTS's own torch==2.2.2+cpu / transformers==4.36.2 pins above —
+# confirmed via a real `pip install chatterbox-tts` ResolutionImpossible
+# error, not a theoretical concern. It runs in its own container instead.
+RUN pip install --no-cache-dir httpx
 
 COPY . .
 

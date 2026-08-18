@@ -7,7 +7,13 @@
 # manually, install torch/torchaudio FIRST from the line below, then the
 # rest — don't just `pip install -r requirements.txt` in one shot, or
 # pip's resolver can pull in an unwanted CUDA build of torch while
-# resolving f5-tts/chatterbox-tts's own dependencies.
+# resolving f5-tts's own dependencies.
+#
+# chatterbox-tts is DELIBERATELY NOT listed here. It hard-pins
+# torch==2.6.0 + transformers==4.46.3, which is unresolvable against
+# XTTS's own torch==2.2.2+cpu / transformers==4.36.2 pins — confirmed via
+# a real pip ResolutionImpossible error. It runs as a separate service;
+# see ../chatterbox-engine/requirements.txt instead.
 fastapi
 uvicorn
 openai-whisper
@@ -16,5 +22,5 @@ python-multipart
 numpy
 soundfile
 f5-tts
-chatterbox-tts
+httpx
 torch --extra-index-url https://download.pytorch.org/whl/cpu

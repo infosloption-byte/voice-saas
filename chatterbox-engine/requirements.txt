@@ -1,0 +1,19 @@
+# NOTE: this file is NOT used by the Docker build (chatterbox-engine/Dockerfile
+# installs everything via explicit, staged `pip install` commands — see the
+# Dockerfile for the actual build process). This file exists as a rough
+# reference for a manual, non-Docker local setup only.
+#
+# This service is intentionally SEPARATE from ai-engine/requirements.txt —
+# Chatterbox hard-pins torch==2.6.0 + transformers==4.46.3, which is
+# unresolvable against ai-engine's XTTS pins (torch==2.2.2+cpu,
+# transformers==4.36.2). See ai-engine/Dockerfile's comments for the full
+# story; this is why Chatterbox runs as its own service instead of being
+# installed inside ai-engine.
+fastapi
+uvicorn
+python-multipart
+soundfile
+numpy
+chatterbox-tts
+torch --extra-index-url https://download.pytorch.org/whl/cpu
+torchaudio --extra-index-url https://download.pytorch.org/whl/cpu
