@@ -1,56 +1,61 @@
-# Chatterbox → separate service (fixes the ResolutionImpossible build error)
+# Support running chatterbox-engine on a separate EC2 instance
 
-## What happened
-`pip install chatterbox-tts` inside `ai-engine` failed with a real, permanent conflict:
-```
-chatterbox-tts depends on torch==2.6.0 and transformers==4.46.3
-ai-engine (XTTS) is pinned to torch==2.2.2+cpu and transformers==4.36.2
-ERROR: ResolutionImpossible
-```
-No install flag or constraint fixes this — the two pins don't overlap at all. Chatterbox now runs as its **own container** (`chatterbox-engine`), and `ai-engine` talks to it over HTTP instead of importing it directly.
+Fixes the OOM restart-loop you hit: `ai-engine` + `chatterbox-engine` running together exceeded your instance's RAM. This lets Chatterbox run on its own dedicated box instead.
 
-## What's in this package
+**If you already applied the previous `voxora-chatterbox-fix.zip`, only these files actually changed in this update:**
+- `docker-compose.yml`
+- `docker-compose.prod.yml`
+- `.env.example`
+- `docker-compose.chatterbox-remote.yml` (**new file**)
+- `docs/ENHANCEMENT_TASKS.md`
 
-**Root-level architecture fix** (13 files — apply these):
-| File | What changed |
-|---|---|
-| `chatterbox-engine/Dockerfile`, `main.py`, `requirements.txt` | **New service.** Installs Chatterbox's real required versions in total isolation. Exposes `/` (status) and `/synthesize`. |
-| `ai-engine/main.py` | `synthesize_chunk_chatterbox()` now proxies over HTTP via `httpx`. `chatterbox_usable()`/`chatterbox_languages()` poll the sub-service with a 15s TTL cache. Removed the old in-process model loading entirely. |
-| `ai-engine/Dockerfile` | Removed the permanently-broken in-process Chatterbox install; added `httpx`. |
-| `ai-engine/requirements.txt` | Removed `chatterbox-tts` (can never install here); points to `chatterbox-engine/requirements.txt` instead. |
-| `docker-compose.yml` | Added the `chatterbox-engine` service, a `chatterbox_models` volume, wired `CHATTERBOX_ENGINE_URL` into `ai-engine`. **This is the file your server actually runs.** |
-| `docker-compose.prod.yml` | Same wiring, for the alternate full-stack file. |
-| `docker-compose.gcp.yml`, `docker-compose.runpod.yml` | These run only `ai-engine` remotely on a GPU box — Chatterbox intentionally stays on your main server. Added a comment + made the URL overridable. |
-| `backend/.env.example` | Noted that `AI_ENGINE_API_KEY` now also gates `chatterbox-engine`. |
-| `.gitignore` | Added `__pycache__/`/`*.pyc` (almost got a compiled bytecode file committed by accident). |
-| `docs/ENHANCEMENT_TASKS.md` | Full write-up of the conflict and the fix. |
+Everything else in this zip (`ai-engine/`, `chatterbox-engine/`, `.gitignore`, `backend/.env.example`, `docker-compose.gcp.yml`, `docker-compose.runpod.yml`) is included for completeness but is **unchanged** from the last package — safe to skip if you already have them.
 
-**`frontend-src-reorganized/`** — this is the **same** `frontend/src/` folder reorg (into `app/`, `pages/`, `components/`, `lib/`) from earlier in this conversation, included here again for convenience in case you haven't applied it yet. If you already applied the earlier `src.zip`, you can ignore this folder — nothing new changed here.
+## What changed
 
-## How to apply
+1. **`CHATTERBOX_ENGINE_URL` is now overridable**, not hardcoded to the local container name. Set it in `.env` to point at your new box.
+2. **The local `chatterbox-engine` service is now opt-in** via a Compose profile — a plain `docker compose up -d` will no longer try to build/start it locally, avoiding wasted resources once you're running it remotely.
+3. **New `docker-compose.chatterbox-remote.yml`** — a standalone compose file for the new EC2 instance, running only Chatterbox.
 
-1. Copy the 13 root-level files into your repo at their listed paths (overwriting existing ones), plus create the new `chatterbox-engine/` folder.
-2. If you haven't already, replace `frontend/src/` with `frontend-src-reorganized/`'s contents.
-3. Commit:
-   ```bash
-   git add .
-   git commit -m "Move Chatterbox to its own service; reorganize frontend/src"
-   git push origin main
+## Setup: on the NEW EC2 instance (Chatterbox only)
+
+1. Copy just the `chatterbox-engine/` folder there.
+2. Copy `docker-compose.chatterbox-remote.yml` there too.
+3. In that instance's `.env` (or directly in the compose file), set:
    ```
-4. On the server:
-   ```bash
-   cd /var/www/voxora
-   docker compose up -d --build ai-engine chatterbox-engine frontend backend
+   AI_ENGINE_API_KEY=<the SAME value as on your main server>
    ```
-5. Check it actually loaded:
+   This is the shared secret `ai-engine` sends in the `X-Engine-Key` header — it has to match, or requests get a 401.
+4. Start it:
    ```bash
-   docker compose logs chatterbox-engine
+   docker compose -f docker-compose.chatterbox-remote.yml up -d --build
+   docker compose -f docker-compose.chatterbox-remote.yml logs -f
    ```
-   Look for `✓ Chatterbox ready`. Then check `ai-engine` sees it:
+   Wait for `✓ Chatterbox ready`.
+5. **Security Group:** open port `8100` on this instance, ideally restricted to just your main server's IP (not the whole internet). The API key is defense-in-depth, not a substitute for network restriction.
+6. Sanity check from anywhere: `curl http://THIS_INSTANCE_IP:8100/` should return `{"status":"Online", ...}`.
+
+## Setup: back on your MAIN server (`/var/www/voxora`)
+
+1. Apply the updated files from this zip.
+2. In your main server's `.env`, add:
+   ```
+   CHATTERBOX_ENGINE_URL=http://YOUR_NEW_INSTANCE_IP:8100
+   ```
+3. Stop the local Chatterbox container (it's no longer used) and bring everything else up cleanly:
+   ```bash
+   docker compose up -d --remove-orphans
+   ```
+   `--remove-orphans` stops the currently-running local `voice_chatterbox` container, since it's no longer part of the active service set once you're pointing remotely.
+4. Confirm:
    ```bash
    docker compose logs ai-engine | grep -i chatterbox
    ```
-   Should say `✓ Chatterbox ready (via http://chatterbox-engine:8100)` — it may briefly say "not reachable yet" if `ai-engine` finishes starting before `chatterbox-engine` does; that's fine, it's rechecked automatically every 15 seconds.
+   Should say `✓ Chatterbox ready (via http://YOUR_NEW_INSTANCE_IP:8100)` — and `ai-engine` should stay stable (no more restart loop) now that the memory pressure is split across two machines.
 
-## Known limitation
-This was built and verified for syntax/structure (Python compiles, YAML parses, frontend builds clean) in a sandboxed environment without the ability to run `docker compose up` against real hardware. Please run the steps above and let me know what `docker compose logs chatterbox-engine` shows — happy to debug further if anything comes up on the first real run.
+## If you ever want Chatterbox back on the main server instead
+
+```bash
+# remove/comment CHATTERBOX_ENGINE_URL from .env, then:
+docker compose --profile local-chatterbox up -d
+```

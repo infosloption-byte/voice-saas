@@ -61,7 +61,7 @@ services:
     environment:
       - COQUI_TOS_AGREED=1
       - ALLOWED_ORIGINS=https://usevoxora.online
-      - CHATTERBOX_ENGINE_URL=http://chatterbox-engine:8100
+      - CHATTERBOX_ENGINE_URL=${CHATTERBOX_ENGINE_URL:-http://chatterbox-engine:8100}
     command: uvicorn main:app --host 0.0.0.0 --port 8000
     restart: unless-stopped
     networks:
@@ -78,7 +78,12 @@ services:
   # unresolvable against ai-engine's XTTS pins. See the main
   # docker-compose.yml for the full explanation. Not required for
   # XTTS/F5 to keep working.
+  #
+  # OPT-IN via profile — see docker-compose.yml's comment on this same
+  # service for local vs. remote (docker-compose.chatterbox-remote.yml)
+  # deployment options.
   chatterbox-engine:
+    profiles: ["local-chatterbox"]
     build:
       context: ./chatterbox-engine
       dockerfile: Dockerfile

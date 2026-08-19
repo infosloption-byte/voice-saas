@@ -1,0 +1,61 @@
+# docker-compose.chatterbox-remote.yml
+#
+# Deploy ONLY chatterbox-engine on a separate EC2 instance from your main
+# Voxora server — same idea as docker-compose.gcp.yml / .runpod.yml for a
+# remote F5-TTS GPU box, one level more granular: only Chatterbox moves,
+# ai-engine (XTTS/F5) keeps running on your main server as normal.
+#
+# WHY: ai-engine + chatterbox-engine loaded simultaneously on one small
+# instance can exceed available RAM, causing an OOM-kill restart loop with
+# no error text (both processes just keep restarting). Splitting them
+# across two machines fixes that without needing a bigger single instance.
+#
+# ── Setup on THIS (new) EC2 instance ────────────────────────────────
+# 1. Copy just the chatterbox-engine/ folder to this box (you don't need
+#    the rest of the Voxora repo here).
+# 2. Copy this file alongside it as docker-compose.yml, or use -f:
+#      docker compose -f docker-compose.chatterbox-remote.yml up -d --build
+# 3. Set CHATTERBOX_ENGINE_API_KEY below to the SAME value as
+#    AI_ENGINE_API_KEY on your MAIN server — this is the shared secret
+#    ai-engine sends as the X-Engine-Key header. Without a matching key,
+#    ai-engine's requests will get a 401 from this service.
+# 4. Open port 8100 in this instance's Security Group — ideally restricted
+#    to just your main server's IP (or VPC CIDR if they're peered), not
+#    the whole internet. The API key is defense in depth, not a
+#    substitute for network-level restriction.
+#
+# ── Setup back on your MAIN server ──────────────────────────────────
+# In your main server's .env, set:
+#   CHATTERBOX_ENGINE_URL=http://THIS_INSTANCE_PUBLIC_IP:8100
+# (or a domain/private IP if you have one — just needs to be reachable
+# from the main server). Then make sure the local chatterbox-engine
+# profile is NOT running there (it's opt-in — see docker-compose.yml's
+# comment on the chatterbox-engine service):
+#   docker compose up -d --remove-orphans
+# --remove-orphans stops the local chatterbox-engine container if it was
+# previously running under the local-chatterbox profile, since it's no
+# longer part of the active service set once you're pointing remotely.
+
+services:
+  chatterbox-engine:
+    build:
+      context: ./chatterbox-engine
+      dockerfile: Dockerfile
+    container_name: voice_chatterbox
+    restart: unless-stopped
+    ports:
+      - "8100:8100"
+    volumes:
+      - chatterbox_models:/root/.cache/huggingface
+    environment:
+      - CHATTERBOX_ENGINE_API_KEY=${AI_ENGINE_API_KEY:-}
+    command: uvicorn main:app --host 0.0.0.0 --port 8100
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+
+volumes:
+  chatterbox_models:

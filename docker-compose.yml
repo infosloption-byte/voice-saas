@@ -150,7 +150,7 @@ services:
       - AI_ENGINE_API_KEY=${AI_ENGINE_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - SYNTH_WORKERS=${SYNTH_WORKERS:-1}
-      - CHATTERBOX_ENGINE_URL=http://chatterbox-engine:8100
+      - CHATTERBOX_ENGINE_URL=${CHATTERBOX_ENGINE_URL:-http://chatterbox-engine:8100}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
@@ -171,7 +171,21 @@ services:
   # transformers==4.36.2). ai-engine proxies to this container over HTTP
   # instead of loading Chatterbox in-process. Not required for XTTS/F5 to
   # keep working — ai-engine degrades gracefully if this is unreachable.
+  #
+  # OPT-IN via profile — NOT started by a plain `docker compose up`.
+  # Two ways to run Chatterbox:
+  #   (a) LOCAL, same box as everything else — only if you have RAM to
+  #       spare (XTTS + Whisper + Chatterbox all loaded together is
+  #       genuinely heavy on a small instance and can cause OOM restart
+  #       loops). Start it explicitly:
+  #         docker compose --profile local-chatterbox up -d
+  #   (b) REMOTE, on its own EC2/GPU box — recommended if RAM is tight.
+  #       Deploy chatterbox-engine/ alone there (see
+  #       docker-compose.chatterbox-remote.yml), then set
+  #       CHATTERBOX_ENGINE_URL in this server's .env to that box's
+  #       reachable address and DON'T start this local profile at all.
   chatterbox-engine:
+    profiles: ["local-chatterbox"]
     build:
       context: ./chatterbox-engine
       dockerfile: Dockerfile
