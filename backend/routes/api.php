@@ -3,6 +3,7 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\EngineConfigController;
+use App\Http\Controllers\Admin\TtsEngineSettingsController;
 use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\AdminStatsController;
 use App\Http\Controllers\Admin\AdminSubscriptionController;
@@ -191,6 +192,12 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::delete('/admin/engines/{engineConfig}',         [EngineConfigController::class, 'destroy']);
     Route::post(  '/admin/engines/{engineConfig}/activate',[EngineConfigController::class, 'activate']);
     Route::post(  '/admin/engines/{engineConfig}/test',    [EngineConfigController::class, 'test']);
+
+    // Per-engine platform-wide availability toggles (xtts/f5/chatterbox) —
+    // distinct from /admin/engines above, which swaps the entire ai-engine
+    // HOST. This controls which individual engines are offered to users.
+    Route::get( '/admin/tts-engines',          [TtsEngineSettingsController::class, 'index']);
+    Route::put( '/admin/tts-engines/{engine}', [TtsEngineSettingsController::class, 'update']);
 
     // Activity logs (all users)
     Route::get('/admin/activity-logs', [ActivityLogController::class, 'adminIndex']);

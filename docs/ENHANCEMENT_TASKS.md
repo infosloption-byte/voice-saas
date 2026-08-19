@@ -10,6 +10,7 @@
 | 2 | Self-hosted infrastructure marketing | P1 | ✅ Done — Aug 15, 2026 |
 | 3 | Honest-ify RVC/F5-TTS UI state | P1 | ✅ Done — Aug 15, 2026 |
 | 4 | Add Chatterbox as a third TTS engine option | P1 | ✅ Done — Aug 15, 2026 |
+| 4a | Multi-engine admin control (separate from AI Engine host-swap) | P1 | ✅ Done — Aug 19, 2026 |
 | 5 | Public API tier | P1 | Not started |
 | 6 | Video dubbing MVP | P1 | Not started |
 | 7 | Base model quality tier | P1 | Not started |
@@ -131,7 +132,22 @@ Since the operator is standing up a second EC2 instance dedicated to Chatterbox 
 - Verified: all 5 compose files (including the new one) parse as valid YAML.
 - **Still not verified end-to-end** — this is a second round of infrastructure changes built without the ability to run real `docker compose up` in this sandbox. The operator should deploy the new instance, then confirm from the main server: `curl http://REMOTE_IP:8100/` returns `{"status":"Online", ...}`, and that `docker compose logs ai-engine` shows `✓ Chatterbox ready (via http://REMOTE_IP:8100)` without restart-looping now that the memory pressure is split across two machines.
 
-### 5. Public API tier for developers
+### 4a. Multi-engine admin control (separate from AI Engine host-swap) ✅ DONE
+
+**The gap:** after deploying Chatterbox as a working separate service, the operator went to Admin → AI Engines and added it there as a new engine entry alongside "Local Server" — because that panel's "Test" button showed it as Online. This is a dangerous trap in the existing UI, not user error: `EngineConfig`/`EngineResolver` was built to swap the entire `ai-engine` HOST the backend talks to (synthesis, voice profiles, transcription, translation — everything), and only one can be `is_active` at a time. `chatterbox-engine` only implements `/` and `/synthesize` — activating it there would have broken the whole platform, and the panel had no way to warn against this since both services happen to respond successfully to a basic `GET /`.
+
+The deeper, legitimate ask underneath this: admins want to independently enable/disable each **TTS engine** (XTTS/F5/Chatterbox) platform-wide, and have that — combined with real reachability — determine what users see in the engine picker. That's a genuinely different concept from host-swapping, and didn't exist as a feature at all.
+
+**What was built:**
+- New `tts_engine_settings` table (migration `2026_08_19_000001_...`), one row per engine (`xtts`/`f5`/`chatterbox`), each with an `enabled` boolean. Seeded all three as enabled by default — non-breaking, matches pre-existing behavior (no admin gate at all).
+- `TtsEngineSetting` model, `TtsEngineSettingsController` (`GET /admin/tts-engines`, `PUT /admin/tts-engines/{engine}`) — validates the engine name against `EngineResolver::SUPPORTED_TTS_ENGINES` (the same canonical list from task #4's fix, so adding a 4th engine later only means updating that one constant), and refuses to let an admin disable the *last* remaining enabled engine (would strand every user, including the guest trial flow, with zero synthesis capability).
+- `EngineCapabilitiesController` rewritten: previously reported an engine as available purely from ai-engine's raw reachability. Now combines that with the admin's `enabled` flag (cached 30s, busted immediately on any toggle) — an engine only reaches the user-facing picker if it's **both** admin-enabled **and** actually online. Neither signal alone is sufficient.
+- New Admin → **TTS Engines** panel (separate section from AI Engines, placed directly after it in the sidebar), with a toggle per engine. Also added a clarifying warning directly on the AI Engine Routing page itself, explaining what NOT to add there and pointing to the new panel instead — aimed at preventing the exact mistake that surfaced this gap from happening to anyone else.
+- No changes needed to the user-facing Settings/Workspace engine picker itself — it already correctly renders whatever `engineCaps` reports, so gating that data at the source (the capabilities endpoint) was sufficient to close the whole gap without touching that UI.
+- Verified: PHP brace/paren balance checks on all new/changed files (no PHP linter in this sandbox), `tsc -b` and `vite build` both clean with identical bundle size to before.
+- **Not yet built, flagged as a possible follow-up:** a duplicate engine picker directly on the Voice Profiles page (it currently shows the globally-selected engine with a hint pointing to Settings/Workspace to change it — a deliberate single-source-of-truth choice, not necessarily a gap, but the operator specifically called it out so it's worth a follow-up if wanted).
+
+
 - **What:** Issue scoped API keys per user/plan, meter usage against the existing `SynthesisQuota` / `TranslationQuota` services, publish basic docs (endpoints, auth, rate limits, example request).
 - **Why:** Every major competitor (ElevenLabs, Murf, historically Play.ht) monetizes a developer/API segment separately from the UI product. Voxora's engine proxy and quota services already exist internally — this is largely exposing what's already built, not new infrastructure.
 - **Effort:** Medium. New `api_keys` table + auth guard (Sanctum personal access tokens are a natural fit), a docs page, and rate-limit tiers per plan.

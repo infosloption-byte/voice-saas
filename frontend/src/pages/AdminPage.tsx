@@ -1051,6 +1051,9 @@ function EnginesSection() {
         Switch the active AI engine between your local server and RunPod (or any external host) without redeployment.
         Changes take effect within 30 seconds.
       </p>
+      <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 18px', lineHeight: 1.6, maxWidth: 640, background: 'var(--warn-lt)', border: '1px solid rgba(160,117,48,0.25)', borderRadius: 'var(--radius-sm)', padding: '8px 12px' }}>
+        This is for swapping the entire AI engine deployment (XTTS, transcription, voice profiles — everything routes here). Don't add a standalone TTS microservice like chatterbox-engine here — it only implements synthesis and can't serve the rest of the app. To enable/disable individual TTS engines (XTTS, F5-TTS, Chatterbox) for users, use <strong>TTS Engines</strong> below instead.
+      </p>
 
       {loading && engines.length === 0 ? (
         <div style={{ padding: 30, color: 'var(--text-3)', fontSize: 13 }}>
@@ -1116,6 +1119,100 @@ function EnginesSection() {
         </div>
       ) : (
         <button className="btn btn--ghost btn--sm" onClick={() => setShowAdd(true)}>+ Add engine</button>
+      )}
+    </div>
+  )
+}
+
+// ── TTS Engines (per-engine availability, distinct from AI Engine host-swap above) ──
+interface TtsEngineSettingRow { id: number; engine: 'xtts' | 'f5' | 'chatterbox'; enabled: boolean }
+
+const TTS_ENGINE_LABELS: Record<string, { label: string; desc: string }> = {
+  xtts:       { label: 'XTTS v2',    desc: 'Multilingual (16 languages), default engine.' },
+  f5:         { label: 'F5-TTS',     desc: 'Flow-matching, English-first, needs GPU on most deployments.' },
+  chatterbox: { label: 'Chatterbox', desc: 'Resemble AI, MIT-licensed, runs as a separate service.' },
+}
+
+function AdminToggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <button
+      role="switch" aria-checked={checked} disabled={disabled}
+      onClick={() => onChange(!checked)}
+      style={{ width: 40, height: 22, borderRadius: 11, background: checked ? 'var(--accent)' : 'var(--border-2)', border: 'none', cursor: disabled ? 'not-allowed' : 'pointer', position: 'relative', transition: 'background 0.18s', flexShrink: 0, opacity: disabled ? 0.6 : 1 }}
+    >
+      <span style={{ position: 'absolute', top: 3, left: checked ? 21 : 3, width: 16, height: 16, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.18)', transition: 'left 0.18s' }} />
+    </button>
+  )
+}
+
+function TtsEnginesSection() {
+  const [rows, setRows] = useState<TtsEngineSettingRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [savingEngine, setSavingEngine] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    api.get('/admin/tts-engines')
+      .then(d => setRows(d as TtsEngineSettingRow[]))
+      .catch(() => toast.err('Failed to load TTS engine settings'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const handleToggle = async (engine: string, next: boolean) => {
+    setSavingEngine(engine)
+    const prev = rows
+    setRows(r => r.map(row => row.engine === engine ? { ...row, enabled: next } : row))
+    try {
+      await api.put(`/admin/tts-engines/${engine}`, { enabled: next })
+      toast.ok(`${TTS_ENGINE_LABELS[engine]?.label ?? engine} ${next ? 'enabled' : 'disabled'} for users`)
+    } catch (e: any) {
+      setRows(prev)   // revert optimistic update
+      const msg = e?.data?.error ?? e?.message ?? 'Could not update TTS engine setting'
+      toast.err(msg)
+    } finally {
+      setSavingEngine(null)
+    }
+  }
+
+  return (
+    <div>
+      <SectionHeader title="TTS Engines" onRefresh={load} loading={loading} />
+      <p style={{ fontSize: 13, color: 'var(--text-2)', margin: '0 0 18px', lineHeight: 1.6, maxWidth: 640 }}>
+        Enable or disable which voice synthesis engines are offered to users platform-wide. A disabled engine
+        won't appear in the engine picker even if it's technically reachable — a enabled-but-unreachable engine
+        still won't be usable until it comes back online. At least one engine must stay enabled.
+      </p>
+
+      {loading && rows.length === 0 ? (
+        <div style={{ padding: 30, color: 'var(--text-3)', fontSize: 13 }}>
+          <span className="spinner" style={{ width: 13, height: 13, marginRight: 8 }} />Loading…
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 640 }}>
+          {rows.map(row => {
+            const meta = TTS_ENGINE_LABELS[row.engine] ?? { label: row.engine, desc: '' }
+            return (
+              <div key={row.id} style={{
+                padding: '14px 16px', borderRadius: 'var(--radius)',
+                border: `1px solid ${row.enabled ? 'var(--accent)' : 'var(--border-2)'}`,
+                background: row.enabled ? 'var(--accent-lt)' : 'var(--surface-2)',
+                display: 'flex', alignItems: 'center', gap: 12,
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-1)', marginBottom: 2 }}>{meta.label}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{meta.desc}</div>
+                </div>
+                <AdminToggle
+                  checked={row.enabled}
+                  disabled={savingEngine === row.engine}
+                  onChange={v => handleToggle(row.engine, v)}
+                />
+              </div>
+            )
+          })}
+        </div>
       )}
     </div>
   )
@@ -1806,7 +1903,7 @@ function SystemCheckSection() {
 }
 
 // ── Main AdminPage ─────────────────────────────────────────────────
-type AdminSection = 'overview' | 'users' | 'activity' | 'subscriptions' | 'engines' | 'reports' | 'plans' | 'broadcast' | 'settings' | 'system' | 'audit'
+type AdminSection = 'overview' | 'users' | 'activity' | 'subscriptions' | 'engines' | 'tts-engines' | 'reports' | 'plans' | 'broadcast' | 'settings' | 'system' | 'audit'
 
 const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
   { id: 'overview',      label: 'Overview',       icon: '◈' },
@@ -1816,6 +1913,7 @@ const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
   { id: 'reports',       label: 'Reports',        icon: '▦' },
   { id: 'plans',         label: 'Plan Limits',    icon: '◧' },
   { id: 'engines',       label: 'AI Engines',     icon: '⚡' },
+  { id: 'tts-engines',   label: 'TTS Engines',    icon: '◭' },
   { id: 'broadcast',     label: 'Broadcast',      icon: '◳' },
   { id: 'settings',      label: 'Settings',       icon: '⚙' },
   { id: 'system',        label: 'System Check',   icon: '✚' },
@@ -1922,6 +2020,7 @@ export function AdminPage({ user, onBack, standalone }: { user: User; onBack?: (
         {section === 'reports'       && <ReportsSection />}
         {section === 'plans'         && <PlansSection />}
         {section === 'engines'       && <EnginesSection />}
+        {section === 'tts-engines'   && <TtsEnginesSection />}
         {section === 'broadcast'     && <BroadcastSection />}
         {section === 'settings'      && <AppSettingsSection currentUser={user} />}
         {section === 'system'        && <SystemCheckSection />}
