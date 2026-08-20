@@ -4,6 +4,7 @@ import { toast } from '../lib/toast'
 import { icons, EMOJIS } from '../lib/constants'
 import { fmt, uid, useAudioRecorder } from '../lib/audio'
 import { useTTSEngine } from '../hooks/useTTSEngine'
+import { EngineSwitcher } from '../components/EngineSwitcher'
 import { getAudioPrefs } from '../hooks/useAudioSettings'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { type GateType } from '../hooks/useGuestSession'
@@ -972,7 +973,7 @@ export function ProjectsPage({ projects, onOpen, onDelete, onNew }: {
 }
 
 // ── Voice Profiles ─────────────────────────────────────────────────
-export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
+export function ProfilesPage({ profiles, onRefresh, engineCaps,
   isGuest, guestProfilesCount, guestPreviewsUsed, guestLimits = DEFAULT_GUEST_LIMITS,
   onGuestSave, onGuestDelete, onGuestGate, onIncrementPreview, getGuestVoiceBlob,
 }: {
@@ -992,7 +993,7 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
   const recorder = useAudioRecorder()
 
   // Read current engine preference so preview uses the same engine as synthesis
-  const { engine } = useTTSEngine()
+  const { engine, setEngine } = useTTSEngine()
 
   // Must match VoiceProfileStore::MAX_CLIPS (Laravel) and MAX_PROFILE_CLIPS
   // (ai-engine) — the number of reference clips a profile can hold.
@@ -1196,9 +1197,6 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
 
   // Engine label shown next to the preview input
   const engineLabel = engine === 'f5' ? 'F5-TTS' : engine === 'chatterbox' ? 'Chatterbox' : 'XTTS v2'
-  const engineColor = engine === 'f5' ? '#4278c9' : engine === 'chatterbox' ? '#e0703c' : 'var(--accent)'
-  const engineBg    = engine === 'f5' ? 'rgba(66,120,201,0.10)' : engine === 'chatterbox' ? 'rgba(224,112,60,0.10)' : 'var(--accent-lt)'
-  const engineBorder = engine === 'f5' ? 'rgba(66,120,201,0.25)' : engine === 'chatterbox' ? 'rgba(224,112,60,0.25)' : 'var(--accent-mid)'
 
   return (
     <div>
@@ -1329,18 +1327,10 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps: _engineCaps,
                   onChange={e => setPreviewText(e.target.value)}
                   placeholder="Preview text…"
                 />
-                <span style={{
-                  fontSize: 10, fontWeight: 700, letterSpacing: '0.4px',
-                  textTransform: 'uppercase', padding: '3px 8px', borderRadius: 5,
-                  background: engineBg, color: engineColor,
-                  border: `1px solid ${engineBorder}`, flexShrink: 0,
-                }} title={`Previewing with ${engineLabel}`}>
-                  {engineLabel}
-                </span>
+                <EngineSwitcher engine={engine} setEngine={setEngine} engineCaps={engineCaps ?? { xtts: false, f5: false }} align="left" />
               </div>
               <p style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>
-                Preview uses your currently selected engine. Switch it in{' '}
-                <strong>Settings → Audio & Synthesis</strong> or the workspace footer.
+                Preview uses your currently selected engine — click it above to switch.
               </p>
             </div>
           )}
