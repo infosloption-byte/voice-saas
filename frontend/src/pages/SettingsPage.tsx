@@ -4,7 +4,8 @@ import { api } from '../lib/api'
 import { toast } from '../lib/toast'
 import { icons } from '../lib/constants'
 import { LogoMark } from './LandingPage'
-import { useTTSEngine, type TTSEngine } from '../hooks/useTTSEngine'
+import { useTTSEngine } from '../hooks/useTTSEngine'
+import { getEngineOptions } from '../lib/engineOptions'
 import { getAudioPrefs, saveAudioPrefs, getAppearancePrefs, saveAppearancePrefs } from '../hooks/useAudioSettings'
 import type { EngineCaps, Subscription, Plan } from '../lib/types'
 
@@ -357,11 +358,22 @@ function AudioSettings({ engineCaps, onSave }: { engineCaps: EngineCaps; onSave:
     { code: 'ja', label: 'Japanese'}, { code: 'zh', label: 'Chinese' },
   ]
 
-  const engineOptions: { id: TTSEngine; label: string; desc: string; color: string; bg: string; border: string; available: boolean }[] = [
-    { id: 'xtts', label: 'XTTS v2', desc: '16 languages', color: 'var(--accent)', bg: 'var(--accent-lt)', border: 'var(--accent)', available: engineCaps.xtts },
-    { id: 'f5',   label: 'F5-TTS',  desc: 'English-first', color: '#4278c9', bg: 'rgba(66,120,201,0.08)', border: '#4278c9', available: engineCaps.f5 },
-    { id: 'chatterbox', label: 'Chatterbox', desc: 'MIT-licensed', color: '#e0703c', bg: 'rgba(224,112,60,0.08)', border: '#e0703c', available: engineCaps.chatterbox ?? false },
-  ]
+  // bg/border are Settings' own card styling — not shared with EngineSwitcher's
+  // dropdown, which uses a different visual treatment. label/color/available/
+  // desc/warning all come from the shared getEngineOptions() below instead of
+  // being duplicated here, so this file can't silently drift out of sync with
+  // EngineSwitcher.tsx on the actual availability logic or warning copy.
+  const CARD_STYLE: Record<string, { bg: string; border: string }> = {
+    xtts:       { bg: 'var(--accent-lt)',        border: 'var(--accent)' },
+    f5:         { bg: 'rgba(66,120,201,0.08)',   border: '#4278c9' },
+    chatterbox: { bg: 'rgba(224,112,60,0.08)',   border: '#e0703c' },
+  }
+  const engineOptions = getEngineOptions(engineCaps).map(opt => ({
+    ...opt,
+    desc: opt.descShort,
+    bg: CARD_STYLE[opt.id]?.bg ?? 'var(--surface)',
+    border: CARD_STYLE[opt.id]?.border ?? 'var(--border-2)',
+  }))
 
   return (
     <div>
