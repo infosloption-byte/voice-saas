@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { toast } from '../lib/toast'
 import { icons } from '../lib/constants'
 import type { TTSEngine } from '../hooks/useTTSEngine'
@@ -30,21 +30,28 @@ export function EngineBadge({ engine, size = 'sm' }: { engine: TTSEngine; size?:
   )
 }
 
+const VIEWPORT_MARGIN = 12
+
 /**
  * Reusable TTS engine picker dropdown. Shared between the Workspace editor
  * footer and the Voice Profiles page so switching engines doesn't require
  * a trip to Settings — both surfaces read/write the same `useTTSEngine()`
  * localStorage-backed preference, so a change here is picked up wherever
  * that hook is next read (e.g. on next render/navigation).
+ *
+ * Positioning is computed against the viewport (not the trigger's nearest
+ * relative ancestor), and flips/clamps on both axes so the panel never
+ * renders partly off-screen regardless of where the trigger sits on the
+ * page — bottom-of-page, right edge, mobile widths, etc.
  */
-export function EngineSwitcher({ engine, setEngine, engineCaps, align = 'center' }: {
+export function EngineSwitcher({ engine, setEngine, engineCaps }: {
   engine: TTSEngine
   setEngine: (e: TTSEngine) => void
   engineCaps: EngineCaps
-  /** Horizontal anchor of the dropdown relative to the trigger button. */
-  align?: 'left' | 'center'
 }) {
   const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({})
 
   const currentEngineAvailable =
     engine === 'f5' ? engineCaps.f5 :
@@ -83,9 +90,42 @@ export function EngineSwitcher({ engine, setEngine, engineCaps, align = 'center'
     },
   ]
 
+  // Measure the trigger + panel after the panel mounts, then pick whichever
+  // side (above/below, left/right-clamped) actually has room. Runs via ref
+  // callback so it fires with real dimensions rather than guessed ones.
+  function positionPanel(el: HTMLDivElement | null) {
+    if (!el || !triggerRef.current) return
+    const tb = triggerRef.current.getBoundingClientRect()
+    const panelW = el.offsetWidth
+    const panelH = el.offsetHeight
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+
+    // Vertical: prefer below; flip above if not enough room below but
+    // there IS enough room above; otherwise clamp within viewport.
+    const spaceBelow = vh - tb.bottom
+    const spaceAbove = tb.top
+    let top: number
+    if (spaceBelow >= panelH + VIEWPORT_MARGIN || spaceBelow >= spaceAbove) {
+      top = tb.bottom + 6
+    } else {
+      top = tb.top - panelH - 6
+    }
+    top = Math.min(Math.max(VIEWPORT_MARGIN, top), Math.max(VIEWPORT_MARGIN, vh - panelH - VIEWPORT_MARGIN))
+
+    // Horizontal: align to the trigger's left edge by default, then clamp
+    // so the panel never spills past the right or left edge of the viewport.
+    let left = tb.left
+    if (left + panelW > vw - VIEWPORT_MARGIN) left = vw - panelW - VIEWPORT_MARGIN
+    left = Math.max(VIEWPORT_MARGIN, left)
+
+    setPanelStyle({ position: 'fixed', top, left, margin: 0, transform: 'none' })
+  }
+
   return (
     <div style={{ position: 'relative', display: 'inline-block' }}>
       <button
+        ref={triggerRef}
         className="btn btn--sm btn--ghost"
         onClick={() => setOpen(v => !v)}
         title="Switch TTS engine"
@@ -115,14 +155,19 @@ export function EngineSwitcher({ engine, setEngine, engineCaps, align = 'center'
             style={{ position: 'fixed', inset: 0, zIndex: 199 }}
             onClick={() => setOpen(false)}
           />
-          <div style={{
-            position: 'absolute', top: 'calc(100% + 6px)',
-            left: align === 'left' ? 0 : '50%',
-            transform: align === 'left' ? 'none' : 'translateX(-50%)',
-            background: 'var(--surface)', border: '1px solid var(--border-2)',
-            borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)',
-            zIndex: 200, width: 260, maxWidth: 'calc(100vw - 24px)', overflow: 'hidden',
-          }}>
+          <div
+            ref={positionPanel}
+            style={{
+              // Rendered off-screen for one frame until positionPanel measures
+              // it and flips to `fixed` with real coordinates — avoids a
+              // flash at a wrong/clipped position.
+              visibility: panelStyle.position ? 'visible' : 'hidden',
+              position: 'fixed', top: 0, left: 0,
+              background: 'var(--surface)', border: '1px solid var(--border-2)',
+              borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)',
+              zIndex: 200, width: 260, maxWidth: 'calc(100vw - 24px)', overflow: 'hidden',
+              ...panelStyle,
+            }}>
             <div style={{ padding: '8px 12px 6px', fontSize: 10, fontWeight: 700,
               textTransform: 'uppercase', letterSpacing: '0.7px', color: 'var(--text-3)' }}>
               TTS Engine

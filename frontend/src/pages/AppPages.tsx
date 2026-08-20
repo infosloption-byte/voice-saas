@@ -1327,7 +1327,7 @@ export function ProfilesPage({ profiles, onRefresh, engineCaps,
                   onChange={e => setPreviewText(e.target.value)}
                   placeholder="Preview text…"
                 />
-                <EngineSwitcher engine={engine} setEngine={setEngine} engineCaps={engineCaps ?? { xtts: false, f5: false }} align="left" />
+                <EngineSwitcher engine={engine} setEngine={setEngine} engineCaps={engineCaps ?? { xtts: false, f5: false }} />
               </div>
               <p style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>
                 Preview uses your currently selected engine — click it above to switch.
