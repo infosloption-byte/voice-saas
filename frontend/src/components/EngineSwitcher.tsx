@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { toast } from '../lib/toast'
 import { icons } from '../lib/constants'
 import type { TTSEngine } from '../hooks/useTTSEngine'
@@ -51,6 +51,7 @@ export function EngineSwitcher({ engine, setEngine, engineCaps }: {
 }) {
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const panelRef = useRef<HTMLDivElement | null>(null)
   const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({})
 
   const currentEngineAvailable =
@@ -90,37 +91,54 @@ export function EngineSwitcher({ engine, setEngine, engineCaps }: {
     },
   ]
 
-  // Measure the trigger + panel after the panel mounts, then pick whichever
-  // side (above/below, left/right-clamped) actually has room. Runs via ref
-  // callback so it fires with real dimensions rather than guessed ones.
-  function positionPanel(el: HTMLDivElement | null) {
-    if (!el || !triggerRef.current) return
-    const tb = triggerRef.current.getBoundingClientRect()
-    const panelW = el.offsetWidth
-    const panelH = el.offsetHeight
-    const vw = window.innerWidth
-    const vh = window.innerHeight
+  // Measure the trigger + panel once the panel is open, then pick whichever
+  // side (above/below, left/right-clamped) actually has room. This runs in
+  // a layout effect keyed only on `open` — NOT as an inline ref callback,
+  // since a ref callback re-created on every render gets called by React
+  // on every commit, and calling setState from it causes an infinite
+  // render loop (React error #185, "Maximum update depth exceeded").
+  useLayoutEffect(() => {
+    if (!open) return
 
-    // Vertical: prefer below; flip above if not enough room below but
-    // there IS enough room above; otherwise clamp within viewport.
-    const spaceBelow = vh - tb.bottom
-    const spaceAbove = tb.top
-    let top: number
-    if (spaceBelow >= panelH + VIEWPORT_MARGIN || spaceBelow >= spaceAbove) {
-      top = tb.bottom + 6
-    } else {
-      top = tb.top - panelH - 6
+    function reposition() {
+      const trigger = triggerRef.current
+      const el = panelRef.current
+      if (!trigger || !el) return
+      const tb = trigger.getBoundingClientRect()
+      const panelW = el.offsetWidth
+      const panelH = el.offsetHeight
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+
+      // Vertical: prefer below; flip above if not enough room below but
+      // there IS enough room above; otherwise clamp within viewport.
+      const spaceBelow = vh - tb.bottom
+      const spaceAbove = tb.top
+      let top: number
+      if (spaceBelow >= panelH + VIEWPORT_MARGIN || spaceBelow >= spaceAbove) {
+        top = tb.bottom + 6
+      } else {
+        top = tb.top - panelH - 6
+      }
+      top = Math.min(Math.max(VIEWPORT_MARGIN, top), Math.max(VIEWPORT_MARGIN, vh - panelH - VIEWPORT_MARGIN))
+
+      // Horizontal: align to the trigger's left edge by default, then clamp
+      // so the panel never spills past the right or left edge of the viewport.
+      let left = tb.left
+      if (left + panelW > vw - VIEWPORT_MARGIN) left = vw - panelW - VIEWPORT_MARGIN
+      left = Math.max(VIEWPORT_MARGIN, left)
+
+      setPanelStyle({ position: 'fixed', top, left, margin: 0, transform: 'none' })
     }
-    top = Math.min(Math.max(VIEWPORT_MARGIN, top), Math.max(VIEWPORT_MARGIN, vh - panelH - VIEWPORT_MARGIN))
 
-    // Horizontal: align to the trigger's left edge by default, then clamp
-    // so the panel never spills past the right or left edge of the viewport.
-    let left = tb.left
-    if (left + panelW > vw - VIEWPORT_MARGIN) left = vw - panelW - VIEWPORT_MARGIN
-    left = Math.max(VIEWPORT_MARGIN, left)
-
-    setPanelStyle({ position: 'fixed', top, left, margin: 0, transform: 'none' })
-  }
+    reposition()
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+    return () => {
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+    }
+  }, [open])
 
   return (
     <div style={{ position: 'relative', display: 'inline-block' }}>
@@ -156,11 +174,11 @@ export function EngineSwitcher({ engine, setEngine, engineCaps }: {
             onClick={() => setOpen(false)}
           />
           <div
-            ref={positionPanel}
+            ref={panelRef}
             style={{
-              // Rendered off-screen for one frame until positionPanel measures
-              // it and flips to `fixed` with real coordinates — avoids a
-              // flash at a wrong/clipped position.
+              // Rendered hidden for one frame until the layout effect measures
+              // it and flips to real fixed coordinates — avoids a flash at
+              // a wrong/clipped position.
               visibility: panelStyle.position ? 'visible' : 'hidden',
               position: 'fixed', top: 0, left: 0,
               background: 'var(--surface)', border: '1px solid var(--border-2)',
