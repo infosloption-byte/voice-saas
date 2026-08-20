@@ -1056,6 +1056,56 @@ async def transcribe(
                 os.remove(p)
 
 
+@app.post("/transcribe/segments")
+async def transcribe_segments(
+    file: UploadFile = File(...),
+    _key: None = Depends(verify_api_key),
+):
+    """Like /transcribe, but also returns per-segment start/end timestamps.
+
+    Added for video dubbing (task #6): the dubbing pipeline needs to know how
+    much time each sentence/phrase originally occupied so the translated,
+    re-synthesized audio can be stretched or padded to match. openai-whisper
+    already computes segment boundaries internally (result["segments"]) — the
+    plain /transcribe endpoint just never surfaced them. Kept as a separate
+    endpoint rather than changing /transcribe's response shape, so nothing
+    that already parses {"text": ...} elsewhere breaks.
+    """
+    if not models["stt"]:
+        raise HTTPException(503, "Transcription model still loading…")
+
+    await check_file_size(file)
+    raw_path = tmp_path("stt_raw")
+    wav_path = tmp_path("stt", ".wav")
+
+    try:
+        with open(raw_path, "wb") as b:
+            b.write(await file.read())
+
+        if not convert_to_wav(raw_path, wav_path):
+            raise HTTPException(400, "Could not convert audio.")
+
+        result = models["stt"].transcribe(wav_path)
+        segments = [
+            {
+                "start": round(float(s["start"]), 3),
+                "end":   round(float(s["end"]), 3),
+                "text":  s["text"].strip(),
+            }
+            for s in result.get("segments", [])
+            if s.get("text", "").strip()
+        ]
+        return {"text": result["text"], "segments": segments, "language": result.get("language")}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    finally:
+        for p in [raw_path, wav_path]:
+            if os.path.exists(p):
+                os.remove(p)
+
+
 # ── FEATURE 2: SAVE VOICE PROFILE ────────────────────────────────
 MAX_PROFILE_CLIPS = 4
 

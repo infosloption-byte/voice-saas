@@ -74,6 +74,24 @@ return [
             'report'                  => false,
         ], fn($v) => $v !== null),
 
+        // ── Video disk (task #6, video dubbing) ─────────────────────
+        // Separate from 'audio' on purpose: video files run much larger than
+        // synthesized audio, so this is deliberately a distinct disk (and can
+        // point at a distinct S3 bucket/lifecycle policy) rather than sharing
+        // the audio bucket's retention/cost assumptions. Flip VIDEO_DISK=s3 +
+        // AWS_* creds (VIDEO_BUCKET falls back to the shared AWS_BUCKET if
+        // you'd rather keep one bucket) to migrate from local to S3.
+        'video' => array_filter([
+            'driver'                  => env('VIDEO_DISK', 'local'),
+            'root'                    => env('VIDEO_DISK', 'local') === 's3' ? null : storage_path('app/video'),
+            'key'                     => env('AWS_ACCESS_KEY_ID'),
+            'secret'                  => env('AWS_SECRET_ACCESS_KEY'),
+            'region'                  => env('AWS_DEFAULT_REGION'),
+            'bucket'                  => env('VIDEO_BUCKET', env('AWS_BUCKET')),
+            'throw'                   => false,
+            'report'                  => false,
+        ], fn($v) => $v !== null),
+
     ],
 
     /*

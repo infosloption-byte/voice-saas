@@ -28,6 +28,7 @@ use App\Http\Controllers\ScriptController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\SynthesisUsageController;
 use App\Http\Controllers\TranslationUsageController;
+use App\Http\Controllers\VideoDubbingController;
 use App\Http\Controllers\VoiceProfileController;
 
 // ── Public auth routes ────────────────────────────────────────────────
@@ -157,6 +158,24 @@ Route::middleware('throttle:120,1')->group(function () {
 // Authenticated: queue a bulk synthesis job that runs server-side.
 Route::middleware(['auth:sanctum', 'throttle:10,1'])->group(function () {
     Route::post('/engine/synthesize/bulk-queue', [EngineSynthesisProxyController::class, 'queueBulk']);
+});
+
+// ── Video dubbing (task #6, authenticated, queued job) ─────────────────
+// No guest tier: unlike clone-voice/translate, a dubbing job consumes both
+// translation AND synthesis quota plus real ffmpeg/GPU time per video, so
+// it's gated behind an account from day one. submit is throttled tighter
+// than bulk-queue (5/min vs 10/min) since a video job is much heavier per
+// request; status/result use the same jobId format constraint as the
+// engine's own job endpoints to block path traversal.
+Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
+    Route::post('/dubbing/submit', [VideoDubbingController::class, 'submit']);
+});
+
+Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
+    Route::get('/dubbing/status/{jobId}', [VideoDubbingController::class, 'status'])
+        ->where('jobId', '[A-Za-z0-9\-]{1,64}');
+    Route::get('/dubbing/result/{jobId}', [VideoDubbingController::class, 'result'])
+        ->where('jobId', '[A-Za-z0-9\-]{1,64}');
 });
 
 // ── Engine proxy: endpoints the frontend used to call directly (/ai/...) ──

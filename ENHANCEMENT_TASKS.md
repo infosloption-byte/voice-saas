@@ -12,7 +12,7 @@
 | 4 | Add Chatterbox as a third TTS engine option | P1 | ✅ Done — Aug 15, 2026 |
 | 4a | Multi-engine admin control (separate from AI Engine host-swap) | P1 | ✅ Done — Aug 19, 2026 |
 | 5 | Public API tier | P1 | Not started |
-| 6 | Video dubbing MVP | P1 | Not started |
+| 6 | Video dubbing MVP | P1 | Backend done — Aug 20, 2026 (frontend pending) |
 | 7 | Base model quality tier | P1 | Not started |
 | 8 | Public system-health status page | P2 | Not started |
 | 9 | No-signup "try your voice" widget | P2 | Not started |
@@ -163,11 +163,29 @@ This closes out task 4a completely — all three engine-selection surfaces (Work
 - **Effort:** Medium. New `api_keys` table + auth guard (Sanctum personal access tokens are a natural fit), a docs page, and rate-limit tiers per plan.
 - **Done when:** A developer can generate an API key from Settings, hit a documented `/api/v1/synthesize` endpoint with it, and see usage count against their plan's quota.
 
-### 6. Video dubbing MVP
+### 6. Video dubbing MVP — Backend done, Aug 20, 2026 (frontend pending)
 - **What:** Upload a video → transcribe (Whisper, already integrated) → translate (Gemini, already integrated) → clone-synthesize in the target language (XTTS, already integrated) → mux the new audio track back onto the video.
 - **Why:** Dubbing is one of the fastest-growing categories in this market in 2026 (ElevenLabs and Murf both lead heavily with it) and Voxora currently has zero equivalent, despite already owning every individual building block (STT, translation, cloning).
 - **Effort:** Medium–Large. Not new ML — it's an orchestration pipeline (background job that chains 3 existing capabilities) plus a video upload/mux step (ffmpeg, already used elsewhere in the codebase) plus new UI.
 - **Done when:** A user can upload a short video, pick a target language, and download a version dubbed in their cloned voice with audio synced to the original timing (even if imperfect lip-sync — audio-only dubbing is an acceptable v1).
+
+**What was actually done:** Built as a queued job pipeline, structured the same way as the existing `BulkSynthesisJob` (dispatch → poll → notify), so it fits the codebase's established async-job pattern rather than inventing a new one. Segment-matched timing was chosen over the simpler "one continuous track" approach after discussion, since Voxora's dubbing candidates skew toward talking-head/tutorial content where timing drift is more noticeable.
+
+- **`ai-engine/main.py`** — added a new `/transcribe/segments` endpoint. The existing `/transcribe` only ever returned flat text (`{"text": ...}`); openai-whisper computes per-segment start/end timestamps internally but nothing surfaced them. This was the one genuinely missing piece — segment timing is the foundation the whole fit-to-window logic depends on. Kept as a separate endpoint rather than changing `/transcribe`'s response shape, so nothing already parsing the old shape breaks.
+- **`backend/database/migrations/2026_08_20_000001_create_video_dubbing_jobs_table.php`** + **`app/Models/DubbingJob.php`** — a dedicated table rather than reusing `activity_logs`, because the frontend needs to poll a specific job by a stable id, progress is meaningfully multi-stage (queued/transcribing/translating/synthesizing/muxing/done/failed — richer than `activity_logs`' running/done/failed), and the result is a stored video file with its own lifecycle. `activity_log_id` is still recorded so dubbing jobs also show up in the normal account activity feed. Includes a `segment_overflow_count` diagnostic column — see below.
+- **`app/Jobs/VideoDubbingJob.php`** (new) — the pipeline: extract audio via ffmpeg → transcribe with segments → translate each segment (Gemini) → synthesize each translated segment (XTTS, reusing `BulkSynthesisJob`'s existing submit/poll/fetch loop) → fit each segment to its original timing window → splice into one continuous track → mux onto the original video (`-c:v copy`, video stream untouched, no re-encoding).
+  - **Timing strategy:** a segment that overruns its window by up to 20% gets `ffmpeg atempo`-compressed to fit. Beyond 20%, it's left at natural length rather than force-stretched — past that point compressed TTS starts sounding artificial, so the tradeoff is a small amount of timeline drift on rare long segments rather than audibly rushed speech on every one of them. `segment_overflow_count` is recorded per job specifically so this can be watched in production: if it climbs, that's the signal to build the "absorb overflow into the next natural gap" refinement discussed in planning, rather than guessing at it upfront.
+  - **Quota handling:** reserves one translation credit and one synthesis credit per *job*, not per segment — a video can easily have 30-50 segments, and metering per-segment against the same monthly limits used for single-script synthesis would exhaust a normal plan's quota on a single video.
+- **`app/Http/Controllers/VideoDubbingController.php`** (new) — `submit`/`status`/`result`, same shape as `EngineSynthesisProxyController`'s bulk-queue endpoints.
+- **`routes/api.php`** — new `/dubbing/submit` (5/min throttle — heavier per-request than bulk-queue's 10/min), `/dubbing/status/{jobId}`, `/dubbing/result/{jobId}` (60/min, same `jobId` path-traversal guard regex as the existing engine routes). Authenticated-only from day one — no guest tier, since a dubbing job consumes both translation and synthesis quota plus real compute time per video.
+- **`config/filesystems.php`** — new `video` disk, separate from the existing `audio` disk (video files run much larger; keeping them on a distinct disk/bucket keeps that cost and lifecycle policy separate from audio's). `.env.example` documents `VIDEO_DISK`/`VIDEO_BUCKET`.
+- Verified: `python3 -m py_compile` on the updated `ai-engine/main.py`, brace/paren/bracket balance check on `VideoDubbingJob.php` (no PHP linter available in this sandbox).
+- **Not yet done:**
+  - **Frontend** — no upload widget, language picker, or progress UI yet. The API surface is stable and ready for it.
+  - **End-to-end test on real hardware** — built and structurally verified without the ability to run `docker compose up` against a real video in this sandbox, same caveat as task #4's engine work. Test with a real short video before considering this fully closed, and watch `segment_overflow_count` on the first several real jobs.
+  - **Storage lifecycle for dubbed videos** — no prune/expiry job yet (audio has `AUDIO_PRUNE_DAYS`; video has no equivalent). Worth adding once real storage volume is visible.
+
+---
 
 ### 7. Upgrade the base TTS model / add a "quality tier"
 - **What:** XTTS v2 (2023-era open model) is the hard ceiling on how natural Voxora's output can sound, and it's now behind ElevenLabs and Murf in every recent third-party comparison. Two viable paths: (a) integrate a newer open model that isn't GPU-only-gated the way the current F5 setup is, or (b) offer an optional "Premium Quality" tier that proxies to a commercial API (e.g., ElevenLabs or OpenAI TTS) behind the same UI, billed at cost-plus-margin.
@@ -239,7 +257,7 @@ This closes out task 4a completely — all three engine-selection surfaces (Work
 4. Add Chatterbox as a third TTS engine option *(P1, medium — closes a real licensing gap too)* ✅
 5. Public API tier *(P1, medium)*
 6. System-health public status page *(P2, easy — can slot in anytime as a quick win)*
-7. Video dubbing MVP *(P1, medium–large)*
+7. Video dubbing MVP *(P1, medium–large)* — backend done, frontend pending
 8. No-signup "try your voice" widget *(P2, medium)*
 9. SFX lane *(P2, medium)*
 10. Base model quality tier (proxy option first) *(P1, large but high-leverage)*

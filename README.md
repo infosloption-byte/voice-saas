@@ -1,61 +1,39 @@
-# Support running chatterbox-engine on a separate EC2 instance
+# Video Dubbing MVP — Task #6 delivery
 
-Fixes the OOM restart-loop you hit: `ai-engine` + `chatterbox-engine` running together exceeded your instance's RAM. This lets Chatterbox run on its own dedicated box instead.
+Drop these into `voice-saas/` at the matching paths (they mirror the repo
+structure exactly, so it's a straight copy-over):
 
-**If you already applied the previous `voxora-chatterbox-fix.zip`, only these files actually changed in this update:**
-- `docker-compose.yml`
-- `docker-compose.prod.yml`
-- `.env.example`
-- `docker-compose.chatterbox-remote.yml` (**new file**)
-- `docs/ENHANCEMENT_TASKS.md`
+## New files
+- `backend/database/migrations/2026_08_20_000001_create_video_dubbing_jobs_table.php`
+- `backend/app/Models/DubbingJob.php`
+- `backend/app/Jobs/VideoDubbingJob.php`
+- `backend/app/Http/Controllers/VideoDubbingController.php`
 
-Everything else in this zip (`ai-engine/`, `chatterbox-engine/`, `.gitignore`, `backend/.env.example`, `docker-compose.gcp.yml`, `docker-compose.runpod.yml`) is included for completeness but is **unchanged** from the last package — safe to skip if you already have them.
+## Updated files (replace in place)
+- `ai-engine/main.py` — added `/transcribe/segments` only; nothing else touched
+- `backend/routes/api.php` — added the `/dubbing/*` route group + one `use` import
+- `backend/config/filesystems.php` — added the `video` disk
+- `.env.example` — documented `VIDEO_DISK` / `VIDEO_BUCKET`
 
-## What changed
+## Deploy steps
+1. Copy files to matching paths.
+2. `php artisan migrate` (creates `video_dubbing_jobs`).
+3. Rebuild/restart `ai-engine` (new endpoint, no new dependencies — pure Python, no requirements.txt change).
+4. Restart the queue worker so it picks up the new `VideoDubbingJob` class.
+5. Optionally set `VIDEO_DISK=s3` / `VIDEO_BUCKET` in `.env` if you want dubbed videos on S3 from day one; defaults to local disk (`storage/app/video`) otherwise.
 
-1. **`CHATTERBOX_ENGINE_URL` is now overridable**, not hardcoded to the local container name. Set it in `.env` to point at your new box.
-2. **The local `chatterbox-engine` service is now opt-in** via a Compose profile — a plain `docker compose up -d` will no longer try to build/start it locally, avoiding wasted resources once you're running it remotely.
-3. **New `docker-compose.chatterbox-remote.yml`** — a standalone compose file for the new EC2 instance, running only Chatterbox.
-
-## Setup: on the NEW EC2 instance (Chatterbox only)
-
-1. Copy just the `chatterbox-engine/` folder there.
-2. Copy `docker-compose.chatterbox-remote.yml` there too.
-3. In that instance's `.env` (or directly in the compose file), set:
-   ```
-   AI_ENGINE_API_KEY=<the SAME value as on your main server>
-   ```
-   This is the shared secret `ai-engine` sends in the `X-Engine-Key` header — it has to match, or requests get a 401.
-4. Start it:
-   ```bash
-   docker compose -f docker-compose.chatterbox-remote.yml up -d --build
-   docker compose -f docker-compose.chatterbox-remote.yml logs -f
-   ```
-   Wait for `✓ Chatterbox ready`.
-5. **Security Group:** open port `8100` on this instance, ideally restricted to just your main server's IP (not the whole internet). The API key is defense-in-depth, not a substitute for network restriction.
-6. Sanity check from anywhere: `curl http://THIS_INSTANCE_IP:8100/` should return `{"status":"Online", ...}`.
-
-## Setup: back on your MAIN server (`/var/www/voxora`)
-
-1. Apply the updated files from this zip.
-2. In your main server's `.env`, add:
-   ```
-   CHATTERBOX_ENGINE_URL=http://YOUR_NEW_INSTANCE_IP:8100
-   ```
-3. Stop the local Chatterbox container (it's no longer used) and bring everything else up cleanly:
-   ```bash
-   docker compose up -d --remove-orphans
-   ```
-   `--remove-orphans` stops the currently-running local `voice_chatterbox` container, since it's no longer part of the active service set once you're pointing remotely.
-4. Confirm:
-   ```bash
-   docker compose logs ai-engine | grep -i chatterbox
-   ```
-   Should say `✓ Chatterbox ready (via http://YOUR_NEW_INSTANCE_IP:8100)` — and `ai-engine` should stay stable (no more restart loop) now that the memory pressure is split across two machines.
-
-## If you ever want Chatterbox back on the main server instead
-
-```bash
-# remove/comment CHATTERBOX_ENGINE_URL from .env, then:
-docker compose --profile local-chatterbox up -d
-```
+## Not included in this pass (frontend + follow-ups)
+- **Frontend UI** — upload widget, language picker, progress poller, download
+  button. The API surface (`/dubbing/submit`, `/dubbing/status/{jobId}`,
+  `/dubbing/result/{jobId}`) is stable and ready for it.
+- **End-to-end run on real hardware** — this was built and syntax/structure-
+  verified (Python compile, PHP brace/paren balance) without the ability to
+  run `docker compose up` + a real video through the pipeline in this
+  sandbox, consistent with how prior corrections in `ENHANCEMENT_TASKS.md`
+  (task #4) were flagged. Please test with a real short video before
+  considering this fully closed, and watch `segment_overflow_count` on a few
+  real jobs — if it's consistently high, the "absorb into next gap" timing
+  refinement discussed in planning is the next thing to build.
+- **Video storage lifecycle** — no auto-prune job for dubbed videos yet
+  (audio has `AUDIO_PRUNE_DAYS`; video has no equivalent). Worth adding once
+  you see real storage volume.
