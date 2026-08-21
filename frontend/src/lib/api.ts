@@ -312,6 +312,30 @@ class ApiClient {
     if (result instanceof Blob) return result
     throw new ApiError('Expected audio response from engine', 502)
   }
+
+  // ── Video dubbing workspace ──────────────────────────────────────
+  /** List every dubbing job for the user, most recent first — the single poll target for the workspace. */
+  listDubbingJobs(): Promise<unknown> {
+    return this.get('/dubbing')
+  }
+
+  /** Streams the original uploaded video (for before/after preview), as a Blob. */
+  async fetchDubbingSource(jobId: string): Promise<Blob> {
+    const result = await this.get(`/dubbing/source/${jobId}`)
+    if (result instanceof Blob) return result
+    throw new ApiError('Expected video response from server', 502)
+  }
+
+  /** Streams the finished dubbed video, as a Blob. */
+  async fetchDubbingResult(jobId: string): Promise<Blob> {
+    const result = await this.get(`/dubbing/result/${jobId}`)
+    if (result instanceof Blob) return result
+    throw new ApiError('Expected video response from server', 502)
+  }
+
+  deleteDubbingJob(jobId: string): Promise<unknown> {
+    return this.delete(`/dubbing/${jobId}`)
+  }
 }
 
 export const api = new ApiClient()

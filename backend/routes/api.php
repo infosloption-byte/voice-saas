@@ -165,16 +165,27 @@ Route::middleware(['auth:sanctum', 'throttle:10,1'])->group(function () {
 // translation AND synthesis quota plus real ffmpeg/GPU time per video, so
 // it's gated behind an account from day one. submit is throttled tighter
 // than bulk-queue (5/min vs 10/min) since a video job is much heavier per
-// request; status/result use the same jobId format constraint as the
-// engine's own job endpoints to block path traversal.
+// request; status/result/source/index use the same jobId format constraint
+// as the engine's own job endpoints to block path traversal.
 Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
     Route::post('/dubbing/submit', [VideoDubbingController::class, 'submit']);
 });
 
 Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
+    Route::get('/dubbing', [VideoDubbingController::class, 'index']);
     Route::get('/dubbing/status/{jobId}', [VideoDubbingController::class, 'status'])
         ->where('jobId', '[A-Za-z0-9\-]{1,64}');
     Route::get('/dubbing/result/{jobId}', [VideoDubbingController::class, 'result'])
+        ->where('jobId', '[A-Za-z0-9\-]{1,64}');
+    Route::get('/dubbing/source/{jobId}', [VideoDubbingController::class, 'source'])
+        ->where('jobId', '[A-Za-z0-9\-]{1,64}');
+});
+
+// Delete gets its own (slightly tighter) throttle group — it's a
+// destructive action, not a read, so it shouldn't share status/result's
+// generous read-polling allowance.
+Route::middleware(['auth:sanctum', 'throttle:30,1'])->group(function () {
+    Route::delete('/dubbing/{jobId}', [VideoDubbingController::class, 'destroy'])
         ->where('jobId', '[A-Za-z0-9\-]{1,64}');
 });
 

@@ -5,20 +5,25 @@ namespace App\Http\Controllers;
 use App\Jobs\VideoDubbingJob;
 use App\Models\ActivityLog;
 use App\Models\DubbingJob;
+use App\Models\VoiceProfile;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
- * Task #6 (Video dubbing MVP). Thin controller — same shape as
- * EngineSynthesisProxyController::queueBulk/status/result: validate,
- * persist a job row, dispatch the queue worker, and let the frontend poll.
- * All the real pipeline logic lives in App\Jobs\VideoDubbingJob.
+ * Task #6 (Video dubbing MVP), evolved into a proper workspace: list/delete
+ * added alongside the original submit/status/result so the frontend can
+ * show upload history, support several jobs in flight at once, and let
+ * people manage (and clean up) their dubs — not just fire-and-forget one
+ * at a time. Still thin — all pipeline logic stays in VideoDubbingJob.
  */
 class VideoDubbingController extends Controller
 {
     /** Max upload size in KB (200MB) — video is heavier than any other upload in this app. */
     private const MAX_UPLOAD_KB = 204800;
+
+    /** How many jobs the workspace list view shows. Small per-user volume expected; add pagination if that changes. */
+    private const LIST_LIMIT = 100;
 
     /**
      * POST /api/dubbing/submit
@@ -39,7 +44,7 @@ class VideoDubbingController extends Controller
         // BulkSynthesisJob's queueBulk uses for scripts belonging to a project.
         $profileId = $validated['voice_profile_id'];
         if ($profileId !== '' && ! str_starts_with($profileId, 'builtin:')) {
-            $owned = \App\Models\VoiceProfile::where('user_id', $user->id)
+            $owned = VoiceProfile::where('user_id', $user->id)
                 ->where('profile_id', $profileId)
                 ->exists();
             if (! $owned) {
@@ -72,6 +77,7 @@ class VideoDubbingController extends Controller
             'voice_profile_id'  => $profileId,
             'source_language'   => $validated['source_language'] ?? null,
             'target_language'   => $validated['target_language'],
+            'original_filename' => $validated['video']->getClientOriginalName(),
             'status'            => 'queued',
             'progress'          => 0,
             'source_video_path' => $storedPath,
@@ -86,7 +92,51 @@ class VideoDubbingController extends Controller
         ]);
     }
 
-    /** GET /api/dubbing/status/{jobId} */
+    /**
+     * GET /api/dubbing — workspace list. Returns every job for the user,
+     * most recent first, WITH current status/progress inline. The frontend
+     * polls this single endpoint (not per-job /status calls) whenever any
+     * job is still in flight, so N running jobs cost one request, not N.
+     */
+    public function index(Request $request)
+    {
+        $jobs = DubbingJob::where('user_id', $request->user()->id)
+            ->orderByDesc('created_at')
+            ->limit(self::LIST_LIMIT)
+            ->get();
+
+        // One extra query to resolve voice-profile names for display,
+        // rather than N+1 lookups per row.
+        $profileIds = $jobs->pluck('voice_profile_id')->filter(
+            fn($id) => $id !== '' && ! str_starts_with($id, 'builtin:')
+        )->unique()->values();
+        $profileNames = VoiceProfile::where('user_id', $request->user()->id)
+            ->whereIn('profile_id', $profileIds)
+            ->pluck('name', 'profile_id');
+
+        return response()->json([
+            'jobs' => $jobs->map(fn(DubbingJob $j) => [
+                'job_id'                 => $j->id,
+                'status'                 => $j->status,
+                'progress'               => $j->progress,
+                'error'                  => $j->error,
+                'original_filename'      => $j->original_filename,
+                'source_language'        => $j->source_language,
+                'target_language'        => $j->target_language,
+                'voice_name'             => str_starts_with($j->voice_profile_id, 'builtin:')
+                    ? str_replace('builtin:', '', $j->voice_profile_id)
+                    : ($profileNames[$j->voice_profile_id] ?? 'Unknown voice'),
+                'segment_count'          => $j->segment_count,
+                'segment_overflow_count' => $j->segment_overflow_count,
+                'duration_seconds'       => $j->duration_seconds,
+                'has_source'             => Storage::disk('video')->exists($j->source_video_path),
+                'has_result'             => $j->result_video_path && Storage::disk('video')->exists($j->result_video_path),
+                'created_at'             => $j->created_at?->toIso8601String(),
+            ]),
+        ]);
+    }
+
+    /** GET /api/dubbing/status/{jobId} — kept for a single-job deep-link/refresh; the workspace list is the primary poll target now. */
     public function status(Request $request, string $jobId)
     {
         $job = DubbingJob::where('id', $jobId)->where('user_id', $request->user()->id)->first();
@@ -104,7 +154,7 @@ class VideoDubbingController extends Controller
         ]);
     }
 
-    /** GET /api/dubbing/result/{jobId} — returns the video, or a JSON error/status. */
+    /** GET /api/dubbing/result/{jobId} — returns the dubbed video, or a JSON error/status. */
     public function result(Request $request, string $jobId)
     {
         $job = DubbingJob::where('id', $jobId)->where('user_id', $request->user()->id)->first();
@@ -124,7 +174,63 @@ class VideoDubbingController extends Controller
             return response()->json(['message' => 'Result file is missing or has expired.'], 410);
         }
 
-        $stream = Storage::disk('video')->readStream($job->result_video_path);
+        return $this->streamVideo(Storage::disk('video'), $job->result_video_path, 'dubbed_' . $job->id . '.mp4');
+    }
+
+    /**
+     * GET /api/dubbing/source/{jobId} — streams the ORIGINAL uploaded video,
+     * so the workspace can show a before/after preview rather than only the
+     * dubbed result. New in the workspace redesign.
+     */
+    public function source(Request $request, string $jobId)
+    {
+        $job = DubbingJob::where('id', $jobId)->where('user_id', $request->user()->id)->first();
+        if (! $job) {
+            return response()->json(['message' => 'Dubbing job not found.'], 404);
+        }
+
+        if (! Storage::disk('video')->exists($job->source_video_path)) {
+            return response()->json(['message' => 'Original upload is missing or has expired.'], 410);
+        }
+
+        return $this->streamVideo(Storage::disk('video'), $job->source_video_path, 'original_' . $job->id . '.mp4', true);
+    }
+
+    /**
+     * DELETE /api/dubbing/{jobId} — removes the job row plus both stored
+     * video files (source + result, if present). Workspace cleanup: without
+     * this, every dub a user runs sits in storage forever with no way to
+     * clear it out.
+     */
+    public function destroy(Request $request, string $jobId)
+    {
+        $job = DubbingJob::where('id', $jobId)->where('user_id', $request->user()->id)->first();
+        if (! $job) {
+            return response()->json(['message' => 'Dubbing job not found.'], 404);
+        }
+
+        // Refuse to delete out from under an in-flight job — the queue
+        // worker has no idea the row/files just vanished and will throw
+        // confusing storage errors mid-pipeline instead of a clean failure.
+        if (! in_array($job->status, ['done', 'failed'], true)) {
+            return response()->json(['message' => 'Cannot delete a job that is still running.'], 409);
+        }
+
+        foreach ([$job->source_video_path, $job->result_video_path] as $path) {
+            if ($path && Storage::disk('video')->exists($path)) {
+                Storage::disk('video')->delete($path);
+            }
+        }
+
+        $job->delete();
+
+        return response()->json(['message' => 'Deleted.']);
+    }
+
+    /** Shared video-streaming response for result()/source(). */
+    private function streamVideo($disk, string $path, string $downloadName, bool $inline = false)
+    {
+        $stream = $disk->readStream($path);
 
         return response()->stream(function () use ($stream) {
             fpassthru($stream);
@@ -133,7 +239,7 @@ class VideoDubbingController extends Controller
             }
         }, 200, [
             'Content-Type'        => 'video/mp4',
-            'Content-Disposition' => 'attachment; filename="dubbed_' . $job->id . '.mp4"',
+            'Content-Disposition' => ($inline ? 'inline' : 'attachment') . '; filename="' . $downloadName . '"',
         ]);
     }
 }

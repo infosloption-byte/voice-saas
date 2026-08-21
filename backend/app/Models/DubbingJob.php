@@ -19,7 +19,7 @@ class DubbingJob extends Model
 
     protected $fillable = [
         'id', 'user_id', 'activity_log_id',
-        'voice_profile_id', 'source_language', 'target_language',
+        'voice_profile_id', 'source_language', 'target_language', 'original_filename',
         'status', 'progress', 'error',
         'segment_count', 'segment_overflow_count',
         'source_video_path', 'result_video_path', 'duration_seconds',
