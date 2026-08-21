@@ -17,7 +17,6 @@ type SettingsSection =
   | 'audio'
   | 'appearance'
   | 'notifications'
-  | 'api'
   | 'danger'
 
 interface SettingsPageProps {
@@ -70,7 +69,6 @@ export function SettingsPage({
     { id: 'audio',         label: 'Audio & Synthesis',  hint: 'Engine, speed, recording',      icon: icons.volume  },
     { id: 'appearance',    label: 'Appearance',          hint: 'Theme, layout density',         icon: icons.light   },
     { id: 'notifications', label: 'Notifications',       hint: 'Alerts and reminders',          icon: icons.bell    },
-    { id: 'api',           label: 'API & Engine',        hint: 'Engine endpoint, timeout',      icon: icons.api     },
     { id: 'danger',        label: 'Danger Zone',         hint: 'Delete account, clear cache',   icon: icons.trash   },
   ]
 
@@ -207,7 +205,6 @@ export function SettingsPage({
             {section === 'audio'         && <AudioSettings          engineCaps={engineCaps} onSave={handleSave} />}
             {section === 'appearance'    && <AppearanceSettings     darkMode={darkMode} onToggleDark={onToggleDark} onSave={handleSave} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={onToggleSidebar} />}
             {section === 'notifications' && <NotificationSettings                   onSave={handleSave} />}
-            {section === 'api'           && <ApiSettings                            onSave={handleSave} />}
             {section === 'danger'        && <DangerSettings         onSignOut={onSignOut} onDeleteAccount={onDeleteAccount} />}
           </div>
         )}
@@ -350,7 +347,7 @@ function AudioSettings({ engineCaps, onSave }: { engineCaps: EngineCaps; onSave:
   const setNoiseSuppression = (v: boolean) => setPrefs(p => ({ ...p, noiseSuppression: v }))
   const setAutoGain         = (v: boolean) => setPrefs(p => ({ ...p, autoGain: v }))
   const setDefaultGain      = (v: number)  => setPrefs(p => ({ ...p, defaultGain: v }))
-  const { engine, setEngine } = useTTSEngine()
+  const { engine } = useTTSEngine()
 
   const languages = [
     { code: 'en', label: 'English' }, { code: 'es', label: 'Spanish' },
@@ -358,54 +355,25 @@ function AudioSettings({ engineCaps, onSave }: { engineCaps: EngineCaps; onSave:
     { code: 'ja', label: 'Japanese'}, { code: 'zh', label: 'Chinese' },
   ]
 
-  // bg/border are Settings' own card styling — not shared with EngineSwitcher's
-  // dropdown, which uses a different visual treatment. label/color/available/
-  // desc/warning all come from the shared getEngineOptions() below instead of
-  // being duplicated here, so this file can't silently drift out of sync with
-  // EngineSwitcher.tsx on the actual availability logic or warning copy.
-  const CARD_STYLE: Record<string, { bg: string; border: string }> = {
-    xtts:       { bg: 'var(--accent-lt)',        border: 'var(--accent)' },
-    f5:         { bg: 'rgba(66,120,201,0.08)',   border: '#4278c9' },
-    chatterbox: { bg: 'rgba(224,112,60,0.08)',   border: '#e0703c' },
-  }
-  const engineOptions = getEngineOptions(engineCaps).map(opt => ({
-    ...opt,
-    desc: opt.descShort,
-    bg: CARD_STYLE[opt.id]?.bg ?? 'var(--surface)',
-    border: CARD_STYLE[opt.id]?.border ?? 'var(--border-2)',
-  }))
+  // Current engine — read-only here. Switching engines happens
+  // contextually via EngineSwitcher on the Workspace and Voice Profiles
+  // pages, right next to where synthesis actually happens; both read and
+  // write the same useTTSEngine() preference, so a second interactive
+  // picker here was a third place doing the exact same thing. This is
+  // just a reflection of that shared state for context, not a setting.
+  const engineLabel = getEngineOptions(engineCaps).find(o => o.id === engine)?.label ?? engine
 
   return (
     <div>
       <SettingsHeading title="Audio & Synthesis" desc="Default settings for voice synthesis and recording." />
-      <SettingsRow label="TTS engine" hint="Which voice synthesis engine to use when generating audio.">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {engineOptions.map(opt => (
-              <button key={opt.id} onClick={() => setEngine(opt.id)} title={opt.available ? opt.desc : `${opt.label} not installed`}
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '7px 14px', borderRadius: 'var(--radius-sm)', border: engine === opt.id ? `2px solid ${opt.border}` : '2px solid var(--border-2)', background: engine === opt.id ? opt.bg : 'var(--surface)', cursor: 'pointer', transition: 'all 0.12s', opacity: opt.available ? 1 : 0.6, position: 'relative' }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: engine === opt.id ? opt.color : 'var(--text-1)' }}>{opt.label}</span>
-                <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{opt.desc}</span>
-                <span style={{ position: 'absolute', top: 4, right: 4, width: 6, height: 6, borderRadius: '50%', background: opt.available ? 'var(--ok)' : 'var(--warn)', boxShadow: opt.available ? '0 0 0 2px var(--ok-lt)' : '0 0 0 2px var(--warn-lt)' }} />
-              </button>
-            ))}
-          </div>
-          {engine === 'f5' && !engineCaps.f5 && (
-            <div style={{ fontSize: 11.5, color: 'var(--warn)', lineHeight: 1.55, background: 'var(--warn-lt)', border: '1px solid rgba(160,117,48,0.25)', borderRadius: 'var(--radius-sm)', padding: '6px 10px' }}>
-              F5-TTS is not installed. Run <code style={{ fontFamily: 'var(--mono)' }}>pip install f5-tts</code> or switch to XTTS v2.
-            </div>
-          )}
-          {engine === 'chatterbox' && !(engineCaps.chatterbox ?? false) && (
-            <div style={{ fontSize: 11.5, color: 'var(--warn)', lineHeight: 1.55, background: 'var(--warn-lt)', border: '1px solid rgba(160,117,48,0.25)', borderRadius: 'var(--radius-sm)', padding: '6px 10px' }}>
-              Chatterbox is not installed. Run <code style={{ fontFamily: 'var(--mono)' }}>pip install chatterbox-tts</code> or switch to XTTS v2 / F5-TTS.
-            </div>
-          )}
-          {engine === 'xtts' && !engineCaps.xtts && (
-            <div style={{ fontSize: 11.5, color: 'var(--warn)', lineHeight: 1.55, background: 'var(--warn-lt)', border: '1px solid rgba(160,117,48,0.25)', borderRadius: 'var(--radius-sm)', padding: '6px 10px' }}>
-              XTTS v2 is not available on this server. Check the engine logs.
-            </div>
-          )}
-        </div>
+      <SettingsRow label="TTS engine" hint="Switch engines from the Workspace or Voice Profiles page — it applies immediately, everywhere.">
+        <span style={{
+          fontSize: 12.5, fontWeight: 600, color: 'var(--text-1)',
+          padding: '5px 12px', borderRadius: 'var(--radius-sm)',
+          background: 'var(--surface)', border: '1px solid var(--border-2)',
+        }}>
+          {engineLabel}
+        </span>
       </SettingsRow>
       <SettingsRow label="Default language" hint="Used when creating new scripts. XTTS v2 is multilingual; F5-TTS speaks its loaded model's language(s).">
         {(() => {
@@ -525,46 +493,9 @@ function NotificationSettings({ onSave }: { onSave: () => void }) {
       <SettingsHeading title="Notifications" desc="Choose when Voxora should alert you." />
       <SettingsRow label="Synthesis complete" hint="Notify when a script has finished generating audio."><Toggle checked={synth} onChange={setSynth} /></SettingsRow>
       <SettingsRow label="Export complete" hint="Notify when a timeline export has finished."><Toggle checked={exports} onChange={setExports} /></SettingsRow>
-      <SettingsRow label="Engine errors" hint="Alert if the local XTTS engine encounters a problem."><Toggle checked={errors} onChange={setErrors} /></SettingsRow>
+      <SettingsRow label="Engine errors" hint="Alert if voice synthesis encounters a problem."><Toggle checked={errors} onChange={setErrors} /></SettingsRow>
       <SettingsRow label="Product updates" hint="Occasional announcements about new features."><Toggle checked={updates} onChange={setUpdates} /></SettingsRow>
       <button className="btn btn--primary" onClick={handleSave} style={{ gap: 6 }}>{icons.check} Save preferences</button>
-    </div>
-  )
-}
-
-// ── API & Engine ─────────────────────────────────────────────────────
-
-const API_SETTINGS_KEY = 'vs_api_settings'
-function loadApiSettings() { try { return JSON.parse(localStorage.getItem(API_SETTINGS_KEY) ?? '{}') } catch { return {} } }
-
-function ApiSettings({ onSave }: { onSave: () => void }) {
-  const saved = loadApiSettings()
-  const [endpoint, setEndpoint] = useState<string>(saved.endpoint ?? import.meta.env.VITE_ENGINE_URL ?? 'http://localhost:8000')
-  const [timeout, setTimeout_]  = useState<number>(saved.timeout ?? 30)
-
-  function handleSave() {
-    localStorage.setItem(API_SETTINGS_KEY, JSON.stringify({ endpoint, timeout }))
-    onSave(); toast.ok('Connection settings saved')
-  }
-
-  return (
-    <div>
-      <SettingsHeading title="API & Engine" desc="Configure the connection to your local XTTS engine." />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 24 }}>
-        <div className="field">
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>Engine endpoint</label>
-          <input className="full-input" value={endpoint} onChange={e => setEndpoint(e.target.value)} placeholder="http://localhost:8000" style={{ fontFamily: 'var(--mono)', fontSize: 12.5 }} />
-          <span style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>The URL where your XTTS backend is running. Requires a page reload to take effect.</span>
-        </div>
-        <div className="field">
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>Request timeout (seconds)</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <input type="range" min="5" max="120" step="5" value={timeout} onChange={e => setTimeout_(Number(e.target.value))} style={{ flex: 1, accentColor: 'var(--accent)' }} />
-            <span style={{ fontSize: 13, fontFamily: 'var(--mono)', color: 'var(--accent)', minWidth: 36 }}>{timeout}s</span>
-          </div>
-        </div>
-      </div>
-      <button className="btn btn--primary" onClick={handleSave} style={{ gap: 6 }}>{icons.check} Save connection</button>
     </div>
   )
 }

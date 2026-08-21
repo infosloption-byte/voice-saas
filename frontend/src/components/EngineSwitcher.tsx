@@ -1,7 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { toast } from '../lib/toast'
 import { icons } from '../lib/constants'
-import { getEngineOptions } from '../lib/engineOptions'
 import type { TTSEngine } from '../hooks/useTTSEngine'
 import type { EngineCaps } from '../lib/types'
 
@@ -33,7 +32,6 @@ export function EngineBadge({ engine, size = 'sm' }: { engine: TTSEngine; size?:
 
 const VIEWPORT_MARGIN = 12
 
-
 /**
  * Reusable TTS engine picker dropdown. Shared between the Workspace editor
  * footer and the Voice Profiles page so switching engines doesn't require
@@ -61,7 +59,37 @@ export function EngineSwitcher({ engine, setEngine, engineCaps }: {
     engine === 'chatterbox' ? (engineCaps.chatterbox ?? false) :
     engineCaps.xtts
 
-  const options = getEngineOptions(engineCaps)
+  const options = [
+    {
+      id: 'xtts' as TTSEngine,
+      label: 'XTTS v2',
+      desc: '16 languages · multilingual · fast',
+      color: 'var(--accent)',
+      available: engineCaps.xtts,
+    },
+    {
+      id: 'f5' as TTSEngine,
+      label: 'F5-TTS',
+      desc: `Flow-matching · natural prosody · ${
+        (engineCaps.f5_languages && engineCaps.f5_languages.length)
+          ? engineCaps.f5_languages.join('/').toUpperCase()
+          : 'English'
+      } · all voices`,
+      color: '#4278c9',
+      available: engineCaps.f5,
+    },
+    {
+      id: 'chatterbox' as TTSEngine,
+      label: 'Chatterbox',
+      desc: `MIT-licensed · expressive · ${
+        (engineCaps.chatterbox_languages && engineCaps.chatterbox_languages.length)
+          ? `${engineCaps.chatterbox_languages.length} languages`
+          : 'multilingual'
+      }`,
+      color: '#e0703c',
+      available: engineCaps.chatterbox ?? false,
+    },
+  ]
 
   // Measure the trigger + panel once the panel is open, then pick whichever
   // side (above/below, left/right-clamped) actually has room. This runs in
@@ -169,7 +197,11 @@ export function EngineSwitcher({ engine, setEngine, engineCaps }: {
                 disabled={!opt.available}
                 onClick={() => {
                   if (!opt.available) {
-                    toast.info(opt.warning)
+                    const hint =
+                      opt.id === 'f5' ? 'F5-TTS needs a GPU — use XTTS v2 instead.' :
+                      opt.id === 'chatterbox' ? 'Chatterbox is not installed on this server — use XTTS v2 or F5-TTS instead.' :
+                      ''
+                    toast.info(`${opt.label} is unavailable on this server. ${hint}`)
                     return
                   }
                   setEngine(opt.id); setOpen(false)
@@ -203,7 +235,7 @@ export function EngineSwitcher({ engine, setEngine, engineCaps }: {
                     </span>
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 1 }}>
-                    {opt.descLong}
+                    {opt.desc}
                   </div>
                 </div>
               </button>
