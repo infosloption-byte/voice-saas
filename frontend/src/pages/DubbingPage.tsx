@@ -36,6 +36,7 @@ export function DubbingPage({ voiceProfiles }: { voiceProfiles: VoiceProfile[] }
   const [sourceLanguage, setSourceLanguage] = useState('')   // '' = auto-detect
   const [profileId, setProfileId] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const [job, setJob] = useState<StatusResponse | null>(null)
   const [downloading, setDownloading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -115,6 +116,7 @@ export function DubbingPage({ voiceProfiles }: { voiceProfiles: VoiceProfile[] }
     if (!targetLanguage) { toast.err('Choose a target language.'); return }
 
     setSubmitting(true)
+    setUploadProgress(0)
     try {
       const fd = new FormData()
       fd.append('video', file)
@@ -122,7 +124,7 @@ export function DubbingPage({ voiceProfiles }: { voiceProfiles: VoiceProfile[] }
       if (sourceLanguage) fd.append('source_language', sourceLanguage)
       fd.append('voice_profile_id', effectiveProfileId)
 
-      const res = await api.post('/dubbing/submit', fd) as { job_id: string; status: JobStatus }
+      const res = await api.postWithProgress('/dubbing/submit', fd, setUploadProgress) as { job_id: string; status: JobStatus }
       localStorage.setItem(STORAGE_KEY, res.job_id)
       setJob({ job_id: res.job_id, status: res.status, progress: 0, error: null, segment_count: null, segment_overflow_count: null })
       startPolling(res.job_id)
@@ -131,6 +133,7 @@ export function DubbingPage({ voiceProfiles }: { voiceProfiles: VoiceProfile[] }
       toast.err(e instanceof Error ? e.message : 'Failed to start dubbing.')
     } finally {
       setSubmitting(false)
+      setUploadProgress(null)
     }
   }
 
@@ -251,8 +254,19 @@ export function DubbingPage({ voiceProfiles }: { voiceProfiles: VoiceProfile[] }
             style={{ marginTop: 4 }}
           >
             {submitting ? <span className="spinner" style={{ marginRight: 6 }} /> : null}
-            {submitting ? 'Starting…' : 'Start Dubbing'}
+            {submitting
+              ? (uploadProgress !== null ? `Uploading… ${uploadProgress}%` : 'Starting…')
+              : 'Start Dubbing'}
           </button>
+
+          {submitting && uploadProgress !== null && (
+            <div style={{ height: 6, borderRadius: 3, background: 'var(--surface-2)', overflow: 'hidden', marginTop: -6 }}>
+              <div style={{
+                height: '100%', width: `${uploadProgress}%`, background: 'var(--accent)',
+                transition: 'width 0.15s linear',
+              }} />
+            </div>
+          )}
         </div>
       )}
 

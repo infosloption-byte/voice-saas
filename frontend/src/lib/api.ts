@@ -26,7 +26,7 @@ const LARAVEL_PATHS = [
   '/forgot-password', '/reset-password',
   '/email', '/subscription', '/guest-limits',
   '/plan-limits', '/admin', '/synthesis', '/translation',
-  '/engine', '/activity-logs', '/notifications',
+  '/engine', '/activity-logs', '/notifications', '/dubbing',
 ]
 
 function isLaravelPath(path: string): boolean {
@@ -130,6 +130,61 @@ class ApiClient {
       body: data instanceof FormData
         ? data
         : data !== undefined ? JSON.stringify(data) : undefined,
+    })
+  }
+
+  /**
+   * Like post(), but reports upload progress via onProgress(0-100) — for
+   * large multipart uploads (e.g. dubbing video submit) where the user
+   * needs to see something happening during a potentially slow upload,
+   * not just after it completes. fetch() has no upload-progress event at
+   * all, so this uses XMLHttpRequest instead, replicating request()'s
+   * CSRF/credentials handling and Laravel-vs-engine path routing.
+   */
+  async postWithProgress(
+    path: string,
+    formData: FormData,
+    onProgress?: (pct: number) => void,
+  ): Promise<unknown> {
+    const laravel = isLaravelPath(path)
+    if (laravel) await this.getCsrfCookie()
+
+    const url = path.startsWith('http')
+      ? path
+      : laravel ? `${LARAVEL_API}${path}` : `${ENGINE_BASE}${path.startsWith('/') ? path : '/' + path}`
+
+    const xsrfToken = getCookie('XSRF-TOKEN')
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', url)
+      xhr.withCredentials = true
+      xhr.setRequestHeader('Accept', 'application/json')
+      if (xsrfToken) xhr.setRequestHeader('X-XSRF-TOKEN', xsrfToken)
+
+      xhr.upload.onprogress = (e) => {
+        if (onProgress && e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
+      }
+
+      xhr.onload = () => {
+        let body: Record<string, unknown> = {}
+        try { body = JSON.parse(xhr.responseText) } catch { /* non-JSON response */ }
+
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(body)
+          return
+        }
+
+        let message = (body.message as string) ?? `HTTP ${xhr.status}`
+        if (body.errors && typeof body.errors === 'object') {
+          const firstField = Object.values(body.errors as Record<string, string[]>)[0]
+          if (firstField?.[0]) message = firstField[0]
+        }
+        reject(new ApiError(message, xhr.status, body))
+      }
+
+      xhr.onerror = () => reject(new ApiError('Network error during upload', 0))
+      xhr.send(formData)
     })
   }
 
