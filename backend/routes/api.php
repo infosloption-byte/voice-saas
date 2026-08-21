@@ -169,6 +169,8 @@ Route::middleware(['auth:sanctum', 'throttle:10,1'])->group(function () {
 // as the engine's own job endpoints to block path traversal.
 Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
     Route::post('/dubbing/submit', [VideoDubbingController::class, 'submit']);
+    Route::post('/dubbing/{jobId}/retry', [VideoDubbingController::class, 'retry'])
+        ->where('jobId', '[A-Za-z0-9\-]{1,64}');
 });
 
 Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {

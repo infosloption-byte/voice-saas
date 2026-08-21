@@ -93,6 +93,76 @@ class VideoDubbingController extends Controller
     }
 
     /**
+     * POST /api/dubbing/{jobId}/retry — start a fresh dubbing job reusing
+     * an existing job's already-uploaded source video, so the user isn't
+     * forced to download-then-reupload the same file to change a setting
+     * or try again after a failure. The stored video is copied (not
+     * pointed at directly) into a new key under the new job's own id, so
+     * the two jobs' file lifecycles stay fully independent — deleting
+     * either one later can never silently break the other.
+     */
+    public function retry(Request $request, string $jobId)
+    {
+        $user = $request->user();
+        $source = DubbingJob::where('id', $jobId)->where('user_id', $user->id)->first();
+        if (! $source) {
+            return response()->json(['message' => 'Original dubbing job not found.'], 404);
+        }
+        if (! Storage::disk('video')->exists($source->source_video_path)) {
+            return response()->json(['message' => 'Original upload is no longer available — please upload the video again.'], 410);
+        }
+
+        $validated = $request->validate([
+            'target_language'   => ['required', 'string', 'max:10'],
+            'source_language'   => ['nullable', 'string', 'max:10'],
+            'voice_profile_id'  => ['required', 'string', 'max:100'],
+        ]);
+
+        $profileId = $validated['voice_profile_id'];
+        if ($profileId !== '' && ! str_starts_with($profileId, 'builtin:')) {
+            $owned = VoiceProfile::where('user_id', $user->id)
+                ->where('profile_id', $profileId)
+                ->exists();
+            if (! $owned) {
+                return response()->json(['message' => 'Voice profile not found on your account.'], 422);
+            }
+        }
+
+        $jobId = (string) Str::uuid();
+        $storedPath = 'video/' . $user->id . '/' . $jobId . '_source.mp4';
+        Storage::disk('video')->copy($source->source_video_path, $storedPath);
+
+        $log = ActivityLog::create([
+            'user_id'    => $user->id,
+            'event_type' => 'dubbing',
+            'message'    => 'Video dubbing queued (' . strtoupper($validated['target_language']) . ')',
+            'status'     => 'running',
+            'started_at' => now(),
+        ]);
+
+        $job = DubbingJob::create([
+            'id'                => $jobId,
+            'user_id'           => $user->id,
+            'activity_log_id'   => $log->id,
+            'voice_profile_id'  => $profileId,
+            'source_language'   => $validated['source_language'] ?? null,
+            'target_language'   => $validated['target_language'],
+            'original_filename' => $source->original_filename,
+            'status'            => 'queued',
+            'progress'          => 0,
+            'source_video_path' => $storedPath,
+        ]);
+
+        VideoDubbingJob::dispatch($job->id);
+
+        return response()->json([
+            'job_id'          => $job->id,
+            'status'          => 'queued',
+            'activity_log_id' => $log->id,
+        ]);
+    }
+
+    /**
      * GET /api/dubbing — workspace list. Returns every job for the user,
      * most recent first, WITH current status/progress inline. The frontend
      * polls this single endpoint (not per-job /status calls) whenever any
@@ -123,6 +193,7 @@ class VideoDubbingController extends Controller
                 'original_filename'      => $j->original_filename,
                 'source_language'        => $j->source_language,
                 'target_language'        => $j->target_language,
+                'voice_profile_id'       => $j->voice_profile_id,
                 'voice_name'             => str_starts_with($j->voice_profile_id, 'builtin:')
                     ? str_replace('builtin:', '', $j->voice_profile_id)
                     : ($profileNames[$j->voice_profile_id] ?? 'Unknown voice'),

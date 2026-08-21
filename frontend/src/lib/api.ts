@@ -336,6 +336,11 @@ class ApiClient {
   deleteDubbingJob(jobId: string): Promise<unknown> {
     return this.delete(`/dubbing/${jobId}`)
   }
+
+  /** Reuses an existing job's already-uploaded video to start a fresh dub — no re-upload needed. */
+  retryDubbingJob(jobId: string, payload: { target_language: string; source_language?: string; voice_profile_id: string }): Promise<unknown> {
+    return this.post(`/dubbing/${jobId}/retry`, payload)
+  }
 }
 
 export const api = new ApiClient()
