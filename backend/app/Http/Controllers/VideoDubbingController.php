@@ -48,7 +48,12 @@ class VideoDubbingController extends Controller
         }
 
         $jobId = (string) Str::uuid();
-        $storedPath = $user->id . '/' . $jobId . '_source.mp4';
+        // 'video/' prefix matters once VIDEO_BUCKET falls back to the same
+        // bucket as 'audio' (see filesystems.php) — audio keys have no
+        // prefix at all ({userId}/...), so this keeps the two cleanly
+        // separable by key for any future per-type S3 lifecycle policy,
+        // even when they're sitting in the identical bucket.
+        $storedPath = 'video/' . $user->id . '/' . $jobId . '_source.mp4';
 
         Storage::disk('video')->put($storedPath, file_get_contents($validated['video']->getRealPath()));
 

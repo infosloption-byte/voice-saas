@@ -112,7 +112,7 @@ class ApiClient {
     if (response.status === 204) return null
 
     const contentType = response.headers.get('Content-Type') ?? ''
-    if (contentType.includes('audio/') || contentType.includes('application/octet-stream')) {
+    if (contentType.includes('audio/') || contentType.includes('video/') || contentType.includes('application/octet-stream')) {
       return response.blob()
     }
 

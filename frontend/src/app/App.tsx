@@ -27,6 +27,7 @@ import {
 } from '../pages/AppPages'
 import { WorkspacePage } from '../pages/WorkspacePage'
 import { AssemblyPage } from '../pages/AssemblyPage'
+import { DubbingPage } from '../pages/DubbingPage'
 import type { Page, WorkspaceTab, VoiceProfile, EngineStatus, EngineCaps } from '../lib/types'
 
 // ── Cookie consent ────────────────────────────────────────────────
@@ -628,6 +629,10 @@ export default function App() {
     { key: 'dashboard', label: 'Dashboard',      icon: icons.dashboard },
     { key: 'projects',  label: 'Projects',        icon: icons.projects  },
     { key: 'profiles',  label: 'Voice Profiles',  icon: icons.profiles  },
+    // No guest tier for dubbing (see VideoDubbingController) — a dubbing
+    // job needs a real account's quota/ownership checks throughout, unlike
+    // Projects/Profiles which have a parallel guest-local implementation.
+    ...(guestMode ? [] : [{ key: 'dubbing' as Page, label: 'Video Dubbing', icon: icons.video }]),
   ]
 
   // ── Engine pill label ─────────────────────────────────────────────
@@ -844,6 +849,7 @@ export default function App() {
               {page === 'dashboard'  ? 'Dashboard'
                 : page === 'projects'  ? 'Projects'
                 : page === 'profiles'  ? 'Voice Profiles'
+                : page === 'dubbing'   ? 'Video Dubbing'
                 : page === 'settings'  ? 'Settings'
                 : ''}
             </span>
@@ -1044,6 +1050,23 @@ export default function App() {
               onIncrementPreview={() => guestSession.updateUsage('previewsUsed')}
               getGuestVoiceBlob={pid => guestProfiles.getAudioBlob(pid)}
             />
+          )}
+
+          {page === 'dubbing' && (
+            guestMode ? (
+              // Defensive fallback — the nav item is already hidden for
+              // guests, but a stale saved page state (e.g. from
+              // localStorage on reload) could still land here directly.
+              <div style={{ maxWidth: 480, margin: '60px auto', textAlign: 'center' }}>
+                <h2>Video Dubbing needs an account</h2>
+                <p style={{ color: 'var(--text-3)', fontSize: 13.5, marginBottom: 16 }}>
+                  Sign up to dub videos into other languages with your cloned voice.
+                </p>
+                <button className="btn btn--primary" onClick={() => setPage('signup')}>Sign up</button>
+              </div>
+            ) : (
+              <DubbingPage voiceProfiles={voiceProfiles} />
+            )
           )}
 
           {page === 'settings' && (

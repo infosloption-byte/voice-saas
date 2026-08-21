@@ -236,7 +236,10 @@ class VideoDubbingJob implements ShouldQueue
             ], 'Final mux');
 
             // ── Store result ───────────────────────────────────────────
-            $resultPath = $job->user_id . '/' . $job->id . '.mp4';
+            // Same 'video/' prefix as the source upload (see
+            // VideoDubbingController::submit) — keeps this cleanly
+            // separable from audio keys when sharing one S3 bucket.
+            $resultPath = 'video/' . $job->user_id . '/' . $job->id . '.mp4';
             Storage::disk('video')->put($resultPath, file_get_contents($outputPath));
 
             if ($user) {

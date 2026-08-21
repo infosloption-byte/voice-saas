@@ -122,6 +122,7 @@ export const icons = {
   chevronRight: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M7 4l6 6-6 6" /></svg>,
   info:         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="10" cy="10" r="8" /><line x1="10" y1="9" x2="10" y2="14" /><circle cx="10" cy="6.5" r="0.5" fill="currentColor" /></svg>,
   api:          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M5 6l-3 4 3 4M15 6l3 4-3 4M11 4l-2 12" /></svg>,
+  video:        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="2" y="5" width="12" height="10" rx="1.5" /><path d="M14 8.5l4-2.5v8l-4-2.5" strokeLinejoin="round" /></svg>,
   music:        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M9 18V5l10-2v13" /><circle cx="5" cy="18" r="3" /><circle cx="15" cy="16" r="3" /></svg>,
   mp3:          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 3h8l4 4v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" /><path d="M12 3v4h4" /><text x="6" y="15" fontSize="5.5" strokeWidth="0" fill="currentColor" fontFamily="sans-serif" fontWeight="bold">MP3</text></svg>,
   template:     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="3" y="3" width="14" height="4" rx="1" /><rect x="3" y="10" width="6" height="7" rx="1" /><path d="M13 10h4M13 13h4M13 16h2" /></svg>,
