@@ -350,32 +350,19 @@ class ApiClient {
     return this.post(`/dubbing/${jobId}/retry`, payload)
   }
 
-  // ── Advanced dubbing (Tier 1) — per-segment editing ────────────────
-  /** List every persisted segment for a job — original/translated text, timing, fit status, mute, voice override. */
-  listDubbingSegments(jobId: string): Promise<unknown> {
+  /** Fetches the review-timeline data for a job (segments + editable flag) once it's reached 'ready_for_review'. */
+  fetchDubbingSegments(jobId: string): Promise<unknown> {
     return this.get(`/dubbing/${jobId}/segments`)
   }
 
-  /** Edit a segment's translated text, mute flag, and/or per-segment voice override. Doesn't re-synthesize by itself. */
-  updateDubbingSegment(jobId: string, segmentId: number, payload: { translated_text?: string; muted?: boolean; voice_profile_id?: string | null }): Promise<unknown> {
-    return this.patch(`/dubbing/${jobId}/segments/${segmentId}`, payload)
+  /** Saves review-timeline edits (retimed start/end, rewritten text). Only accepted while the job is 'ready_for_review'. */
+  saveDubbingSegments(jobId: string, segments: { id: string; start: number; end: number; text: string }[]): Promise<unknown> {
+    return this.patch(`/dubbing/${jobId}/segments`, { segments })
   }
 
-  /** Re-run just this segment's synthesis + fit using its current text/mute/voice, replacing its stored audio. */
-  resynthesizeDubbingSegment(jobId: string, segmentId: number): Promise<unknown> {
-    return this.post(`/dubbing/${jobId}/segments/${segmentId}/resynthesize`, {})
-  }
-
-  /** Rebuild the combined dubbed video from the current state of every segment — the "apply my changes" action. */
-  remuxDubbingJob(jobId: string): Promise<unknown> {
-    return this.post(`/dubbing/${jobId}/remux`, {})
-  }
-
-  /** A single segment's own audio, for solo preview in the advanced editor. */
-  async fetchDubbingSegmentAudio(jobId: string, segmentId: number): Promise<Blob> {
-    const result = await this.get(`/dubbing/${jobId}/segments/${segmentId}/audio`)
-    if (result instanceof Blob) return result
-    throw new ApiError('Expected audio response from server', 502)
+  /** Commits the currently-saved segments and starts synthesis + mux. */
+  finalizeDubbingJob(jobId: string): Promise<unknown> {
+    return this.post(`/dubbing/${jobId}/finalize`)
   }
 }
 

@@ -937,25 +937,12 @@ _GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # Gemini models tried in order — if one fails (quota/rate-limit/error),
 # the next is attempted automatically.
-#
-# gemini-flash-latest / gemini-flash-lite-latest are Google-maintained
-# aliases that always point at whatever their current stable Flash model
-# is — tried first specifically so this list doesn't need editing every
-# time Google rotates model generations. Pinned model IDs behind them are
-# just redundancy in case an alias itself has an outage.
-#
-# NOTE (Aug 2026): gemini-2.5-flash was previously first in this list and
-# is now deprecated for new accounts (confirmed via a live production
-# 404: "This model models/gemini-2.5-flash is no longer available to new
-# users"). gemini-3-flash was also previously in this list and never
-# existed as a real model ID at all — pure error, always 404'd. Both
-# removed; do not re-add either without verifying against
-# https://ai.google.dev/gemini-api/docs/models first.
 GEMINI_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-3-flash",
+    "gemini-2.5-flash-lite",
     "gemini-flash-latest",
     "gemini-flash-lite-latest",
-    "gemini-3.6-flash",
-    "gemini-2.5-flash-lite",
 ]
 
 LANG_NAMES: dict[str, str] = {

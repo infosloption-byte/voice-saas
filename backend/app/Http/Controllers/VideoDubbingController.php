@@ -2,15 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Jobs\VideoDubbingJob;
+use App\Jobs\PrepareDubbingJob;
+use App\Jobs\FinalizeDubbingJob;
 use App\Models\ActivityLog;
 use App\Models\DubbingJob;
-use App\Models\DubbingSegment;
 use App\Models\VoiceProfile;
-use App\Services\DubbingAudio;
 use App\Services\EngineResolver;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -19,7 +17,14 @@ use Illuminate\Support\Str;
  * added alongside the original submit/status/result so the frontend can
  * show upload history, support several jobs in flight at once, and let
  * people manage (and clean up) their dubs — not just fire-and-forget one
- * at a time. Still thin — all pipeline logic stays in VideoDubbingJob.
+ * at a time.
+ *
+ * Aug 22, 2026: split into a two-phase flow so the user can review/edit
+ * segment timing and translated text on a real timeline before synthesis
+ * runs — see PrepareDubbingJob / FinalizeDubbingJob and task #6 in
+ * docs/ENHANCEMENT_TASKS.md. submit()/retry() now kick off
+ * PrepareDubbingJob only; segments()/updateSegments()/finalize() are the
+ * new endpoints the review timeline uses.
  */
 class VideoDubbingController extends Controller
 {
@@ -43,8 +48,8 @@ class VideoDubbingController extends Controller
             'source_language'   => ['nullable', 'string', 'max:10'],
             'voice_profile_id'  => ['required', 'string', 'max:100'],
             // Same TTSEngine choice already sent for scripts/bulk synthesis
-            // (see useTTSEngine.ts) — nullable so VideoDubbingJob can fall
-            // back to a sane default if an older client omits it.
+            // (see useTTSEngine.ts) — nullable so FinalizeDubbingJob can
+            // fall back to a sane default if an older client omits it.
             'engine'            => ['nullable', 'string', EngineResolver::engineValidationRule()],
         ]);
 
@@ -92,7 +97,7 @@ class VideoDubbingController extends Controller
             'source_video_path' => $storedPath,
         ]);
 
-        VideoDubbingJob::dispatch($job->id);
+        PrepareDubbingJob::dispatch($job->id);
 
         return response()->json([
             'job_id'          => $job->id,
@@ -164,13 +169,126 @@ class VideoDubbingController extends Controller
             'source_video_path' => $storedPath,
         ]);
 
-        VideoDubbingJob::dispatch($job->id);
+        PrepareDubbingJob::dispatch($job->id);
 
         return response()->json([
             'job_id'          => $job->id,
             'status'          => 'queued',
             'activity_log_id' => $log->id,
         ]);
+    }
+
+    /**
+     * GET /api/dubbing/{jobId}/segments — the review timeline's data
+     * source. Returns the segments array PrepareDubbingJob produced
+     * (each: id, start, end, original, text), plus enough job metadata
+     * for the editor to render around them.
+     */
+    public function segments(Request $request, string $jobId)
+    {
+        $job = DubbingJob::where('id', $jobId)->where('user_id', $request->user()->id)->first();
+        if (! $job) {
+            return response()->json(['message' => 'Dubbing job not found.'], 404);
+        }
+        if (! $job->segments_json) {
+            return response()->json(['message' => 'No segments available for this job yet.', 'status' => $job->status], 409);
+        }
+
+        return response()->json([
+            'job_id'      => $job->id,
+            'status'      => $job->status,
+            'editable'    => $job->status === 'ready_for_review',
+            'target_language' => $job->target_language,
+            'source_language' => $job->source_language,
+            'duration_seconds' => $job->duration_seconds,
+            'segments'    => json_decode($job->segments_json, true) ?? [],
+        ]);
+    }
+
+    /**
+     * PATCH /api/dubbing/{jobId}/segments — save edits made on the review
+     * timeline (retimed start/end, rewritten translated text). Only
+     * allowed while the job is sitting in 'ready_for_review' — once
+     * finalize() has kicked off synthesis, the segments that job reads
+     * are whatever was saved last, so editing mid-synthesis would just
+     * be silently ignored or (worse) race the running job.
+     *
+     * 'original' is deliberately NOT accepted from the client — it's
+     * always carried over from what's already stored, so a client can't
+     * quietly rewrite the transcript record of what was actually said.
+     */
+    public function updateSegments(Request $request, string $jobId)
+    {
+        $job = DubbingJob::where('id', $jobId)->where('user_id', $request->user()->id)->first();
+        if (! $job) {
+            return response()->json(['message' => 'Dubbing job not found.'], 404);
+        }
+        if ($job->status !== 'ready_for_review') {
+            return response()->json(['message' => 'This job is not open for editing right now.', 'status' => $job->status], 409);
+        }
+
+        $validated = $request->validate([
+            'segments'             => ['required', 'array', 'min:1'],
+            'segments.*.id'        => ['required', 'string', 'max:64'],
+            'segments.*.start'     => ['required', 'numeric', 'min:0'],
+            'segments.*.end'       => ['required', 'numeric', 'gt:segments.*.start'],
+            'segments.*.text'      => ['nullable', 'string', 'max:5000'],
+        ]);
+
+        $existing = json_decode($job->segments_json ?? '[]', true) ?? [];
+        $existingById = collect($existing)->keyBy('id');
+
+        $merged = [];
+        foreach ($validated['segments'] as $incoming) {
+            $current = $existingById->get($incoming['id']);
+            if (! $current) {
+                // Client sent an id we never issued — drop it rather than
+                // trusting arbitrary client-supplied segments into the
+                // pipeline.
+                continue;
+            }
+            $merged[] = [
+                'id'       => $current['id'],
+                'start'    => round((float) $incoming['start'], 3),
+                'end'      => round((float) $incoming['end'], 3),
+                'original' => $current['original'], // immutable, see docblock
+                'text'     => (string) ($incoming['text'] ?? ''),
+            ];
+        }
+
+        if (empty($merged)) {
+            return response()->json(['message' => 'No valid segments in the request.'], 422);
+        }
+
+        usort($merged, fn($a, $b) => $a['start'] <=> $b['start']);
+
+        $job->update(['segments_json' => json_encode($merged)]);
+
+        return response()->json(['message' => 'Saved.', 'segments' => $merged]);
+    }
+
+    /**
+     * POST /api/dubbing/{jobId}/finalize — commit the currently-saved
+     * segments and kick off synthesis + mux. This is the point where
+     * synthesis quota actually gets spent (see FinalizeDubbingJob).
+     */
+    public function finalize(Request $request, string $jobId)
+    {
+        $job = DubbingJob::where('id', $jobId)->where('user_id', $request->user()->id)->first();
+        if (! $job) {
+            return response()->json(['message' => 'Dubbing job not found.'], 404);
+        }
+        if ($job->status !== 'ready_for_review') {
+            return response()->json(['message' => 'This job is not ready to finalize.', 'status' => $job->status], 409);
+        }
+        if (! $job->segments_json) {
+            return response()->json(['message' => 'No segments to synthesize.'], 422);
+        }
+
+        $job->update(['status' => 'synthesizing', 'progress' => 50, 'error' => null]);
+        FinalizeDubbingJob::dispatch($job->id);
+
+        return response()->json(['job_id' => $job->id, 'status' => 'synthesizing']);
     }
 
     /**
@@ -280,332 +398,6 @@ class VideoDubbingController extends Controller
     }
 
     /**
-     * GET /api/dubbing/{jobId}/segments — Tier 1 advanced dubbing. Lists
-     * every persisted segment for a job: original + translated text,
-     * timing, fit/status outcome, mute flag, and any per-segment voice
-     * override — the data VideoDubbingJob now saves per segment instead
-     * of discarding once the job finishes (see the dubbing_segments
-     * migration and VideoDubbingJob::persistSegment()).
-     */
-    public function segments(Request $request, string $jobId)
-    {
-        $job = DubbingJob::where('id', $jobId)->where('user_id', $request->user()->id)->first();
-        if (! $job) {
-            return response()->json(['message' => 'Dubbing job not found.'], 404);
-        }
-
-        $segments = DubbingSegment::where('dubbing_job_id', $job->id)
-            ->orderBy('segment_index')
-            ->get();
-
-        return response()->json([
-            'segments' => $segments->map(fn(DubbingSegment $s) => $this->segmentJson($s)),
-        ]);
-    }
-
-    /**
-     * PATCH /api/dubbing/{jobId}/segments/{segmentId} — edit a segment's
-     * translated text, mute flag, or per-segment voice override. This
-     * only updates the stored row; the segment's own audio isn't
-     * re-synthesized until resynthesizeSegment() is called for it, and
-     * the combined video isn't updated until remux() is called for the
-     * job — editing several segments and applying them all in one remux
-     * is the expected flow, not a resynthesize-then-remux round trip per
-     * edit.
-     */
-    public function updateSegment(Request $request, string $jobId, int $segmentId)
-    {
-        $job = DubbingJob::where('id', $jobId)->where('user_id', $request->user()->id)->first();
-        if (! $job) {
-            return response()->json(['message' => 'Dubbing job not found.'], 404);
-        }
-        $segment = DubbingSegment::where('id', $segmentId)->where('dubbing_job_id', $job->id)->first();
-        if (! $segment) {
-            return response()->json(['message' => 'Segment not found.'], 404);
-        }
-
-        $validated = $request->validate([
-            'translated_text'  => ['sometimes', 'string', 'max:2000'],
-            'muted'            => ['sometimes', 'boolean'],
-            'voice_profile_id' => ['sometimes', 'nullable', 'string', 'max:100'],
-        ]);
-
-        if (array_key_exists('voice_profile_id', $validated) && $validated['voice_profile_id']) {
-            $profileId = $validated['voice_profile_id'];
-            if (! str_starts_with($profileId, 'builtin:')) {
-                $owned = VoiceProfile::where('user_id', $request->user()->id)
-                    ->where('profile_id', $profileId)
-                    ->exists();
-                if (! $owned) {
-                    return response()->json(['message' => 'Voice profile not found on your account.'], 422);
-                }
-            }
-        }
-
-        $segment->update($validated);
-
-        return response()->json(['segment' => $this->segmentJson($segment->fresh())]);
-    }
-
-    /**
-     * POST /api/dubbing/{jobId}/segments/{segmentId}/resynthesize —
-     * re-run just this segment's synthesis + fit-to-window using its
-     * current (possibly just-edited) translated text, mute flag, and
-     * voice override, replacing its stored audio. Uses the exact same
-     * fit-or-leave-natural decision VideoDubbingJob's main loop makes
-     * (App\Services\DubbingAudio::MAX_STRETCH_RATIO), simplified in one
-     * intentional way: the whole-job drift-recovery squeeze (opportunistic
-     * extra compression to pay down an earlier segment's overflow) is a
-     * sequential, whole-job concept that doesn't map onto redoing one
-     * segment in isolation after the fact — this always fits the segment
-     * to its own window alone.
-     *
-     * Does NOT touch the job's combined result video — call remux() for
-     * that once you're done editing/resynthesizing whichever segments
-     * needed it.
-     */
-    public function resynthesizeSegment(Request $request, string $jobId, int $segmentId)
-    {
-        $job = DubbingJob::where('id', $jobId)->where('user_id', $request->user()->id)->first();
-        if (! $job) {
-            return response()->json(['message' => 'Dubbing job not found.'], 404);
-        }
-        $segment = DubbingSegment::where('id', $segmentId)->where('dubbing_job_id', $job->id)->first();
-        if (! $segment) {
-            return response()->json(['message' => 'Segment not found.'], 404);
-        }
-
-        $windowSeconds = max(0.1, $segment->end_time - $segment->start_time);
-        $path = 'video/' . $job->user_id . '/' . $job->id . '/seg_' . $segment->segment_index . '.wav';
-
-        try {
-            if ($segment->muted) {
-                $audio = DubbingAudio::generateSilenceWav($windowSeconds, DubbingAudio::SAMPLE_RATE);
-                $status = 'ok';
-                $ratio  = 1.0;
-            } else {
-                $engineUrl = rtrim(EngineResolver::activeUrl(), '/');
-                $profileId = $segment->voice_profile_id ?: $job->voice_profile_id;
-                $engineKey = $this->resolveEngineKeyForResynth($job->user_id, $profileId);
-                $ttsEngine = $job->engine ?: 'xtts';
-
-                $rawWav = DubbingAudio::synthesizeSegment(
-                    $engineUrl, $segment->translated_text, $engineKey, $job->target_language, $ttsEngine
-                );
-
-                $tmpDir = sys_get_temp_dir() . '/dub_resynth_' . $segment->id;
-                @mkdir($tmpDir, 0700, true);
-                $rawPath = $tmpDir . '/raw.wav';
-                file_put_contents($rawPath, $rawWav);
-
-                $normPath = $tmpDir . '/norm.wav';
-                DubbingAudio::runFfmpeg([
-                    'ffmpeg', '-y', '-i', $rawPath,
-                    '-af', 'highpass=f=80,loudnorm=I=-16:LRA=11:TP=-1.5',
-                    '-map_metadata', '-1', '-ar', (string) DubbingAudio::SAMPLE_RATE, '-ac', '1',
-                    '-f', 'wav', '-acodec', 'pcm_s16le', $normPath,
-                ], 'Segment loudness normalization');
-
-                $actualDuration = DubbingAudio::probeDuration($normPath) ?: DubbingAudio::estimateWavDuration($rawWav, DubbingAudio::SAMPLE_RATE);
-                $fitRatio = $actualDuration > 0 ? $actualDuration / $windowSeconds : 1.0;
-
-                if ($fitRatio > 1.0 && $fitRatio <= DubbingAudio::MAX_STRETCH_RATIO) {
-                    $fitPath = $tmpDir . '/fit.wav';
-                    DubbingAudio::runFfmpeg([
-                        'ffmpeg', '-y', '-i', $normPath,
-                        '-af', 'atempo=' . round($fitRatio, 4),
-                        '-map_metadata', '-1', '-ar', (string) DubbingAudio::SAMPLE_RATE, '-ac', '1',
-                        '-f', 'wav', '-acodec', 'pcm_s16le', $fitPath,
-                    ], 'Segment time-fit');
-                    $audio  = file_get_contents($fitPath);
-                    $status = 'ok';
-                    $ratio  = round($fitRatio, 4);
-                } elseif ($fitRatio > DubbingAudio::MAX_STRETCH_RATIO) {
-                    $audio  = file_get_contents($normPath);
-                    $status = 'overflow';
-                    $ratio  = round($fitRatio, 4);
-                } else {
-                    $audio  = file_get_contents($normPath);
-                    $status = 'ok';
-                    $ratio  = 1.0;
-                }
-
-                $this->rrmdirLocal($tmpDir);
-            }
-        } catch (\Throwable $e) {
-            Log::warning("VideoDubbingController::resynthesizeSegment {$segment->id} failed: {$e->getMessage()}");
-            return response()->json(['message' => 'Resynthesis failed: ' . $e->getMessage()], 422);
-        }
-
-        Storage::disk('video')->put($path, $audio);
-        $segment->update(['status' => $status, 'stretch_ratio' => $ratio, 'audio_path' => $path]);
-
-        return response()->json(['segment' => $this->segmentJson($segment->fresh())]);
-    }
-
-    /**
-     * POST /api/dubbing/{jobId}/remux — rebuild the combined dubbed video
-     * from the CURRENT state of every persisted segment (respecting any
-     * text edits, mutes, voice overrides, or individual resynthesis
-     * already applied), without re-running transcription, translation, or
-     * whole-job synthesis. This is the "apply my changes" action after
-     * using the segment editor — and doubles as a recovery path if the
-     * final mux step itself ever fails again for some new reason: as long
-     * as segments were already synthesized, remuxing doesn't require
-     * redoing any of that expensive work.
-     */
-    public function remux(Request $request, string $jobId)
-    {
-        $job = DubbingJob::where('id', $jobId)->where('user_id', $request->user()->id)->first();
-        if (! $job) {
-            return response()->json(['message' => 'Dubbing job not found.'], 404);
-        }
-        if (! Storage::disk('video')->exists($job->source_video_path)) {
-            return response()->json(['message' => 'Original upload is no longer available — cannot remux.'], 410);
-        }
-
-        $segments = DubbingSegment::where('dubbing_job_id', $job->id)->orderBy('segment_index')->get();
-        if ($segments->isEmpty()) {
-            return response()->json(['message' => 'No segments to remux — this job has no per-segment data (dubbed before the advanced editor existed). Use Retry instead.'], 422);
-        }
-
-        $tmpDir = sys_get_temp_dir() . '/dub_remux_' . $job->id;
-        @mkdir($tmpDir, 0700, true);
-
-        try {
-            $videoPath = $tmpDir . '/source.mp4';
-            $sourceStream = Storage::disk('video')->readStream($job->source_video_path);
-            if (! $sourceStream) {
-                throw new \RuntimeException('Could not read the original uploaded video from storage.');
-            }
-            file_put_contents($videoPath, stream_get_contents($sourceStream));
-            fclose($sourceStream);
-
-            $pieces = [];
-            $cursor = 0.0;
-            foreach ($segments as $segment) {
-                $windowSeconds = max(0.1, $segment->end_time - $segment->start_time);
-
-                if ($cursor < $segment->start_time) {
-                    $pieces[] = DubbingAudio::generateSilenceWav($segment->start_time - $cursor, DubbingAudio::SAMPLE_RATE);
-                    $cursor = $segment->start_time;
-                }
-
-                if ($segment->muted) {
-                    // Respect the CURRENT mute flag even if this segment's
-                    // stored audio is real speech from before it was muted.
-                    $piece = DubbingAudio::generateSilenceWav($windowSeconds, DubbingAudio::SAMPLE_RATE);
-                } elseif ($segment->audio_path && Storage::disk('video')->exists($segment->audio_path)) {
-                    $piece = Storage::disk('video')->get($segment->audio_path);
-                } else {
-                    // No stored audio for this segment (shouldn't normally
-                    // happen) — silence rather than failing the whole remux.
-                    $piece = DubbingAudio::generateSilenceWav($windowSeconds, DubbingAudio::SAMPLE_RATE);
-                }
-
-                $pieces[] = $piece;
-                $cursor  += DubbingAudio::estimateWavDuration($piece, DubbingAudio::SAMPLE_RATE);
-            }
-
-            $dubbedTrack = DubbingAudio::spliceWavs($pieces, DubbingAudio::SAMPLE_RATE);
-            $dubbedTrackPath = $tmpDir . '/dubbed_track.wav';
-            file_put_contents($dubbedTrackPath, $dubbedTrack);
-
-            $outputPath = $tmpDir . '/output.mp4';
-            DubbingAudio::runFfmpeg([
-                'ffmpeg', '-y',
-                '-i', $videoPath,
-                '-i', $dubbedTrackPath,
-                '-map', '0:v:0', '-map', '1:a:0',
-                '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
-                $outputPath,
-            ], 'Final mux');
-
-            $resultPath = 'video/' . $job->user_id . '/' . $job->id . '.mp4';
-            Storage::disk('video')->put($resultPath, file_get_contents($outputPath));
-
-            $job->update([
-                'status'            => 'done',
-                'progress'          => 100,
-                'result_video_path' => $resultPath,
-                'duration_seconds'  => DubbingAudio::probeDuration($videoPath) ?: $cursor,
-                'error'             => null,
-                'ended_at'          => now(),
-            ]);
-        } catch (\Throwable $e) {
-            Log::warning("VideoDubbingController::remux {$job->id} failed: {$e->getMessage()}");
-            return response()->json(['message' => 'Remux failed: ' . $e->getMessage()], 422);
-        } finally {
-            $this->rrmdirLocal($tmpDir);
-        }
-
-        return response()->json(['message' => 'Remuxed.', 'job_id' => $job->id, 'status' => 'done']);
-    }
-
-    /**
-     * GET /api/dubbing/{jobId}/segments/{segmentId}/audio — a single
-     * segment's own stored audio, for solo preview/review in the advanced
-     * editor without needing to play the whole combined track.
-     */
-    public function segmentAudio(Request $request, string $jobId, int $segmentId)
-    {
-        $job = DubbingJob::where('id', $jobId)->where('user_id', $request->user()->id)->first();
-        if (! $job) {
-            return response()->json(['message' => 'Dubbing job not found.'], 404);
-        }
-        $segment = DubbingSegment::where('id', $segmentId)->where('dubbing_job_id', $job->id)->first();
-        if (! $segment || ! $segment->audio_path || ! Storage::disk('video')->exists($segment->audio_path)) {
-            return response()->json(['message' => 'Segment audio not found.'], 404);
-        }
-
-        return response(Storage::disk('video')->get($segment->audio_path), 200, [
-            'Content-Type' => 'audio/wav',
-        ]);
-    }
-
-    private function segmentJson(DubbingSegment $s): array
-    {
-        return [
-            'id'               => $s->id,
-            'segment_index'    => $s->segment_index,
-            'start_time'       => $s->start_time,
-            'end_time'         => $s->end_time,
-            'original_text'    => $s->original_text,
-            'translated_text'  => $s->translated_text,
-            'voice_profile_id' => $s->voice_profile_id,
-            'muted'            => $s->muted,
-            'status'           => $s->status,
-            'stretch_ratio'    => $s->stretch_ratio,
-            'has_audio'        => (bool) ($s->audio_path && Storage::disk('video')->exists($s->audio_path)),
-        ];
-    }
-
-    /** Same voice-profile → engine-key resolution VideoDubbingJob uses, for standalone segment resynthesis. */
-    private function resolveEngineKeyForResynth(int $userId, string $profileId): string
-    {
-        if ($profileId === '' || str_starts_with($profileId, 'builtin:')) {
-            return $profileId;
-        }
-        $profile = VoiceProfile::where('user_id', $userId)
-            ->where('profile_id', $profileId)
-            ->first();
-        return $profile?->engine_key ?: $profileId;
-    }
-
-    private function rrmdirLocal(string $dir): void
-    {
-        if (! is_dir($dir)) {
-            return;
-        }
-        foreach (scandir($dir) ?: [] as $f) {
-            if ($f === '.' || $f === '..') continue;
-            $path = "{$dir}/{$f}";
-            is_dir($path) ? $this->rrmdirLocal($path) : @unlink($path);
-        }
-        @rmdir($dir);
-    }
-
-    /**
      * DELETE /api/dubbing/{jobId} — removes the job row plus both stored
      * video files (source + result, if present). Workspace cleanup: without
      * this, every dub a user runs sits in storage forever with no way to
@@ -621,7 +413,9 @@ class VideoDubbingController extends Controller
         // Refuse to delete out from under an in-flight job — the queue
         // worker has no idea the row/files just vanished and will throw
         // confusing storage errors mid-pipeline instead of a clean failure.
-        if (! in_array($job->status, ['done', 'failed'], true)) {
+        // 'ready_for_review' is deletable — a job just sitting there
+        // waiting on the user isn't "running" in that sense.
+        if (! in_array($job->status, ['done', 'failed', 'ready_for_review'], true)) {
             return response()->json(['message' => 'Cannot delete a job that is still running.'], 409);
         }
 
@@ -630,12 +424,6 @@ class VideoDubbingController extends Controller
                 Storage::disk('video')->delete($path);
             }
         }
-        // Per-segment audio (Tier 1 advanced dubbing) lives in its own
-        // job-scoped directory rather than loose top-level keys — deleting
-        // the whole prefix is simpler and safer than tracking every
-        // segment's individual path here. The DubbingSegment rows
-        // themselves are handled by the table's cascadeOnDelete FK.
-        Storage::disk('video')->deleteDirectory('video/' . $job->user_id . '/' . $job->id);
 
         $job->delete();
 

@@ -5,22 +5,24 @@ import { icons, LANGUAGES } from '../lib/constants'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { useTTSEngine } from '../hooks/useTTSEngine'
 import { EngineSwitcher, EngineBadge } from '../components/EngineSwitcher'
+import { DubbingTimelineEditor } from '../components/DubbingTimelineEditor'
 import type { VoiceProfile, EngineCaps } from '../lib/types'
 
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024   // mirrors VideoDubbingController::MAX_UPLOAD_KB (204800 KB)
 const ACCEPTED_TYPES = ['video/mp4', 'video/quicktime', 'video/x-matroska', 'video/webm']
 const LIST_POLL_MS = 6000   // /dubbing is throttled 60/min — 6s stays well under that regardless of job count
 
-type JobStatus = 'queued' | 'transcribing' | 'translating' | 'synthesizing' | 'muxing' | 'done' | 'failed'
+type JobStatus = 'queued' | 'transcribing' | 'translating' | 'ready_for_review' | 'synthesizing' | 'muxing' | 'done' | 'failed'
 
 const STAGE_META: Record<JobStatus, { label: string; pct: number }> = {
-  queued:       { label: 'Queued',                    pct: 0 },
-  transcribing: { label: 'Transcribing audio',        pct: 5 },
-  translating:  { label: 'Translating script',        pct: 25 },
-  synthesizing: { label: 'Synthesizing dubbed voice',  pct: 45 },
-  muxing:       { label: 'Combining with video',       pct: 85 },
-  done:         { label: 'Done',                       pct: 100 },
-  failed:       { label: 'Failed',                     pct: 0 },
+  queued:           { label: 'Queued',                    pct: 0 },
+  transcribing:     { label: 'Transcribing audio',        pct: 5 },
+  translating:      { label: 'Translating script',        pct: 40 },
+  ready_for_review: { label: 'Ready to review',           pct: 90 },
+  synthesizing:     { label: 'Synthesizing dubbed voice', pct: 55 },
+  muxing:           { label: 'Combining with video',      pct: 90 },
+  done:             { label: 'Done',                      pct: 100 },
+  failed:           { label: 'Failed',                    pct: 0 },
 }
 
 interface JobRow {
@@ -40,35 +42,6 @@ interface JobRow {
   has_source: boolean
   has_result: boolean
   created_at: string | null
-}
-
-type SegmentStatus = 'ok' | 'overflow' | 'empty' | 'synth_failed'
-
-interface SegmentRow {
-  id: number
-  segment_index: number
-  start_time: number
-  end_time: number
-  original_text: string
-  translated_text: string
-  voice_profile_id: string | null
-  muted: boolean
-  status: SegmentStatus
-  stretch_ratio: number | null
-  has_audio: boolean
-}
-
-const SEGMENT_STATUS_META: Record<SegmentStatus, { label: string; tagClass: string }> = {
-  ok:           { label: 'Fit',     tagClass: 'tag--ok' },
-  overflow:     { label: 'Overran', tagClass: 'tag--warn' },
-  empty:        { label: 'Silent',  tagClass: '' },
-  synth_failed: { label: 'Failed',  tagClass: 'tag--warn' },
-}
-
-function fmtTimestamp(secs: number): string {
-  const m = Math.floor(secs / 60)
-  const s = Math.floor(secs % 60)
-  return `${m}:${String(s).padStart(2, '0')}`
 }
 
 function langLabel(code: string | null): string {
@@ -96,161 +69,7 @@ function fmtDuration(secs: number | null): string | null {
 }
 
 function isJobRunning(j: JobRow): boolean {
-  return j.status !== 'done' && j.status !== 'failed'
-}
-
-// ── Advanced (Tier 1) segment editor ────────────────────────────────
-function SegmentEditor({
-  segments, loaded, voiceProfiles, editingSegmentId, editText, setEditText,
-  segmentBusy, remuxBusy, playingSegmentId,
-  onStartEdit, onCancelEdit, onSaveEdit, onToggleMute, onSetVoice, onResynthesize, onPlay, onApplyRemux,
-}: {
-  segments: SegmentRow[]
-  loaded: boolean
-  voiceProfiles: VoiceProfile[]
-  editingSegmentId: number | null
-  editText: string
-  setEditText: (v: string) => void
-  segmentBusy: Record<number, boolean>
-  remuxBusy: boolean
-  playingSegmentId: number | null
-  onStartEdit: (s: SegmentRow) => void
-  onCancelEdit: () => void
-  onSaveEdit: (s: SegmentRow) => void
-  onToggleMute: (s: SegmentRow) => void
-  onSetVoice: (s: SegmentRow, voiceProfileId: string) => void
-  onResynthesize: (s: SegmentRow) => void
-  onPlay: (s: SegmentRow) => void
-  onApplyRemux: () => void
-}) {
-  if (!loaded) {
-    return <div style={{ textAlign: 'center', padding: '50px 0' }}><span className="spinner" /></div>
-  }
-  if (segments.length === 0) {
-    return (
-      <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
-        No segment data for this job — it was dubbed before the advanced editor existed.
-        Use "Dub again" to create a new job with editable segments.
-      </div>
-    )
-  }
-
-  return (
-    <div>
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        marginBottom: 12, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8,
-      }}>
-        <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
-          Edit text, mute, or reassign a voice per line, then apply your changes to rebuild the video —
-          no need to redo transcription or translation.
-        </div>
-        <button className="btn btn--primary btn--sm" onClick={onApplyRemux} disabled={remuxBusy} style={{ flexShrink: 0, marginLeft: 12 }}>
-          {remuxBusy ? <span className="spinner" style={{ marginRight: 6 }} /> : null}
-          {remuxBusy ? 'Rebuilding…' : 'Apply changes'}
-        </button>
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 'min(58vh, 480px)', overflowY: 'auto' }}>
-        {segments.map(seg => {
-          const meta = SEGMENT_STATUS_META[seg.status]
-          const busy = !!segmentBusy[seg.id]
-          const isEditing = editingSegmentId === seg.id
-          const currentVoice = seg.voice_profile_id ?? ''
-
-          return (
-            <div key={seg.id} style={{
-              border: '1px solid var(--border-2)', borderRadius: 8, padding: 12,
-              opacity: seg.muted ? 0.6 : 1,
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 11, color: 'var(--text-3)', fontVariantNumeric: 'tabular-nums' }}>
-                  {fmtTimestamp(seg.start_time)}–{fmtTimestamp(seg.end_time)}
-                </span>
-                <span className={`tag ${meta.tagClass}`} style={{ fontSize: 10 }}>{meta.label}</span>
-                {seg.stretch_ratio != null && seg.stretch_ratio !== 1 && (
-                  <span style={{ fontSize: 10.5, color: 'var(--text-3)' }}>{seg.stretch_ratio.toFixed(2)}×</span>
-                )}
-                <div style={{ flex: 1 }} />
-                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--text-3)', cursor: busy ? 'default' : 'pointer' }}>
-                  <input type="checkbox" checked={seg.muted} disabled={busy} onChange={() => onToggleMute(seg)} />
-                  Mute (keep original audio)
-                </label>
-              </div>
-
-              {seg.original_text && (
-                <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginBottom: 6, fontStyle: 'italic' }}>
-                  "{seg.original_text}"
-                </div>
-              )}
-
-              {isEditing ? (
-                <div>
-                  <textarea
-                    value={editText}
-                    onChange={e => setEditText(e.target.value)}
-                    className="full-input"
-                    rows={2}
-                    style={{ width: '100%', resize: 'vertical', fontSize: 13 }}
-                    autoFocus
-                    disabled={busy}
-                  />
-                  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                    <button className="btn btn--primary btn--sm" onClick={() => onSaveEdit(seg)} disabled={busy}>Save</button>
-                    <button className="btn btn--ghost btn--sm" onClick={onCancelEdit} disabled={busy}>Cancel</button>
-                  </div>
-                </div>
-              ) : (
-                <div
-                  onClick={() => !busy && !seg.muted && onStartEdit(seg)}
-                  style={{ fontSize: 13.5, cursor: seg.muted ? 'default' : 'text', padding: '4px 0', minHeight: 20 }}
-                  title={seg.muted ? undefined : 'Click to edit'}
-                >
-                  {seg.translated_text || <span style={{ color: 'var(--text-3)' }}>(empty)</span>}
-                </div>
-              )}
-
-              {seg.status === 'synth_failed' && (
-                <div style={{ fontSize: 11.5, color: 'var(--danger, #d9534f)', marginTop: 4 }}>
-                  Synthesis failed for this segment — original silence was used instead.
-                </div>
-              )}
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                {voiceProfiles.length > 0 && !seg.muted && (
-                  <select
-                    value={currentVoice}
-                    onChange={e => onSetVoice(seg, e.target.value)}
-                    className="full-input"
-                    disabled={busy}
-                    style={{ fontSize: 12, padding: '4px 8px', width: 'auto', flex: '0 1 auto' }}
-                    title="Voice for this segment (defaults to the job's voice)"
-                  >
-                    <option value="">Default voice</option>
-                    {voiceProfiles.map(p => (
-                      <option key={p.profile_id} value={p.profile_id}>{p.name}</option>
-                    ))}
-                  </select>
-                )}
-                <div style={{ flex: 1 }} />
-                {seg.has_audio && !seg.muted && (
-                  <button className="btn btn--ghost btn--sm" onClick={() => onPlay(seg)} disabled={busy}>
-                    {playingSegmentId === seg.id ? 'Stop' : '▶ Preview'}
-                  </button>
-                )}
-                {!seg.muted && (
-                  <button className="btn btn--ghost btn--sm" onClick={() => onResynthesize(seg)} disabled={busy}>
-                    {busy ? <span className="spinner" style={{ marginRight: 4 }} /> : null}
-                    Resynthesize
-                  </button>
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
+  return j.status !== 'done' && j.status !== 'failed' && j.status !== 'ready_for_review'
 }
 
 export function DubbingPage({ voiceProfiles, engineCaps }: { voiceProfiles: VoiceProfile[]; engineCaps?: EngineCaps }) {
@@ -277,20 +96,9 @@ export function DubbingPage({ voiceProfiles, engineCaps }: { voiceProfiles: Voic
   // ── Detail panel (enhancement #3: selecting a job no longer opens a
   // modal — it switches the page into a list+detail layout instead) ──
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
-  const [previewTab, setPreviewTab] = useState<'dubbed' | 'original' | 'advanced'>('dubbed')
+  const [previewTab, setPreviewTab] = useState<'dubbed' | 'original'>('dubbed')
   const [previewUrls, setPreviewUrls] = useState<Record<string, { source?: string; result?: string }>>({})
   const [previewLoading, setPreviewLoading] = useState(false)
-
-  // ── Advanced dubbing (Tier 1) — per-segment editor ─────────────────
-  const [segments, setSegments] = useState<SegmentRow[]>([])
-  const [segmentsLoadedFor, setSegmentsLoadedFor] = useState<string | null>(null)
-  const [editingSegmentId, setEditingSegmentId] = useState<number | null>(null)
-  const [editText, setEditText] = useState('')
-  const [segmentBusy, setSegmentBusy] = useState<Record<number, boolean>>({})
-  const [remuxBusy, setRemuxBusy] = useState(false)
-  const [playingSegmentId, setPlayingSegmentId] = useState<number | null>(null)
-  const segmentAudioRef = useRef<HTMLAudioElement | null>(null)
-  const segmentAudioUrlsRef = useRef<Record<number, string>>({})
 
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -431,6 +239,11 @@ export function DubbingPage({ voiceProfiles, engineCaps }: { voiceProfiles: Voic
 
   // ── Detail panel media loading ──────────────────────────────────────
   const loadPreviewMedia = useCallback(async (job: JobRow) => {
+    // The review timeline (ready_for_review) fetches the source video
+    // itself — see DubbingTimelineEditor — and the old preview player
+    // is hidden for that status anyway, so skip the redundant fetch here.
+    if (job.status === 'ready_for_review') return
+
     const cached = previewUrls[job.job_id]
     const needResult = job.has_result && !cached?.result
     const needSource = job.has_source && !cached?.source
@@ -460,145 +273,6 @@ export function DubbingPage({ voiceProfiles, engineCaps }: { voiceProfiles: Voic
     setPreviewTab(job.has_result ? 'dubbed' : 'original')
     loadPreviewMedia(job)
   }
-
-  // ── Advanced (Tier 1): per-segment editor ──────────────────────────
-  const loadSegments = useCallback(async (jobId: string, force = false) => {
-    if (!force && segmentsLoadedFor === jobId) return
-    try {
-      const res = await api.listDubbingSegments(jobId) as { segments: SegmentRow[] }
-      setSegments(res.segments ?? [])
-      setSegmentsLoadedFor(jobId)
-    } catch (e) {
-      toast.err(e instanceof Error ? e.message : 'Failed to load segments.')
-    }
-  }, [segmentsLoadedFor])
-
-  function openAdvancedTab() {
-    setPreviewTab('advanced')
-    if (selectedJob) loadSegments(selectedJob.job_id)
-  }
-
-  function startEditingSegment(seg: SegmentRow) {
-    setEditingSegmentId(seg.id)
-    setEditText(seg.translated_text)
-  }
-
-  async function saveSegmentText(seg: SegmentRow) {
-    if (!selectedJob) return
-    if (editText === seg.translated_text) { setEditingSegmentId(null); return }
-    setSegmentBusy(prev => ({ ...prev, [seg.id]: true }))
-    try {
-      const res = await api.updateDubbingSegment(selectedJob.job_id, seg.id, { translated_text: editText }) as { segment: SegmentRow }
-      setSegments(prev => prev.map(s => s.id === seg.id ? res.segment : s))
-      setEditingSegmentId(null)
-    } catch (e) {
-      toast.err(e instanceof Error ? e.message : 'Failed to save.')
-    } finally {
-      setSegmentBusy(prev => ({ ...prev, [seg.id]: false }))
-    }
-  }
-
-  async function toggleMute(seg: SegmentRow) {
-    if (!selectedJob) return
-    setSegmentBusy(prev => ({ ...prev, [seg.id]: true }))
-    try {
-      const res = await api.updateDubbingSegment(selectedJob.job_id, seg.id, { muted: !seg.muted }) as { segment: SegmentRow }
-      setSegments(prev => prev.map(s => s.id === seg.id ? res.segment : s))
-    } catch (e) {
-      toast.err(e instanceof Error ? e.message : 'Failed to update.')
-    } finally {
-      setSegmentBusy(prev => ({ ...prev, [seg.id]: false }))
-    }
-  }
-
-  async function setSegmentVoice(seg: SegmentRow, voiceProfileId: string) {
-    if (!selectedJob) return
-    setSegmentBusy(prev => ({ ...prev, [seg.id]: true }))
-    try {
-      // '' means "use the job's default voice" — send null to clear the override.
-      const res = await api.updateDubbingSegment(selectedJob.job_id, seg.id, { voice_profile_id: voiceProfileId || null }) as { segment: SegmentRow }
-      setSegments(prev => prev.map(s => s.id === seg.id ? res.segment : s))
-    } catch (e) {
-      toast.err(e instanceof Error ? e.message : 'Failed to update voice.')
-    } finally {
-      setSegmentBusy(prev => ({ ...prev, [seg.id]: false }))
-    }
-  }
-
-  async function resynthesizeSegment(seg: SegmentRow) {
-    if (!selectedJob) return
-    // Any unsaved text edit on this row should apply before resynthesizing,
-    // or the resynth would use stale text.
-    if (editingSegmentId === seg.id && editText !== seg.translated_text) {
-      await saveSegmentText(seg)
-    }
-    setSegmentBusy(prev => ({ ...prev, [seg.id]: true }))
-    try {
-      const res = await api.resynthesizeDubbingSegment(selectedJob.job_id, seg.id) as { segment: SegmentRow }
-      setSegments(prev => prev.map(s => s.id === seg.id ? res.segment : s))
-      // Stale audio blob, if this segment was ever played — force a refetch next play.
-      const cached = segmentAudioUrlsRef.current[seg.id]
-      if (cached) { URL.revokeObjectURL(cached); delete segmentAudioUrlsRef.current[seg.id] }
-      toast.ok('Segment resynthesized.')
-    } catch (e) {
-      toast.err(e instanceof Error ? e.message : 'Resynthesis failed.')
-    } finally {
-      setSegmentBusy(prev => ({ ...prev, [seg.id]: false }))
-    }
-  }
-
-  async function playSegment(seg: SegmentRow) {
-    if (!selectedJob) return
-    if (playingSegmentId === seg.id) {
-      segmentAudioRef.current?.pause()
-      setPlayingSegmentId(null)
-      return
-    }
-    try {
-      let url = segmentAudioUrlsRef.current[seg.id]
-      if (!url) {
-        const blob = await api.fetchDubbingSegmentAudio(selectedJob.job_id, seg.id)
-        url = URL.createObjectURL(blob)
-        segmentAudioUrlsRef.current[seg.id] = url
-      }
-      if (!segmentAudioRef.current) segmentAudioRef.current = new Audio()
-      const audioEl = segmentAudioRef.current
-      audioEl.src = url
-      audioEl.onended = () => setPlayingSegmentId(null)
-      await audioEl.play()
-      setPlayingSegmentId(seg.id)
-    } catch (e) {
-      toast.err(e instanceof Error ? e.message : 'Could not play this segment — it may not have audio yet.')
-    }
-  }
-
-  async function applyRemux() {
-    if (!selectedJob) return
-    setRemuxBusy(true)
-    try {
-      await api.remuxDubbingJob(selectedJob.job_id)
-      toast.ok('Video rebuilt with your changes.')
-      // The result changed — drop the cached preview blob so it refetches,
-      // and jump back to the Dubbed tab to show the updated video.
-      setPreviewUrls(prev => {
-        const cached = prev[selectedJob.job_id]
-        if (cached?.result) URL.revokeObjectURL(cached.result)
-        return { ...prev, [selectedJob.job_id]: { ...cached, result: undefined } }
-      })
-      await refreshList()
-      setPreviewTab('dubbed')
-    } catch (e) {
-      toast.err(e instanceof Error ? e.message : 'Remux failed.')
-    } finally {
-      setRemuxBusy(false)
-    }
-  }
-
-  // Release segment audio blob URLs on unmount, same pattern as the
-  // source/result preview blobs elsewhere in this component.
-  useEffect(() => () => {
-    Object.values(segmentAudioUrlsRef.current).forEach(u => URL.revokeObjectURL(u))
-  }, [])
 
   // Keep media in sync if the selected job transitions (e.g. finishes)
   // while its panel is already open — the panel doesn't need to be
@@ -686,37 +360,56 @@ export function DubbingPage({ voiceProfiles, engineCaps }: { voiceProfiles: Voic
            a job collapses the grid into a compact left-hand list and opens
            a full detail panel on the right, rather than overlaying a modal. ── */
         <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
-          <div style={{ width: 260, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8, maxHeight: '78vh', overflowY: 'auto', paddingRight: 2 }}>
-            {jobs.map(job => {
-              const running = isJobRunning(job)
-              return (
-                <button
-                  key={job.job_id}
-                  onClick={() => selectJob(job)}
-                  style={{
-                    display: 'block', textAlign: 'left', width: '100%', cursor: 'pointer',
-                    borderRadius: 'var(--radius-sm)', padding: '10px 12px',
-                    background: job.job_id === selectedJobId ? 'var(--accent-lt)' : 'var(--surface)',
-                    border: job.job_id === selectedJobId ? '1px solid var(--accent)' : '1px solid var(--border-2)',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ display: 'flex', width: 15, height: 15, color: 'var(--text-3)', flexShrink: 0 }}>{icons.video}</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={job.original_filename ?? job.job_id}>
-                        {job.original_filename ?? 'Untitled video'}
-                      </div>
-                      <div style={{ fontSize: 10.5, color: 'var(--text-3)' }}>{timeAgo(job.created_at)}</div>
+          <div style={{ width: 260, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 10, maxHeight: '78vh', overflowY: 'auto', paddingRight: 2 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-3)', padding: '0 2px' }}>
+              My dubs
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {jobs.map(job => {
+                const durationStr = fmtDuration(job.duration_seconds)
+                const isSel = job.job_id === selectedJobId
+                const badge =
+                  job.status === 'done' ? { text: 'Done', cls: 'tag--ok' } :
+                  job.status === 'failed' ? { text: 'Failed', cls: 'tag--warn' } :
+                  job.status === 'ready_for_review' ? { text: 'Review', cls: 'tag--accent' } :
+                  isJobRunning(job) ? { text: '…', cls: 'tag--accent' } : null
+                return (
+                  <button
+                    key={job.job_id}
+                    onClick={() => selectJob(job)}
+                    title={job.original_filename ?? job.job_id}
+                    style={{
+                      display: 'flex', flexDirection: 'column', gap: 5, textAlign: 'left', cursor: 'pointer',
+                      padding: 6, borderRadius: 10, background: isSel ? 'var(--accent-lt)' : 'transparent',
+                      border: isSel ? '1px solid var(--accent)' : '1px solid transparent',
+                    }}
+                  >
+                    <div style={{
+                      position: 'relative', width: '100%', aspectRatio: '16 / 10', borderRadius: 7,
+                      background: 'var(--bg-3)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      overflow: 'hidden', border: '1px solid var(--border-2)',
+                    }}>
+                      <span style={{ display: 'flex', width: 20, height: 20, color: 'var(--text-3)', opacity: 0.6 }}>{icons.video}</span>
+                      {durationStr && (
+                        <span style={{
+                          position: 'absolute', left: 4, bottom: 4, fontSize: 9.5, fontFamily: 'var(--mono)',
+                          color: '#fff', background: 'rgba(0,0,0,0.55)', padding: '1px 4px', borderRadius: 4,
+                        }}>{durationStr}</span>
+                      )}
+                      {badge && (
+                        <span className={`tag ${badge.cls}`} style={{ position: 'absolute', right: 4, top: 4, fontSize: 8.5, padding: '1px 4px' }}>
+                          {badge.text}
+                        </span>
+                      )}
                     </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
-                    {job.status === 'done' && <span className="tag tag--ok" style={{ fontSize: 10 }}>Done</span>}
-                    {job.status === 'failed' && <span className="tag tag--warn" style={{ fontSize: 10 }}>Failed</span>}
-                    {running && <span className="tag tag--accent" style={{ fontSize: 10 }}>{STAGE_META[job.status].label}</span>}
-                  </div>
-                </button>
-              )
-            })}
+                    <div style={{ fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {job.original_filename ?? 'Untitled video'}
+                    </div>
+                    <div style={{ fontSize: 9.5, color: 'var(--text-3)' }}>{timeAgo(job.created_at)}</div>
+                  </button>
+                )
+              })}
+            </div>
           </div>
 
           {/* ── Detail panel ── */}
@@ -732,7 +425,7 @@ export function DubbingPage({ voiceProfiles, engineCaps }: { voiceProfiles: Voic
                 {(selectedJob.status === 'done' || selectedJob.status === 'failed') && selectedJob.has_source && (
                   <button className="btn btn--ghost btn--sm" onClick={() => openRetryDialog(selectedJob)} title={selectedJob.status === 'failed' ? 'Retry' : 'Dub again'}>{icons.redo}</button>
                 )}
-                {(selectedJob.status === 'done' || selectedJob.status === 'failed') && (
+                {(selectedJob.status === 'done' || selectedJob.status === 'failed' || selectedJob.status === 'ready_for_review') && (
                   confirmDeleteId === selectedJob.job_id ? (
                     <>
                       <button className="btn btn--danger btn--sm" onClick={() => handleDelete(selectedJob.job_id)} disabled={deletingId === selectedJob.job_id}>
@@ -758,6 +451,7 @@ export function DubbingPage({ voiceProfiles, engineCaps }: { voiceProfiles: Voic
               )}
               {selectedJob.status === 'done' && <span className="tag tag--ok">Done</span>}
               {selectedJob.status === 'failed' && <span className="tag tag--warn">Failed</span>}
+              {selectedJob.status === 'ready_for_review' && <span className="tag tag--accent">Ready to review</span>}
               {isJobRunning(selectedJob) && <span className="tag tag--accent">{STAGE_META[selectedJob.status].label}</span>}
             </div>
 
@@ -785,43 +479,25 @@ export function DubbingPage({ voiceProfiles, engineCaps }: { voiceProfiles: Voic
               </div>
             )}
 
-            {(selectedJob.has_result || selectedJob.has_source || selectedJob.status === 'done') && (
-              <>
-                <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-                  {selectedJob.has_result && (
-                    <button className={`btn btn--sm ${previewTab === 'dubbed' ? 'btn--primary' : 'btn--ghost'}`} onClick={() => setPreviewTab('dubbed')}>Dubbed</button>
-                  )}
-                  {selectedJob.has_source && (
-                    <button className={`btn btn--sm ${previewTab === 'original' ? 'btn--primary' : 'btn--ghost'}`} onClick={() => setPreviewTab('original')}>Original</button>
-                  )}
-                  {selectedJob.status === 'done' && (
-                    <button className={`btn btn--sm ${previewTab === 'advanced' ? 'btn--primary' : 'btn--ghost'}`} onClick={openAdvancedTab}>
-                      Advanced
-                    </button>
-                  )}
-                </div>
+            {selectedJob.status === 'ready_for_review' && (
+              <DubbingTimelineEditor
+                key={selectedJob.job_id}
+                jobId={selectedJob.job_id}
+                targetLanguage={selectedJob.target_language}
+                onFinalized={refreshList}
+              />
+            )}
 
-                {previewTab === 'advanced' ? (
-                  <SegmentEditor
-                    segments={segments}
-                    loaded={segmentsLoadedFor === selectedJob.job_id}
-                    voiceProfiles={voiceProfiles}
-                    editingSegmentId={editingSegmentId}
-                    editText={editText}
-                    setEditText={setEditText}
-                    segmentBusy={segmentBusy}
-                    remuxBusy={remuxBusy}
-                    playingSegmentId={playingSegmentId}
-                    onStartEdit={startEditingSegment}
-                    onCancelEdit={() => setEditingSegmentId(null)}
-                    onSaveEdit={saveSegmentText}
-                    onToggleMute={toggleMute}
-                    onSetVoice={setSegmentVoice}
-                    onResynthesize={resynthesizeSegment}
-                    onPlay={playSegment}
-                    onApplyRemux={applyRemux}
-                  />
-                ) : previewLoading && !activePreviewUrls?.[previewTab === 'dubbed' ? 'result' : 'source'] ? (
+            {selectedJob.status !== 'ready_for_review' && (selectedJob.has_result || selectedJob.has_source) && (
+              <>
+                {selectedJob.has_result && selectedJob.has_source && (
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                    <button className={`btn btn--sm ${previewTab === 'dubbed' ? 'btn--primary' : 'btn--ghost'}`} onClick={() => setPreviewTab('dubbed')}>Dubbed</button>
+                    <button className={`btn btn--sm ${previewTab === 'original' ? 'btn--primary' : 'btn--ghost'}`} onClick={() => setPreviewTab('original')}>Original</button>
+                  </div>
+                )}
+
+                {previewLoading && !activePreviewUrls?.[previewTab === 'dubbed' ? 'result' : 'source'] ? (
                   <div style={{ textAlign: 'center', padding: '50px 0' }}><span className="spinner" /></div>
                 ) : (
                   // Capped height + object-fit: contain so a portrait/vertical
@@ -875,6 +551,7 @@ export function DubbingPage({ voiceProfiles, engineCaps }: { voiceProfiles: Voic
                   <span className="tag tag--info">{job.voice_name}</span>
                   {job.status === 'done' && <span className="tag tag--ok">Done</span>}
                   {job.status === 'failed' && <span className="tag tag--warn">Failed</span>}
+                  {job.status === 'ready_for_review' && <span className="tag tag--accent">Ready to review</span>}
                   {running && <span className="tag tag--accent">{stage.label}</span>}
                 </div>
 
@@ -911,7 +588,7 @@ export function DubbingPage({ voiceProfiles, engineCaps }: { voiceProfiles: Voic
                       {icons.redo}
                     </button>
                   )}
-                  {(job.status === 'done' || job.status === 'failed') && (
+                  {(job.status === 'done' || job.status === 'failed' || job.status === 'ready_for_review') && (
                     confirmDeleteId === job.job_id ? (
                       <>
                         <button className="btn btn--danger btn--sm" onClick={() => handleDelete(job.job_id)} disabled={deletingId === job.job_id}>

@@ -106,6 +106,33 @@ export interface HistoryState {
   future: string[]
 }
 
+// ── Dubbing review timeline ────────────────────────────────────────
+// Deliberately separate from TimelineClip/TimelineHistory above — a dub
+// segment isn't a mixable multi-lane audio clip (no trim/fade/volume/lane,
+// can't overlap a neighbor), it's a single-lane, always-chronological
+// slice of speech tied 1:1 to a translated line. Reusing TimelineClip
+// would mean either bolting on a bunch of fields that make no sense here
+// or fighting its invariants; a parallel, narrower type is clearer.
+export interface DubSegment {
+  id: string
+  start: number       // seconds, absolute position in the source video
+  end: number         // seconds; end > start always
+  original: string     // source-language transcript text — read-only in the editor
+  text: string         // translated text — the only field the review UI can edit
+}
+
+export type DubSegmentAction =
+  | { type: 'SET'; segments: DubSegment[] }
+  | { type: 'UNDO' }
+  | { type: 'REDO' }
+
+export interface DubSegmentHistory {
+  past: DubSegment[][]
+  present: DubSegment[]
+  future: DubSegment[][]
+}
+
+
 /**
  * Mirrors the `engines` object returned by the AI engine's GET / endpoint.
  * { xtts: true, f5: false } means XTTS is loaded but F5-TTS is not installed.
