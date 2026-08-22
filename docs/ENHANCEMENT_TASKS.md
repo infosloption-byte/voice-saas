@@ -12,7 +12,7 @@
 | 4 | Add Chatterbox as a third TTS engine option | P1 | ✅ Done — Aug 15, 2026 |
 | 4a | Multi-engine admin control (separate from AI Engine host-swap) | P1 | ✅ Done — Aug 19, 2026 |
 | 5 | Public API tier | P1 | Not started |
-| 6 | Video dubbing MVP | P1 | ✅ Done — Aug 21, 2026 · quality fixes (engine selection, translation context, sample rate/loudness, drift recovery) Aug 22, 2026 |
+| 6 | Video dubbing MVP | P1 | ✅ Done — Aug 21, 2026 · quality fixes (engine selection, translation context, sample rate/loudness, drift recovery) Aug 22, 2026 · fixed event-loop-blocking bug in chatterbox-engine (found on first live test) Aug 22, 2026 |
 | 7 | Base model quality tier | P1 | Not started |
 | 8 | Public system-health status page | P2 | Not started |
 | 9 | No-signup "try your voice" widget | P2 | Not started |
@@ -221,6 +221,12 @@ This closes out task 4a completely — all three engine-selection surfaces (Work
 - `backend/app/Jobs/VideoDubbingJob.php` — segments that overrun `MAX_STRETCH_RATIO` are still left at natural length exactly as before (compressing them further starts sounding artificial — that part of the original design was correct and unchanged). What's new: any *later* segment that fits its own window with slack to spare (i.e. doesn't need compression to fit) is now opportunistically squeezed a little further — bounded by a stricter `RECOVERY_STRETCH_RATIO` (1.10, tighter than the 1.20 fit ceiling since this compression is optional, not needed) — to actively pay down outstanding drift from an earlier overflow, rather than only recovering whenever a big natural silence gap happens to land later in the video. Peak drift and total seconds actively recovered are now logged alongside `segment_overflow_count`. This is best-effort, not a guarantee — a video with wall-to-wall segments and no slack anywhere can still finish with some unrecovered drift.
 
 **Not yet done:** none of the four items remain open, but **none of this has been run end-to-end against real engine servers** — same caveat as the original ship, this environment can't run `docker compose up` / hit real GPU hosts. Run the new migration, restart the `api` container, rebuild the frontend, and do a real test dub (ideally with F5 or Chatterbox active, to actually exercise the item #1 fix) before considering this closed. Watch `segment_overflow_count` and the new drift-recovery log line on the first several real jobs.
+
+**Real bug found on first live test (Aug 22, 2026):** the very first live dub with Chatterbox active (proof the #1 fix is actually working — this couldn't have happened before) failed mid-job at 46% progress (~segment 19/42) with `"Chatterbox is not available on this server"` (503) — even though `voice_chatterbox`'s own logs showed a successful `POST /synthesize 200 OK` right around the same moment. Traced it: `chatterbox-engine/main.py`'s `/synthesize` route is `async def`, but `model.generate()` — the actual CPU-bound inference call (visible in that service's logs as the "Sampling: N/1000" progress bar, taking many seconds per segment) — was called directly inside it with no thread offload. Since all async routes on a FastAPI/uvicorn service share one event loop, that blocking call froze the entire service for its duration, including the unrelated `GET /` health check `ai-engine`'s `chatterbox_usable()` polls every 15s (2s client timeout). A health check landing mid-synthesis missed its timeout, got cached as "unusable," and the next segment's request was rejected — a false negative from event-loop starvation, not an actual outage. **Fixed:** wrapped `model.generate()` (and `sf.write()`, the smaller secondary blocking call) in `run_in_threadpool` so the event loop stays free to answer health checks while synthesis is in progress. No new dependency — `run_in_threadpool` ships with FastAPI/Starlette, already a pinned requirement.
+
+- **`chatterbox-engine/main.py`** — `/synthesize` now runs `model.generate()` via `await run_in_threadpool(...)`, and `sf.write()` the same way.
+
+**Still to verify:** re-run the same dub that failed (or any Chatterbox job long enough to span multiple health-check cycles) after rebuilding `chatterbox-engine` and confirm it completes without a mid-job 503.
 
 ---
 

@@ -25,6 +25,7 @@ from contextlib import asynccontextmanager
 import numpy as np
 import soundfile as sf
 from fastapi import FastAPI, HTTPException, Header, Form, UploadFile, File
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -106,7 +107,24 @@ async def synthesize(
 ):
     """Synthesize `text` and return a WAV file. ref_audio, if provided, is
     the actual reference clip's bytes — see module docstring for why this
-    isn't a shared-volume path instead."""
+    isn't a shared-volume path instead.
+
+    IMPORTANT: model.generate() is synchronous, CPU/GPU-bound work that can
+    run for many seconds on a longer segment (visible in this service's own
+    logs as the "Sampling: N/1000" progress bar). This route is declared
+    `async def`, and uvicorn runs all async routes on a single event loop
+    thread — calling that blocking work directly here freezes the ENTIRE
+    service for the duration of every synthesis call, including the
+    unrelated GET / health check ai-engine polls every 15s to decide
+    chatterbox_usable(). That produced a real production bug: mid-dubbing-
+    job, a health check would queue up behind an in-flight synthesis call,
+    miss ai-engine's 2s client timeout, get treated as "Chatterbox
+    unavailable", and fail the NEXT segment with a 503 — even though this
+    service was fully healthy and had just finished (or was about to
+    finish) the previous segment successfully. run_in_threadpool moves the
+    blocking call off the event loop so health checks keep getting served
+    promptly while synthesis is in progress.
+    """
     verify_api_key(x_engine_key)
 
     if model is None:
@@ -132,11 +150,15 @@ async def synthesize(
         }
         if ref_wav_path:
             kwargs["audio_prompt_path"] = ref_wav_path
-        try:
-            wav = model.generate(text, language_id=language_id, **kwargs)
-        except TypeError:
-            # English-only Chatterbox build doesn't take language_id at all.
-            wav = model.generate(text, **kwargs)
+
+        def _generate():
+            try:
+                return model.generate(text, language_id=language_id, **kwargs)
+            except TypeError:
+                # English-only Chatterbox build doesn't take language_id at all.
+                return model.generate(text, **kwargs)
+
+        wav = await run_in_threadpool(_generate)
     except Exception as e:
         raise HTTPException(500, f"Chatterbox generate() failed: {e}") from e
     finally:
@@ -157,5 +179,7 @@ async def synthesize(
         raise HTTPException(500, "Chatterbox produced empty audio array")
 
     out_path = os.path.join(TMP_DIR, f"chatterbox_out_{os.getpid()}_{id(wav)}.wav")
-    sf.write(out_path, wav, sr, subtype="PCM_16")
+    # sf.write is also blocking file I/O — offloaded for the same reason as
+    # model.generate() above, though it's the smaller contributor here.
+    await run_in_threadpool(sf.write, out_path, wav, sr, subtype="PCM_16")
     return FileResponse(out_path, media_type="audio/wav", filename="chatterbox.wav")
