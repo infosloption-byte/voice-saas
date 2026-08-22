@@ -171,6 +171,13 @@ Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
     Route::post('/dubbing/submit', [VideoDubbingController::class, 'submit']);
     Route::post('/dubbing/{jobId}/retry', [VideoDubbingController::class, 'retry'])
         ->where('jobId', '[A-Za-z0-9\-]{1,64}');
+    // Advanced dubbing (Tier 1) — both are real synthesis/ffmpeg work,
+    // same weight class as submit/retry, not a cheap read or a plain
+    // metadata edit.
+    Route::post('/dubbing/{jobId}/segments/{segmentId}/resynthesize', [VideoDubbingController::class, 'resynthesizeSegment'])
+        ->where('jobId', '[A-Za-z0-9\-]{1,64}')->where('segmentId', '[0-9]+');
+    Route::post('/dubbing/{jobId}/remux', [VideoDubbingController::class, 'remux'])
+        ->where('jobId', '[A-Za-z0-9\-]{1,64}');
 });
 
 Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
@@ -181,6 +188,12 @@ Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
         ->where('jobId', '[A-Za-z0-9\-]{1,64}');
     Route::get('/dubbing/source/{jobId}', [VideoDubbingController::class, 'source'])
         ->where('jobId', '[A-Za-z0-9\-]{1,64}');
+    // Advanced dubbing (Tier 1) — plain reads, same allowance as the rest
+    // of the read-polling group above.
+    Route::get('/dubbing/{jobId}/segments', [VideoDubbingController::class, 'segments'])
+        ->where('jobId', '[A-Za-z0-9\-]{1,64}');
+    Route::get('/dubbing/{jobId}/segments/{segmentId}/audio', [VideoDubbingController::class, 'segmentAudio'])
+        ->where('jobId', '[A-Za-z0-9\-]{1,64}')->where('segmentId', '[0-9]+');
 });
 
 // Delete gets its own (slightly tighter) throttle group — it's a
@@ -189,6 +202,11 @@ Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
 Route::middleware(['auth:sanctum', 'throttle:30,1'])->group(function () {
     Route::delete('/dubbing/{jobId}', [VideoDubbingController::class, 'destroy'])
         ->where('jobId', '[A-Za-z0-9\-]{1,64}');
+    // Editing a segment's text/mute/voice override is a lightweight DB
+    // write (no synthesis, no ffmpeg) — same throttle class as delete,
+    // not the heavy 5/min group resynthesize/remux share.
+    Route::patch('/dubbing/{jobId}/segments/{segmentId}', [VideoDubbingController::class, 'updateSegment'])
+        ->where('jobId', '[A-Za-z0-9\-]{1,64}')->where('segmentId', '[0-9]+');
 });
 
 // ── Engine proxy: endpoints the frontend used to call directly (/ai/...) ──

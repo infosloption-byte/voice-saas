@@ -4,7 +4,9 @@ namespace App\Jobs;
 
 use App\Models\ActivityLog;
 use App\Models\DubbingJob;
+use App\Models\DubbingSegment;
 use App\Models\VoiceProfile;
+use App\Services\DubbingAudio;
 use App\Services\EngineResolver;
 use App\Services\SynthesisQuota;
 use App\Services\TranslationQuota;
@@ -64,8 +66,10 @@ class VideoDubbingJob implements ShouldQueue
      * Segments that overrun their original window by more than this ratio
      * are left at natural length instead of being atempo-stretched — beyond
      * ~15-20% speed change, stretched TTS audio starts sounding artificial.
+     * Shared with App\Services\DubbingAudio::MAX_STRETCH_RATIO — the single
+     * source of truth for the per-segment advanced-editing endpoints too.
      */
-    private const MAX_STRETCH_RATIO = 1.20;
+    private const MAX_STRETCH_RATIO = DubbingAudio::MAX_STRETCH_RATIO;
 
     /**
      * Segments that overrun by more than MAX_STRETCH_RATIO are left at
@@ -81,16 +85,11 @@ class VideoDubbingJob implements ShouldQueue
     private const RECOVERY_STRETCH_RATIO = 1.10;
 
     /**
-     * Both TTS engines actually synthesize at 24000Hz natively (see
-     * ai-engine/main.py: xtts_synthesize_with_latents's sf.write(...,
-     * 24000, ...) and F5's sr = 24000). This pipeline previously pinned
-     * everything to 22050Hz — extraction, silence padding, and every
-     * atempo-stretch re-encode — which meant every synthesized segment
-     * got needlessly downsampled from its real output rate before ever
-     * reaching the final mux. Matching the engines' native rate here
-     * avoids that avoidable loss.
+     * Both TTS engines actually synthesize at 24000Hz natively — see
+     * App\Services\DubbingAudio::SAMPLE_RATE, the single source of truth
+     * this and the per-segment advanced-editing endpoints both reference.
      */
-    private const SAMPLE_RATE = 24000;
+    private const SAMPLE_RATE = DubbingAudio::SAMPLE_RATE;
 
     public function __construct(
         public readonly string $dubbingJobId,
@@ -185,9 +184,10 @@ class VideoDubbingJob implements ShouldQueue
                 $contextAfter  = $i < count($segments) - 1 ? $segments[$i + 1]['text'] : '';
 
                 $translated[] = [
-                    'start' => $seg['start'],
-                    'end'   => $seg['end'],
-                    'text'  => $this->translateSegment(
+                    'start'    => $seg['start'],
+                    'end'      => $seg['end'],
+                    'original' => $seg['text'],
+                    'text'     => $this->translateSegment(
                         $engineUrl, $seg['text'], $sourceLang, $job->target_language,
                         $contextBefore, $contextAfter
                     ),
@@ -239,8 +239,10 @@ class VideoDubbingJob implements ShouldQueue
                         $pieces[] = $this->generateSilenceWav($seg['start'] - $cursor);
                         $cursor = $seg['start'];
                     }
-                    $pieces[] = $this->generateSilenceWav($windowSeconds);
+                    $silence = $this->generateSilenceWav($windowSeconds);
+                    $pieces[] = $silence;
                     $cursor  += $windowSeconds;
+                    $this->persistSegment($job, $i, $seg, $silence, 'empty', 1.0);
 
                     $pct = 45 + (int) round((($i + 1) / max(1, count($translated))) * 35);
                     $job->update(['progress' => min(80, $pct)]);
@@ -267,8 +269,10 @@ class VideoDubbingJob implements ShouldQueue
                         $pieces[] = $this->generateSilenceWav($seg['start'] - $cursor);
                         $cursor = $seg['start'];
                     }
-                    $pieces[] = $this->generateSilenceWav($windowSeconds);
+                    $silence = $this->generateSilenceWav($windowSeconds);
+                    $pieces[] = $silence;
                     $cursor  += $windowSeconds;
+                    $this->persistSegment($job, $i, $seg, $silence, 'synth_failed', 1.0);
 
                     $pct = 45 + (int) round((($i + 1) / max(1, count($translated))) * 35);
                     $job->update(['progress' => min(80, $pct)]);
@@ -310,6 +314,8 @@ class VideoDubbingJob implements ShouldQueue
                         '-f', 'wav', '-acodec', 'pcm_s16le', $stretchedPath,
                     ], "Segment {$i} time-fit");
                     $segAudio = file_get_contents($stretchedPath);
+                    $segStatus = 'ok';
+                    $segRatio  = round($ratio, 4);
                 } elseif ($ratio > self::MAX_STRETCH_RATIO) {
                     // Too far over to stretch naturally — leave at natural
                     // length (see class docblock). Never force-compressed
@@ -317,6 +323,8 @@ class VideoDubbingJob implements ShouldQueue
                     // drift recovery below since it's already at capacity.
                     $overflowCount++;
                     $segAudio = file_get_contents($segPath);
+                    $segStatus = 'overflow';
+                    $segRatio  = round($ratio, 4);
                 } elseif ($driftBefore > 0.05) {
                     // This segment fits its own window with slack to spare
                     // AND we're carrying drift from an earlier overflowed
@@ -340,11 +348,17 @@ class VideoDubbingJob implements ShouldQueue
                         ], "Segment {$i} drift recovery");
                         $segAudio = file_get_contents($recoverPath);
                         $driftRecovered += ($actualDuration - $this->probeDuration($recoverPath));
+                        $segStatus = 'ok';
+                        $segRatio  = round($recoverRatio, 4);
                     } else {
                         $segAudio = file_get_contents($segPath);
+                        $segStatus = 'ok';
+                        $segRatio  = 1.0;
                     }
                 } else {
                     $segAudio = file_get_contents($segPath);
+                    $segStatus = 'ok';
+                    $segRatio  = 1.0;
                 }
 
                 // Pad with silence up to this segment's original start time,
@@ -359,6 +373,7 @@ class VideoDubbingJob implements ShouldQueue
 
                 $pieces[] = $segAudio;
                 $cursor  += $this->estimateWavDuration($segAudio);
+                $this->persistSegment($job, $i, $seg, $segAudio, $segStatus, $segRatio);
 
                 $pct = 45 + (int) round((($i + 1) / max(1, count($translated))) * 35);
                 $job->update(['progress' => min(80, $pct)]);
@@ -498,101 +513,16 @@ class VideoDubbingJob implements ShouldQueue
         string $engineUrl, string $text, string $sourceLang, string $targetLang,
         string $contextBefore = '', string $contextAfter = ''
     ): string {
-        if (trim($text) === '') {
-            return '';
-        }
-
-        $headers = $this->engineHeaders();
-        if ($gemini = \App\Services\Settings::get('gemini_api_key')) {
-            $headers['X-Gemini-Key'] = $gemini;
-        }
-
-        $resp = Http::withHeaders($headers)
-            ->timeout(60)
-            ->retry(2, 300, throw: false)
-            ->post($engineUrl . '/translate', [
-                'text'           => $text,
-                'source_lang'    => $sourceLang,
-                'target_lang'    => $targetLang,
-                'context_before' => $contextBefore,
-                'context_after'  => $contextAfter,
-            ]);
-
-        if (! $resp->successful()) {
-            throw new \RuntimeException("Segment translation failed ({$resp->status()}): {$resp->body()}");
-        }
-
-        return $resp->json('translated_text') ?? $text;
+        return DubbingAudio::translateSegment($engineUrl, $text, $sourceLang, $targetLang, $contextBefore, $contextAfter);
     }
 
     /** Submit + poll + fetch one segment's synthesis. Mirrors BulkSynthesisJob::submitAndFetch. */
     private function synthesizeSegment(string $engineUrl, string $text, string $engineKey, string $language, string $ttsEngine): string
     {
-        $pending = Http::withHeaders($this->engineHeaders())
-            ->retry(2, 500, throw: false)
-            ->asMultipart()
-            ->attach('text', $text)
-            ->attach('language', $language)
-            ->attach('tts_engine', $ttsEngine);
-
-        if ($engineKey) {
-            $pending = $pending->attach('profile_id', $engineKey);
-        }
-
-        $submitResp = $pending->timeout(30)->post($engineUrl . '/synthesize/submit');
-        if (! $submitResp->successful()) {
-            throw new \RuntimeException("Segment submit failed ({$submitResp->status()}): {$submitResp->body()}");
-        }
-
-        $jobId = $submitResp->json('job_id');
-        if (! is_string($jobId) || $jobId === '') {
-            throw new \RuntimeException('Engine did not return a job_id for segment synthesis.');
-        }
-
-        $deadline = time() + self::PER_SEGMENT_TIMEOUT;
-        $status   = 'pending';
-
-        while (time() < $deadline) {
-            sleep(self::POLL_INTERVAL);
-
-            $statusResp = Http::withHeaders($this->engineHeaders())
-                ->timeout(10)
-                ->retry(2, 300, throw: false)
-                ->get($engineUrl . '/synthesize/status/' . $jobId);
-
-            if (! $statusResp->successful()) {
-                continue;
-            }
-
-            $status = $statusResp->json('status') ?? 'pending';
-
-            if ($status === 'done') {
-                break;
-            }
-            if ($status === 'failed' || $status === 'error') {
-                $detail = $statusResp->json('detail') ?? $statusResp->body();
-                throw new \RuntimeException("Segment synthesis job failed: {$detail}");
-            }
-        }
-
-        if ($status !== 'done') {
-            throw new \RuntimeException("Timed out waiting for segment job {$jobId} after " . self::PER_SEGMENT_TIMEOUT . 's');
-        }
-
-        $resultResp = Http::withHeaders($this->engineHeaders())
-            ->timeout(60)
-            ->get($engineUrl . '/synthesize/result/' . $jobId);
-
-        if (! $resultResp->successful()) {
-            throw new \RuntimeException("Segment result fetch failed ({$resultResp->status()})");
-        }
-
-        $data = $resultResp->body();
-        if (empty($data)) {
-            throw new \RuntimeException('Engine returned empty audio for segment.');
-        }
-
-        return $data;
+        return DubbingAudio::synthesizeSegment(
+            $engineUrl, $text, $engineKey, $language, $ttsEngine,
+            self::PER_SEGMENT_TIMEOUT, self::POLL_INTERVAL
+        );
     }
 
     // ── Audio helpers ────────────────────────────────────────────────────
@@ -600,181 +530,64 @@ class VideoDubbingJob implements ShouldQueue
     /** Silence WAV of the given duration, same format as engine output (mono/16-bit/22050Hz). */
     private function generateSilenceWav(float $seconds): string
     {
-        $seconds = max(0.0, $seconds);
-        $tmp = tempnam(sys_get_temp_dir(), 'dub_sil_') . '.wav';
-        $this->runFfmpeg([
-            'ffmpeg', '-y',
-            '-f', 'lavfi', '-i', 'anullsrc=r=' . self::SAMPLE_RATE . ':cl=mono',
-            '-t', (string) $seconds,
-            '-acodec', 'pcm_s16le', $tmp,
-        ], 'Silence padding');
-        $data = file_get_contents($tmp);
-        @unlink($tmp);
-        return $data ?: '';
+        return DubbingAudio::generateSilenceWav($seconds, self::SAMPLE_RATE);
     }
 
-    /**
-     * Splice multiple PCM WAV blobs into one continuous track.
-     *
-     * Every WAV this receives (segment audio, silence padding) was
-     * produced by our own ffmpeg calls with a fixed, known format — mono,
-     * 16-bit PCM at SAMPLE_RATE — so rather than borrowing any input
-     * file's raw header bytes, this builds one fresh canonical 44-byte
-     * header from those known constants, and uses findWavDataChunk() to
-     * correctly locate each input's actual 'data' payload.
-     *
-     * This used to instead assume every WAV was exactly the minimal
-     * 44-byte-header layout, slicing at a hardcoded offset for both the
-     * borrowed header and every payload. ffmpeg's WAV muxer can — and,
-     * depending on what metadata the upstream TTS engine's own output
-     * carried, sometimes did — insert an extra chunk (most commonly a
-     * LIST/INFO metadata chunk) between 'fmt ' and 'data'. Slicing at
-     * byte 44 in that case corrupted the assembled file two ways at
-     * once: it fed that chunk's raw bytes into the concatenated PCM
-     * stream as if they were audio samples, AND (since the donor
-     * header's own byte 40-43 no longer lined up with an actual 'data'
-     * size field) it overwrote unrelated bytes with the wrong value.
-     * That combination is exactly what produced ffmpeg's "too big INFO
-     * subchunk" / "no 'data' tag found" failure on final mux — and only
-     * on jobs where at least one segment's WAV happened to carry such a
-     * chunk, which is why it didn't reproduce on every dub.
-     *
-     * @param string[] $wavs
-     */
     private function spliceWavs(array $wavs): string
     {
-        $wavs = array_values(array_filter($wavs, fn($w) => strlen($w) > 44));
-        if (empty($wavs)) {
-            throw new \RuntimeException('No audio segments to splice — dubbing produced no output.');
-        }
-
-        $allPcm = '';
-        foreach ($wavs as $wav) {
-            [$offset, $length] = $this->findWavDataChunk($wav);
-            $allPcm .= substr($wav, $offset, $length);
-        }
-
-        $channels      = 1;
-        $bitsPerSample = 16;
-        $byteRate      = self::SAMPLE_RATE * $channels * intdiv($bitsPerSample, 8);
-        $blockAlign    = $channels * intdiv($bitsPerSample, 8);
-        $dataSize      = strlen($allPcm);
-        $riffSize      = 36 + $dataSize;
-
-        $header  = 'RIFF' . pack('V', $riffSize) . 'WAVE';
-        $header .= 'fmt ' . pack('V', 16) . pack('v', 1) . pack('v', $channels)
-                 . pack('V', self::SAMPLE_RATE) . pack('V', $byteRate)
-                 . pack('v', $blockAlign) . pack('v', $bitsPerSample);
-        $header .= 'data' . pack('V', $dataSize);
-
-        return $header . $allPcm;
+        return DubbingAudio::spliceWavs($wavs, self::SAMPLE_RATE);
     }
 
-    /**
-     * Locate the 'data' subchunk within a RIFF/WAVE byte string and
-     * return [dataOffset, dataLength] for the actual PCM payload — does
-     * NOT assume a fixed 44-byte header. See spliceWavs() for why that
-     * assumption was wrong and what it broke.
-     *
-     * @return array{0:int,1:int} [dataOffset, dataLength]
-     */
     private function findWavDataChunk(string $wav): array
     {
-        $len = strlen($wav);
-        if ($len < 12 || substr($wav, 0, 4) !== 'RIFF' || substr($wav, 8, 4) !== 'WAVE') {
-            throw new \RuntimeException('Not a valid RIFF/WAVE file.');
-        }
-
-        $pos = 12; // past the 12-byte RIFF/size/WAVE header
-        while ($pos + 8 <= $len) {
-            $chunkId   = substr($wav, $pos, 4);
-            $chunkSize = unpack('V', substr($wav, $pos + 4, 4))[1] ?? 0;
-            $dataStart = $pos + 8;
-
-            if ($chunkId === 'data') {
-                // Clamp to what's actually present, in case a chunk's
-                // declared size overshoots a truncated/corrupt buffer.
-                $available = max(0, $len - $dataStart);
-                return [$dataStart, min($chunkSize, $available)];
-            }
-
-            // Every RIFF chunk is padded to an even number of bytes; that
-            // pad byte isn't counted in chunkSize, so it must be skipped
-            // separately or the next chunk header gets misread by one
-            // byte on any chunk with an odd size.
-            $pos = $dataStart + $chunkSize + ($chunkSize % 2);
-        }
-
-        throw new \RuntimeException("No 'data' chunk found in WAV segment.");
+        return DubbingAudio::findWavDataChunk($wav);
     }
 
     private function estimateWavDuration(string $wavData): float
     {
-        if (strlen($wavData) >= 44) {
-            try {
-                [, $dataSize] = $this->findWavDataChunk($wavData);
-            } catch (\Throwable) {
-                // Best-effort fallback only — this function must never
-                // itself throw, since callers use it purely as a duration
-                // estimate (probeDuration() via ffprobe is the primary
-                // source; this only backs it up).
-                $dataSize = max(0, strlen($wavData) - 44);
-            }
-            $byteRate = unpack('V', substr($wavData, 28, 4))[1] ?? 0;
-            if ($byteRate > 0 && $dataSize > 0) {
-                return round($dataSize / $byteRate, 3);
-            }
-        }
-        $byteRate = self::SAMPLE_RATE * 2; // mono, 16-bit
-        $dataBytes = max(0, strlen($wavData) - 44);
-        return $byteRate > 0 ? round($dataBytes / $byteRate, 3) : 0.0;
+        return DubbingAudio::estimateWavDuration($wavData, self::SAMPLE_RATE);
     }
 
     private function probeDuration(string $path): ?float
     {
-        $proc = proc_open(
-            ['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', $path],
-            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes
-        );
-        if (! is_resource($proc)) {
-            return null;
-        }
-        $out = stream_get_contents($pipes[1]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        proc_close($proc);
-
-        $val = trim($out);
-        return is_numeric($val) ? round((float) $val, 3) : null;
+        return DubbingAudio::probeDuration($path);
     }
 
     private function runFfmpeg(array $cmd, string $context): void
     {
-        $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
-        if (! is_resource($proc)) {
-            throw new \RuntimeException("{$context}: could not start ffmpeg process.");
-        }
-        $stderr = stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $exitCode = proc_close($proc);
-
-        if ($exitCode !== 0) {
-            // ffmpeg ALWAYS prints its version/build-configuration banner
-            // first on stderr, then any per-command output, then the actual
-            // fatal error last, right before it exits. Truncating from the
-            // start (as truncate() does) reliably keeps the useless banner
-            // and throws away the one line that would actually explain the
-            // failure — which is exactly what happened here (the stored
-            // error was just "...--enable-gpl --disable…", cut off mid-
-            // banner, with the real reason never making it into the
-            // message at all). Take the tail instead.
-            throw new \RuntimeException("{$context} failed (ffmpeg exit {$exitCode}): " . $this->tailOutput($stderr, 500));
-        }
+        DubbingAudio::runFfmpeg($cmd, $context);
     }
 
     // ── Misc helpers ─────────────────────────────────────────────────────
+
+    /**
+     * Persist one processed segment's transcript, translation, timing, and
+     * its own fitted audio — Tier 1 of the "advanced dubbing" plan (see
+     * docs/ENHANCEMENT_TASKS.md task #6). Previously every one of these was
+     * computed in memory and thrown away the moment the job finished (only
+     * a bare segment_count survived); this is what makes reviewing/editing
+     * an individual segment's text, muting it, or re-synthesizing just
+     * that one line possible after the fact, via VideoDubbingController's
+     * segments()/updateSegment()/resynthesizeSegment()/remux() actions.
+     */
+    private function persistSegment(DubbingJob $job, int $index, array $seg, string $audioBytes, string $status, float $stretchRatio): void
+    {
+        $path = 'video/' . $job->user_id . '/' . $job->id . '/seg_' . $index . '.wav';
+        Storage::disk('video')->put($path, $audioBytes);
+
+        DubbingSegment::updateOrCreate(
+            ['dubbing_job_id' => $job->id, 'segment_index' => $index],
+            [
+                'start_time'      => $seg['start'],
+                'end_time'        => $seg['end'],
+                'original_text'   => $seg['original'] ?? '',
+                'translated_text' => $seg['text'] ?? '',
+                'status'          => $status,
+                'stretch_ratio'   => $stretchRatio,
+                'audio_path'      => $path,
+            ]
+        );
+    }
 
     private function resolveEngineKey(int $userId, string $profileId): string
     {
@@ -789,8 +602,7 @@ class VideoDubbingJob implements ShouldQueue
 
     private function engineHeaders(): array
     {
-        $key = config('services.ai_engine.key', '');
-        return $key ? ['X-Engine-Key' => $key] : [];
+        return DubbingAudio::engineHeaders();
     }
 
     private function advance(DubbingJob $job, ?ActivityLog $log, string $status, int $progress, string $message): void
@@ -815,17 +627,6 @@ class VideoDubbingJob implements ShouldQueue
     {
         $text = trim(preg_replace('/\s+/', ' ', $text));
         return strlen($text) > $max ? substr($text, 0, $max - 1) . '…' : $text;
-    }
-
-    /**
-     * Same shape as truncate(), but keeps the END of the text instead of
-     * the start — for ffmpeg's stderr specifically, where the banner is
-     * always first and the actual error is always last. See runFfmpeg().
-     */
-    private function tailOutput(string $text, int $max): string
-    {
-        $text = trim(preg_replace('/\s+/', ' ', $text));
-        return strlen($text) > $max ? '…' . substr($text, -$max) : $text;
     }
 
     private function rrmdir(string $dir): void

@@ -42,6 +42,35 @@ interface JobRow {
   created_at: string | null
 }
 
+type SegmentStatus = 'ok' | 'overflow' | 'empty' | 'synth_failed'
+
+interface SegmentRow {
+  id: number
+  segment_index: number
+  start_time: number
+  end_time: number
+  original_text: string
+  translated_text: string
+  voice_profile_id: string | null
+  muted: boolean
+  status: SegmentStatus
+  stretch_ratio: number | null
+  has_audio: boolean
+}
+
+const SEGMENT_STATUS_META: Record<SegmentStatus, { label: string; tagClass: string }> = {
+  ok:           { label: 'Fit',     tagClass: 'tag--ok' },
+  overflow:     { label: 'Overran', tagClass: 'tag--warn' },
+  empty:        { label: 'Silent',  tagClass: '' },
+  synth_failed: { label: 'Failed',  tagClass: 'tag--warn' },
+}
+
+function fmtTimestamp(secs: number): string {
+  const m = Math.floor(secs / 60)
+  const s = Math.floor(secs % 60)
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
 function langLabel(code: string | null): string {
   if (!code) return 'Auto-detect'
   return LANGUAGES.find(l => l.code === code)?.label ?? code.toUpperCase()
@@ -94,9 +123,20 @@ export function DubbingPage({ voiceProfiles, engineCaps }: { voiceProfiles: Voic
   // ── Detail panel (enhancement #3: selecting a job no longer opens a
   // modal — it switches the page into a list+detail layout instead) ──
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
-  const [previewTab, setPreviewTab] = useState<'dubbed' | 'original'>('dubbed')
+  const [previewTab, setPreviewTab] = useState<'dubbed' | 'original' | 'advanced'>('dubbed')
   const [previewUrls, setPreviewUrls] = useState<Record<string, { source?: string; result?: string }>>({})
   const [previewLoading, setPreviewLoading] = useState(false)
+
+  // ── Advanced dubbing (Tier 1) — per-segment editor ─────────────────
+  const [segments, setSegments] = useState<SegmentRow[]>([])
+  const [segmentsLoadedFor, setSegmentsLoadedFor] = useState<string | null>(null)
+  const [editingSegmentId, setEditingSegmentId] = useState<number | null>(null)
+  const [editText, setEditText] = useState('')
+  const [segmentBusy, setSegmentBusy] = useState<Record<number, boolean>>({})
+  const [remuxBusy, setRemuxBusy] = useState(false)
+  const [playingSegmentId, setPlayingSegmentId] = useState<number | null>(null)
+  const segmentAudioRef = useRef<HTMLAudioElement | null>(null)
+  const segmentAudioUrlsRef = useRef<Record<number, string>>({})
 
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
