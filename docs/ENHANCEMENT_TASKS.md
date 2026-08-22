@@ -12,7 +12,7 @@
 | 4 | Add Chatterbox as a third TTS engine option | P1 | ✅ Done — Aug 15, 2026 |
 | 4a | Multi-engine admin control (separate from AI Engine host-swap) | P1 | ✅ Done — Aug 19, 2026 |
 | 5 | Public API tier | P1 | Not started |
-| 6 | Video dubbing MVP | P1 | ✅ Done — Aug 21, 2026 · quality fixes (engine selection, translation context, sample rate/loudness, drift recovery) Aug 22, 2026 · fixed event-loop-blocking bug in chatterbox-engine Aug 22, 2026 · fixed deprecated/nonexistent Gemini model IDs blocking translation Aug 22, 2026 |
+| 6 | Video dubbing MVP | P1 | ✅ Done — Aug 21, 2026 · quality fixes (engine selection, translation context, sample rate/loudness, drift recovery) Aug 22, 2026 · fixed event-loop-blocking bug in chatterbox-engine Aug 22, 2026 · fixed deprecated/nonexistent Gemini model IDs blocking translation Aug 22, 2026 · Advanced Mode Tier 1 (segment persistence, per-segment edit/resynthesize) done Aug 23, 2026 · critical Vite/Rolldown build-tooling bug found & pinned Aug 23, 2026 |
 | 7 | Base model quality tier | P1 | Not started |
 | 8 | Public system-health status page | P2 | Not started |
 | 9 | No-signup "try your voice" widget | P2 | Not started |
@@ -236,9 +236,72 @@ The fix isn't just swapping model names — `GEMINI_MODELS` already contained `g
 - This is a single shared list feeding one `/translate` endpoint used by **both** the dubbing pipeline and the standalone Translate feature — the fix closes the gap for both, not just dubbing.
 - Verified: `python3 -m py_compile` clean. **Not yet verified against a real Gemini API key** — same sandbox limitation as everything else in this task; confirm with a real dub or Translate call that `/translate` now succeeds on the first or second model tried, not falling all the way through to a late fallback.
 
+**Robustness fixes from production error reports (Aug 22, 2026):**
+1. **Empty/degenerate segments crashing Chatterbox.** `translateSegment()` returns `''` for a blank source segment (e.g. Whisper picking up a non-speech blip), and nothing downstream stopped that empty string from reaching the TTS engine — Chatterbox's alignment analyzer has no phonemes to align against for empty input, and crashed with `max(): Expected reduction dim 1 to have non-zero size`. **Fixed:** a segment with no letter/digit content is now detected before it ever reaches the engine and substituted with silence for its time window instead. Added as a general resilience net alongside this: *any* segment-level synthesis failure (not just empty-text ones) now substitutes silence and continues rather than failing the whole job, with an escalation check (>40% of segments failing synthesis throws a real failure — that's a broken engine, not isolated bad text).
+2. **`failed()` hook wasn't updating `ActivityLog` on timeout.** Normal pipeline errors go through `handle()`'s own try/catch, which updates both `DubbingJob` and `ActivityLog`. But a job that times out (`$timeout = 3600`) or dies via a worker crash/restart bypasses that try/catch entirely and goes through Laravel's separate `failed()` hook instead — which only updated `DubbingJob`. Confirmed against a real production case: the Dubbing workspace correctly showed a job "Failed" while the Background Tasks panel kept showing the same job "Running" indefinitely, ticking up past an hour. **Fixed** — `failed()` now mirrors the inline catch's `ActivityLog` update.
+3. **ffmpeg error messages were 100% banner, 0% actual error.** `runFfmpeg()`'s failure message truncated stderr to the first 300 characters — but ffmpeg always prints its version/build-configuration banner *first* and the actual fatal error *last*, so every ffmpeg failure in this pipeline (extraction, atempo, silence, normalization, the final mux) was surfacing the useless banner and discarding the real reason. Confirmed directly from a production error: the stored message was just `"...--enable-gpl --disable…"`, cut off mid-banner. **Fixed:** added `tailOutput()`, keeps the last 500 characters instead of the first 300, used at the one shared `runFfmpeg()` throw site.
+4. **A hung ffmpeg call could block a job (and its queue slot) for up to the full 60-minute job timeout, with no way to intervene.** Reported live: a "Combining dubbed audio with the original video…" task sat "Running" for 35+ minutes. `runFfmpeg()` had no timeout of its own — it just waited on `proc_close()` indefinitely. **Fixed:** added a hard per-call wall-clock timeout (default 480s — generous for any single step, since the final mux uses `-c:v copy` and never re-encodes video) that terminates the process (SIGTERM, then SIGKILL if it doesn't respond) and fails cleanly instead of hanging.
+5. **No way for a user to stop a stuck or unwanted job manually.** Requested directly after #4 — automatic timeouts alone meant waiting up to an hour even when it was obvious something was wrong. **Fixed:** added cooperative cancellation. A new `cancel_requested_at` column is set by a new `POST /dubbing/{jobId}/cancel` endpoint; the running job polls it (`checkCancelled()`) at safe checkpoints — before audio extraction, at the top of each translate/synthesize loop iteration, before the final mux — and aborts through the same existing failure path the moment it notices, typically within one segment's processing time rather than waiting for a timeout. A "Stop" button was added to the frontend's job detail panel.
+
+- **`backend/database/migrations/2026_08_22_000001_add_cancel_requested_at_to_video_dubbing_jobs_table.php`** (new).
+- `backend/app/Models/DubbingJob.php` — `cancel_requested_at` added to fillable/casts.
+- `backend/app/Jobs/VideoDubbingJob.php` — `checkCancelled()` helper + call sites at each checkpoint listed above.
+- `backend/app/Http/Controllers/VideoDubbingController.php` — new `cancel()` endpoint; `index()` exposes a `cancelling` boolean per job.
+- `backend/routes/api.php` — `POST /dubbing/{jobId}/cancel`, same throttle group as `destroy()`.
+- `frontend/src/lib/api.ts` — `cancelDubbingJob()`.
+- `frontend/src/pages/DubbingPage.tsx` — "Stop" button + optimistic "Stopping…" state in the detail panel.
+- **Status: built, not yet delivered/committed.** This work exists only from an in-session build — it was never packaged into a diff, verified end-to-end, or committed before the conversation moved on to Advanced Mode (Tier 1) below. Needs a fresh pass to actually land it.
+
 ---
 
-### 7. Upgrade the base TTS model / add a "quality tier"
+## Advanced Dubbing Mode (Aug 23, 2026)
+
+Requested after the MVP stabilized: give users the same level of manual control over a dub that Assembly already gives over audio clips — see, edit, and fix individual pieces instead of only "upload → wait → download or fail." Scoped into three tiers by how much new backend infrastructure each needs, since dubbing segments were (until this point) fully transient — transcribed, translated, synthesized, and spliced in one background run, then thrown away except for a bare count. Everything in Tier 1 depends on fixing that first.
+
+**Tier 1 — persist segments, edit/re-synthesize individually** (highest value; needs new schema)
+- Per-segment transcript + translation, viewable and editable per line
+- Re-synthesize a single corrected segment without re-running the whole pipeline
+- Per-segment voice override (manual — no speaker diarization yet)
+- Mute/skip a segment (keep original audio for that line)
+
+**Tier 2 — direct analogs to Assembly's existing controls** (not started)
+- Visual segment timeline synced to the video player, color-coded by status
+- Per-segment volume/fade
+- Manual timing override (nudge start time / stretch ratio by hand)
+- Original-audio bed mixing (keep some source ambience under the dub)
+
+**Tier 3 — nice-to-have** (not started)
+- Manual silence-gap insertion, per-segment waveform rendering, solo-segment preview
+
+### Tier 1 — status: backend done, frontend done, critical toolchain bug found and fixed (Aug 23, 2026)
+
+**Backend — new segment-persistence layer:**
+- **`backend/database/migrations/2026_08_23_000001_create_dubbing_segments_table.php`** + **`app/Models/DubbingSegment.php`** — one row per segment: original text, translated text, timing, status (`ok`/`overflow`/`empty`/`synth_failed`), stretch ratio, mute flag, per-segment voice override, its own audio file path.
+- **`app/Services/DubbingAudio.php`** (new) — extracted the stateless WAV/synthesis primitives that used to live directly in `VideoDubbingJob` (translate/synthesize calls, WAV splicing and silence generation, the ffmpeg runner incl. the tail-output and hang-timeout fixes above) into a shared service. `VideoDubbingJob` now delegates to it via thin wrappers, so the new segment-level endpoints reuse the *exact* same logic rather than a second, divergent copy — same WAV-chunk-parsing correctness, same ffmpeg hang protection, automatically.
+- **`app/Jobs/VideoDubbingJob.php`** — now persists each segment via a `persistSegment()` helper at all three points a segment gets resolved (normal fit, overflow, and the empty/synth-failure silence-substitution paths), instead of discarding everything but a count.
+- **`app/Http/Controllers/VideoDubbingController.php`** — five new endpoints: list a job's segments, edit a segment (text/mute/voice override), resynthesize one segment, remux the whole job from current segment state (skips re-transcription/re-translation entirely), stream one segment's own audio for solo preview.
+- `destroy()` updated to also clean up the new per-segment audio directory on disk (DB cascade handles the rows, not the files).
+- Verified: every method/constant reference across `VideoDubbingJob`, `DubbingAudio`, and `VideoDubbingController` resolves correctly; brace/paren balance clean on all three files (no PHP runtime in this sandbox, same limitation as every prior backend change here).
+
+**Frontend — segment editor UI (`SegmentEditor` in `DubbingPage.tsx`):**
+- `frontend/src/lib/api.ts` — added `patch()` to the API client plus `listDubbingSegments`, `updateDubbingSegment`, `resynthesizeDubbingSegment`, `remuxDubbingJob`, `fetchDubbingSegmentAudio`.
+- New "Advanced" tab in the job detail panel: per-segment list with inline text editing, mute toggle, per-segment resynthesize and solo-preview buttons, and an "Apply changes" button that remuxes the job from current segment state.
+- Lint found one real issue in the new code: `SegmentEditor` destructured an unused `job` prop (dead leftover from an earlier draft). Removed it from both the component signature and its call site rather than just silencing the warning.
+
+**Critical build-tooling bug found and fixed during verification (Aug 23, 2026):** `frontend/package-lock.json` had `vite` locked to exactly `8.0.10`, which defaults to Vite's new Rust-based bundler, Rolldown (`1.0.0-rc.17` — pre-release). Reproduced from scratch in three separate clean environments (fresh `npm install`, zero shared caches): `vite build` reports success every time, but the output bundle silently contains almost none of the actual application — no `Dashboard`, no `DubbingPage`, none of this Tier 1 work, just React's runtime tree-shaken down to near nothing. Confirmed the fix by installing classic (non-Rolldown) Vite 7.3.6 + `@vitejs/plugin-react@4.7.0` against the *identical* source: the resulting bundle correctly contains every string checked. This means **any fresh `npm ci`/`npm install` on this repo, before this fix, would have silently shipped a broken frontend build with no error at any step** — this is very likely what the earlier "stale build" investigation (mentioned mid-session, never resolved) actually was.
+
+- `frontend/package.json` — `vite` pinned to exact `7.3.6` (was `^8.0.10`), `@vitejs/plugin-react` pinned to exact `4.7.0` (was `^6.0.1`). Both pinned without carets deliberately — Rolldown-Vite is still actively changing pre-1.0, so a caret range here is a real risk of silently regressing again on some future install; revisit once Rolldown is out of RC and this specific tree-shaking issue is confirmed fixed upstream.
+- `frontend/package-lock.json` regenerated against the pinned versions.
+- Verified on the pinned toolchain: `tsc -b` clean, `vite build` clean, and the built bundle directly confirmed (via string search, not just size/hash) to contain the real app — `Dashboard`, `Voice Profiles`, `Advanced`, `Resynthesize`, `Apply changes` all present. Targeted `eslint` on every touched dubbing file clean except one confirmed pre-existing, unrelated finding (`no-useless-catch` in `api.ts`, inside `engineSynthesize` — predates dubbing entirely). Full-project `eslint` surfaces 117 problems, all in files this work never touched (mostly `WorkspacePage.tsx`) — pre-existing baseline, not introduced here, left out of scope.
+
+**Not yet done:**
+- Tier 2 and Tier 3 (see breakdown above) — not started.
+- End-to-end test of the segment editor against a real running stack (transcribe → edit a segment → resynthesize → remux → confirm the output video actually changed) — same sandbox limitation as every other dubbing change in this doc; this environment can't run `docker compose up`.
+- The "Stop dubbing job" cancellation feature described in the robustness-fixes section above is still unpacked/undelivered — needs its own pass before it can be considered part of this baseline.
+
+---
+
+
 - **What:** XTTS v2 (2023-era open model) is the hard ceiling on how natural Voxora's output can sound, and it's now behind ElevenLabs and Murf in every recent third-party comparison. Two viable paths: (a) integrate a newer open model that isn't GPU-only-gated the way the current F5 setup is, or (b) offer an optional "Premium Quality" tier that proxies to a commercial API (e.g., ElevenLabs or OpenAI TTS) behind the same UI, billed at cost-plus-margin.
 - **Why:** This is the single biggest lever on output quality — the thing every buyer actually judges the product on — and it's currently the widest gap versus competitors.
 - **Effort:** Large. Option (b) is faster to ship (proxy integration + billing logic, days–weeks) but has ongoing per-generation cost and vendor dependency. Option (a) is a deeper engine change (model integration, hosting/GPU cost, testing) but keeps the self-hosted story intact. Recommend starting with (b) as a paid add-on tier to validate demand before committing to (a).

@@ -101,11 +101,10 @@ function isJobRunning(j: JobRow): boolean {
 
 // ── Advanced (Tier 1) segment editor ────────────────────────────────
 function SegmentEditor({
-  job, segments, loaded, voiceProfiles, editingSegmentId, editText, setEditText,
+  segments, loaded, voiceProfiles, editingSegmentId, editText, setEditText,
   segmentBusy, remuxBusy, playingSegmentId,
   onStartEdit, onCancelEdit, onSaveEdit, onToggleMute, onSetVoice, onResynthesize, onPlay, onApplyRemux,
 }: {
-  job: JobRow
   segments: SegmentRow[]
   loaded: boolean
   voiceProfiles: VoiceProfile[]
@@ -804,7 +803,6 @@ export function DubbingPage({ voiceProfiles, engineCaps }: { voiceProfiles: Voic
 
                 {previewTab === 'advanced' ? (
                   <SegmentEditor
-                    job={selectedJob}
                     segments={segments}
                     loaded={segmentsLoadedFor === selectedJob.job_id}
                     voiceProfiles={voiceProfiles}
