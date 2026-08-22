@@ -12,7 +12,7 @@
 | 4 | Add Chatterbox as a third TTS engine option | P1 | ✅ Done — Aug 15, 2026 |
 | 4a | Multi-engine admin control (separate from AI Engine host-swap) | P1 | ✅ Done — Aug 19, 2026 |
 | 5 | Public API tier | P1 | Not started |
-| 6 | Video dubbing MVP | P1 | ✅ Done — Aug 21, 2026 · quality fixes (engine selection, translation context, sample rate/loudness, drift recovery) Aug 22, 2026 · fixed event-loop-blocking bug in chatterbox-engine (found on first live test) Aug 22, 2026 |
+| 6 | Video dubbing MVP | P1 | ✅ Done — Aug 21, 2026 · quality fixes (engine selection, translation context, sample rate/loudness, drift recovery) Aug 22, 2026 · fixed event-loop-blocking bug in chatterbox-engine Aug 22, 2026 · fixed deprecated/nonexistent Gemini model IDs blocking translation Aug 22, 2026 |
 | 7 | Base model quality tier | P1 | Not started |
 | 8 | Public system-health status page | P2 | Not started |
 | 9 | No-signup "try your voice" widget | P2 | Not started |
@@ -227,6 +227,14 @@ This closes out task 4a completely — all three engine-selection surfaces (Work
 - **`chatterbox-engine/main.py`** — `/synthesize` now runs `model.generate()` via `await run_in_threadpool(...)`, and `sf.write()` the same way.
 
 **Still to verify:** re-run the same dub that failed (or any Chatterbox job long enough to span multiple health-check cycles) after rebuilding `chatterbox-engine` and confirm it completes without a mid-job 503.
+
+**Second real bug found on first live test (Aug 22, 2026): Gemini model deprecation.** A dub failed at the translation stage with `Segment translation failed (500): All Gemini models failed: gemini-2.5-flash: HTTP 404 ...; gemini-3-flash: HTTP 404 ...`. Checked both against Google's current model docs rather than assuming: `gemini-2.5-flash` (first in the fallback list) is genuinely deprecated — Google's own 404 body says *"This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.6-flash"* — and `gemini-3-flash` (second in the list) turns out to have **never been a real model ID at all**; there's no evidence it ever existed, likely a typo from whenever this list was first written. Both entries 404'd on every single call, meaning translation only ever succeeded via the third-or-later fallback.
+
+The fix isn't just swapping model names — `GEMINI_MODELS` already contained `gemini-flash-latest`/`gemini-flash-lite-latest` (Google-maintained aliases that always resolve to whatever the current stable Flash model is), just positioned *last*, behind the two broken entries. Reordered so the aliases are tried first (self-updating, shouldn't need edits again as Google rotates model generations), replaced `gemini-2.5-flash` with the current real pinned model `gemini-3.6-flash` as backup, dropped `gemini-3-flash` entirely.
+
+- **`ai-engine/main.py`** — `GEMINI_MODELS` list reordered/fixed, with an inline comment explaining why each entry is there and pointing at Google's model docs for future edits, so the next person touching this doesn't need to rediscover the deprecation history from scratch.
+- This is a single shared list feeding one `/translate` endpoint used by **both** the dubbing pipeline and the standalone Translate feature — the fix closes the gap for both, not just dubbing.
+- Verified: `python3 -m py_compile` clean. **Not yet verified against a real Gemini API key** — same sandbox limitation as everything else in this task; confirm with a real dub or Translate call that `/translate` now succeeds on the first or second model tried, not falling all the way through to a late fallback.
 
 ---
 
