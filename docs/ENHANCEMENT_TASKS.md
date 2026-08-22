@@ -12,7 +12,7 @@
 | 4 | Add Chatterbox as a third TTS engine option | P1 | ✅ Done — Aug 15, 2026 |
 | 4a | Multi-engine admin control (separate from AI Engine host-swap) | P1 | ✅ Done — Aug 19, 2026 |
 | 5 | Public API tier | P1 | Not started |
-| 6 | Video dubbing MVP | P1 | ✅ Done — Aug 21, 2026 |
+| 6 | Video dubbing MVP | P1 | ✅ Done — Aug 21, 2026 · quality fix (engine selection) Aug 22, 2026 |
 | 7 | Base model quality tier | P1 | Not started |
 | 8 | Public system-health status page | P2 | Not started |
 | 9 | No-signup "try your voice" widget | P2 | Not started |
@@ -193,6 +193,24 @@ This closes out task 4a completely — all three engine-selection surfaces (Work
 - Verified: `tsc -b` clean, `vite build` clean (bundle grew ~240 bytes, expected for genuinely new code), targeted `eslint` on all touched files clean, full-repo `eslint` returns the same 117 pre-existing problems as the established baseline (zero new issues introduced).
 
 **S3 bucket sharing (Aug 21, 2026):** the operator confirmed they want dubbing video storage on the *same* S3 bucket already used for audio, not a separate one. `config/filesystems.php`'s `video` disk already falls back to `AWS_BUCKET` when `VIDEO_BUCKET` is unset, so no code change was needed there — just set `VIDEO_DISK=s3` with `VIDEO_BUCKET` left blank. However, checking the actual object-key patterns revealed audio keys have **no path prefix at all** (`{userId}/script_{id}.{ext}`) — meaning if video used the same bare pattern in the identical bucket, the two would be indistinguishable by key alone (no way to target either type separately with a future S3 lifecycle policy). Since dubbing hasn't shipped yet — no real video files exist under the old pattern — added an explicit `video/` prefix to both the source-upload key (`VideoDubbingController::submit`) and the result-storage key (`VideoDubbingJob`), while deliberately leaving the live audio key pattern untouched (renaming it now would orphan any already-uploaded files' lookups — a real regression risk for zero benefit).
+
+**Quality investigation + engine-selection fix (Aug 22, 2026):** operator reported dubbed output "not accurately dubbed" and asked for a full pipeline explanation to find where to optimize. Traced the live pipeline against the actual code (not from memory) and confirmed it matches the documented design above, but surfaced four real quality gaps, ranked by expected impact:
+
+1. **`VideoDubbingJob::synthesizeSegment()` hardcoded `tts_engine=xtts` for every segment** — regardless of which engine server was actually active/selected. Worse than it first looked: `video_dubbing_jobs` had **no `engine` column at all**, and `VideoDubbingController` never accepted an `engine` param on submit or retry, so there was no path — even in principle — for a dub to use F5 or Chatterbox. Voice profiles aren't engine-specific (`engine_key` is a portable identity, not a model binding), so the fix follows the same client-selects-engine pattern `ScriptController` already uses for regular synthesis, rather than inventing a new one. **Fixed** — see file list below.
+2. **Each segment translated in total isolation** (no surrounding context sent to Gemini) — causes pronoun/tense/tone drift across segments, worsened by Whisper's segment boundaries not being sentence-aware. **Not yet fixed.**
+3. **Whole pipeline pinned to 22,050 Hz mono** from extraction through synthesis and splicing, with no loudness-normalization step (other synthesis paths in the app already apply `loudnorm`; dubbing doesn't). **Not yet fixed.**
+4. **`segment_overflow_count` is tracked but never acted on** — once a segment blows past the 20% stretch ceiling, every segment after it in that job drifts later than its true timestamp, compounding for the rest of the video. This is the same tradeoff called out at ship time (item 2 above, "Timing strategy"); still open. **Not yet fixed.**
+
+**Files changed for #1 (engine-selection fix):**
+- `backend/database/migrations/2026_08_21_000002_add_engine_to_video_dubbing_jobs_table.php` (new) — nullable `engine` column on `video_dubbing_jobs`, added `after('voice_profile_id')`.
+- `backend/app/Models/DubbingJob.php` — added `engine` to `$fillable`.
+- `backend/app/Http/Controllers/VideoDubbingController.php` — `submit()`/`retry()` now validate `engine` via `EngineResolver::engineValidationRule()` (nullable, matching `ScriptController`'s pattern) and persist it; `retry()` falls back to the source job's engine if the retry request omits one; `index()` now returns `engine` per job.
+- `backend/app/Jobs/VideoDubbingJob.php` — reads `$job->engine` (falling back to `'xtts'` only for jobs created before this column existed) and passes it through to `synthesizeSegment()`, replacing the hardcoded value.
+- `frontend/src/pages/DubbingPage.tsx` — wired up the existing `useTTSEngine()` hook and `EngineSwitcher`/`EngineBadge` components (same ones `WorkspacePage`/`ProfilesPage` already use), sends `engine` on submit and retry, retry pre-fills the engine from the job being retried, job detail view shows an `EngineBadge`.
+- `frontend/src/lib/api.ts` — `retryDubbingJob()` payload type gained an optional `engine` field.
+- `frontend/src/app/App.tsx` — `<DubbingPage>` now receives the existing `engineCaps` state (was already tracked in `App.tsx`, just wasn't threaded down to this page).
+
+**Not yet done:** items #2–#4 above; **still need to run the new migration and end-to-end-verify a real dub** with a non-default engine active (only structurally verified in this pass, same caveat as the original ship — no way to run `docker compose up` / hit real GPU engine servers from this environment).
 
 ---
 

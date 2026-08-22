@@ -6,6 +6,7 @@ use App\Jobs\VideoDubbingJob;
 use App\Models\ActivityLog;
 use App\Models\DubbingJob;
 use App\Models\VoiceProfile;
+use App\Services\EngineResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -38,6 +39,10 @@ class VideoDubbingController extends Controller
             'target_language'   => ['required', 'string', 'max:10'],
             'source_language'   => ['nullable', 'string', 'max:10'],
             'voice_profile_id'  => ['required', 'string', 'max:100'],
+            // Same TTSEngine choice already sent for scripts/bulk synthesis
+            // (see useTTSEngine.ts) — nullable so VideoDubbingJob can fall
+            // back to a sane default if an older client omits it.
+            'engine'            => ['nullable', 'string', EngineResolver::engineValidationRule()],
         ]);
 
         // Ownership check for real (non-builtin) voice profiles, same pattern
@@ -75,6 +80,7 @@ class VideoDubbingController extends Controller
             'user_id'           => $user->id,
             'activity_log_id'   => $log->id,
             'voice_profile_id'  => $profileId,
+            'engine'            => $validated['engine'] ?? null,
             'source_language'   => $validated['source_language'] ?? null,
             'target_language'   => $validated['target_language'],
             'original_filename' => $validated['video']->getClientOriginalName(),
@@ -116,6 +122,7 @@ class VideoDubbingController extends Controller
             'target_language'   => ['required', 'string', 'max:10'],
             'source_language'   => ['nullable', 'string', 'max:10'],
             'voice_profile_id'  => ['required', 'string', 'max:100'],
+            'engine'            => ['nullable', 'string', EngineResolver::engineValidationRule()],
         ]);
 
         $profileId = $validated['voice_profile_id'];
@@ -145,6 +152,7 @@ class VideoDubbingController extends Controller
             'user_id'           => $user->id,
             'activity_log_id'   => $log->id,
             'voice_profile_id'  => $profileId,
+            'engine'            => $validated['engine'] ?? $source->engine,
             'source_language'   => $validated['source_language'] ?? null,
             'target_language'   => $validated['target_language'],
             'original_filename' => $source->original_filename,
@@ -194,6 +202,7 @@ class VideoDubbingController extends Controller
                 'source_language'        => $j->source_language,
                 'target_language'        => $j->target_language,
                 'voice_profile_id'       => $j->voice_profile_id,
+                'engine'                 => $j->engine,
                 'voice_name'             => str_starts_with($j->voice_profile_id, 'builtin:')
                     ? str_replace('builtin:', '', $j->voice_profile_id)
                     : ($profileNames[$j->voice_profile_id] ?? 'Unknown voice'),

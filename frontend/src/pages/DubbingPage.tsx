@@ -3,7 +3,9 @@ import { api, ApiError } from '../lib/api'
 import { toast } from '../lib/toast'
 import { icons, LANGUAGES } from '../lib/constants'
 import { useEscapeKey } from '../hooks/useEscapeKey'
-import type { VoiceProfile } from '../lib/types'
+import { useTTSEngine } from '../hooks/useTTSEngine'
+import { EngineSwitcher, EngineBadge } from '../components/EngineSwitcher'
+import type { VoiceProfile, EngineCaps } from '../lib/types'
 
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024   // mirrors VideoDubbingController::MAX_UPLOAD_KB (204800 KB)
 const ACCEPTED_TYPES = ['video/mp4', 'video/quicktime', 'video/x-matroska', 'video/webm']
@@ -31,6 +33,7 @@ interface JobRow {
   target_language: string
   voice_profile_id: string
   voice_name: string
+  engine: string | null
   segment_count: number | null
   segment_overflow_count: number | null
   duration_seconds: number | null
@@ -67,7 +70,9 @@ function isJobRunning(j: JobRow): boolean {
   return j.status !== 'done' && j.status !== 'failed'
 }
 
-export function DubbingPage({ voiceProfiles }: { voiceProfiles: VoiceProfile[] }) {
+export function DubbingPage({ voiceProfiles, engineCaps }: { voiceProfiles: VoiceProfile[]; engineCaps?: EngineCaps }) {
+  const caps: EngineCaps = engineCaps ?? { xtts: true, f5: false }
+  const { engine, setEngine } = useTTSEngine()
   // ── New-dub / retry dialog (enhancement #2: both are a popup now, and
   // retry never touches the file input — it reuses the video already
   // sitting in storage from the original job) ────────────────────────
@@ -168,6 +173,9 @@ export function DubbingPage({ voiceProfiles }: { voiceProfiles: VoiceProfile[] }
     setTargetLanguage(job.target_language)
     setSourceLanguage(job.source_language ?? '')
     setProfileId(job.voice_profile_id)
+    if (job.engine === 'xtts' || job.engine === 'f5' || job.engine === 'chatterbox') {
+      setEngine(job.engine)
+    }
     setDialogMode('retry')
   }
 
@@ -188,6 +196,7 @@ export function DubbingPage({ voiceProfiles }: { voiceProfiles: VoiceProfile[] }
           target_language: targetLanguage,
           source_language: sourceLanguage || undefined,
           voice_profile_id: effectiveProfileId,
+          engine,
         })
         toast.ok('Dubbing job queued — it will appear in the list.')
         setDialogMode('closed')
@@ -210,6 +219,7 @@ export function DubbingPage({ voiceProfiles }: { voiceProfiles: VoiceProfile[] }
       fd.append('target_language', targetLanguage)
       if (sourceLanguage) fd.append('source_language', sourceLanguage)
       fd.append('voice_profile_id', effectiveProfileId)
+      fd.append('engine', engine)
 
       await api.postWithProgress('/dubbing/submit', fd, setUploadProgress)
       toast.ok('Dubbing job queued — it will appear in the list.')
@@ -410,6 +420,9 @@ export function DubbingPage({ voiceProfiles }: { voiceProfiles: VoiceProfile[] }
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
               <span className="tag">{langLabel(selectedJob.source_language)} → {langLabel(selectedJob.target_language)}</span>
               <span className="tag tag--info">{selectedJob.voice_name}</span>
+              {(selectedJob.engine === 'xtts' || selectedJob.engine === 'f5' || selectedJob.engine === 'chatterbox') && (
+                <EngineBadge engine={selectedJob.engine} />
+              )}
               {selectedJob.status === 'done' && <span className="tag tag--ok">Done</span>}
               {selectedJob.status === 'failed' && <span className="tag tag--warn">Failed</span>}
               {isJobRunning(selectedJob) && <span className="tag tag--accent">{STAGE_META[selectedJob.status].label}</span>}

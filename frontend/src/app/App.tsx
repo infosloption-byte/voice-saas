@@ -1065,7 +1065,7 @@ export default function App() {
                 <button className="btn btn--primary" onClick={() => setPage('signup')}>Sign up</button>
               </div>
             ) : (
-              <DubbingPage voiceProfiles={voiceProfiles} />
+              <DubbingPage voiceProfiles={voiceProfiles} engineCaps={engineCaps} />
             )
           )}
 

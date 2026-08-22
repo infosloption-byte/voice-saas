@@ -104,6 +104,13 @@ class VideoDubbingJob implements ShouldQueue
 
             $engineUrl = rtrim(EngineResolver::activeUrl(), '/');
             $engineKey = $this->resolveEngineKey($job->user_id, $job->voice_profile_id);
+            // Whichever engine the user picked at submit time (see
+            // VideoDubbingController) — previously this was hardcoded to
+            // 'xtts' below regardless of what was actually active/selected,
+            // which meant a dub could silently be sent to a host running a
+            // different model. Falls back to 'xtts' only for older jobs
+            // that predate the engine column.
+            $ttsEngine = $job->engine ?: 'xtts';
 
             $this->advance($job, $log, 'transcribing', 5, 'Extracting audio and transcribing…');
 
@@ -169,7 +176,7 @@ class VideoDubbingJob implements ShouldQueue
             foreach ($translated as $i => $seg) {
                 $windowSeconds = max(0.1, $seg['end'] - $seg['start']);
 
-                $rawWav = $this->synthesizeSegment($engineUrl, $seg['text'], $engineKey, $job->target_language);
+                $rawWav = $this->synthesizeSegment($engineUrl, $seg['text'], $engineKey, $job->target_language, $ttsEngine);
                 $segPath = $tmpDir . "/seg_{$i}.wav";
                 file_put_contents($segPath, $rawWav);
 
@@ -327,14 +334,14 @@ class VideoDubbingJob implements ShouldQueue
     }
 
     /** Submit + poll + fetch one segment's synthesis. Mirrors BulkSynthesisJob::submitAndFetch. */
-    private function synthesizeSegment(string $engineUrl, string $text, string $engineKey, string $language): string
+    private function synthesizeSegment(string $engineUrl, string $text, string $engineKey, string $language, string $ttsEngine): string
     {
         $pending = Http::withHeaders($this->engineHeaders())
             ->retry(2, 500, throw: false)
             ->asMultipart()
             ->attach('text', $text)
             ->attach('language', $language)
-            ->attach('tts_engine', 'xtts'); // XTTS: broadest language coverage, no GPU-only gate — safest default for a first dubbing pass
+            ->attach('tts_engine', $ttsEngine);
 
         if ($engineKey) {
             $pending = $pending->attach('profile_id', $engineKey);
