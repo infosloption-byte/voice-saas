@@ -99,6 +99,161 @@ function isJobRunning(j: JobRow): boolean {
   return j.status !== 'done' && j.status !== 'failed'
 }
 
+// ── Advanced (Tier 1) segment editor ────────────────────────────────
+function SegmentEditor({
+  job, segments, loaded, voiceProfiles, editingSegmentId, editText, setEditText,
+  segmentBusy, remuxBusy, playingSegmentId,
+  onStartEdit, onCancelEdit, onSaveEdit, onToggleMute, onSetVoice, onResynthesize, onPlay, onApplyRemux,
+}: {
+  job: JobRow
+  segments: SegmentRow[]
+  loaded: boolean
+  voiceProfiles: VoiceProfile[]
+  editingSegmentId: number | null
+  editText: string
+  setEditText: (v: string) => void
+  segmentBusy: Record<number, boolean>
+  remuxBusy: boolean
+  playingSegmentId: number | null
+  onStartEdit: (s: SegmentRow) => void
+  onCancelEdit: () => void
+  onSaveEdit: (s: SegmentRow) => void
+  onToggleMute: (s: SegmentRow) => void
+  onSetVoice: (s: SegmentRow, voiceProfileId: string) => void
+  onResynthesize: (s: SegmentRow) => void
+  onPlay: (s: SegmentRow) => void
+  onApplyRemux: () => void
+}) {
+  if (!loaded) {
+    return <div style={{ textAlign: 'center', padding: '50px 0' }}><span className="spinner" /></div>
+  }
+  if (segments.length === 0) {
+    return (
+      <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+        No segment data for this job — it was dubbed before the advanced editor existed.
+        Use "Dub again" to create a new job with editable segments.
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        marginBottom: 12, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8,
+      }}>
+        <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+          Edit text, mute, or reassign a voice per line, then apply your changes to rebuild the video —
+          no need to redo transcription or translation.
+        </div>
+        <button className="btn btn--primary btn--sm" onClick={onApplyRemux} disabled={remuxBusy} style={{ flexShrink: 0, marginLeft: 12 }}>
+          {remuxBusy ? <span className="spinner" style={{ marginRight: 6 }} /> : null}
+          {remuxBusy ? 'Rebuilding…' : 'Apply changes'}
+        </button>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 'min(58vh, 480px)', overflowY: 'auto' }}>
+        {segments.map(seg => {
+          const meta = SEGMENT_STATUS_META[seg.status]
+          const busy = !!segmentBusy[seg.id]
+          const isEditing = editingSegmentId === seg.id
+          const currentVoice = seg.voice_profile_id ?? ''
+
+          return (
+            <div key={seg.id} style={{
+              border: '1px solid var(--border-2)', borderRadius: 8, padding: 12,
+              opacity: seg.muted ? 0.6 : 1,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-3)', fontVariantNumeric: 'tabular-nums' }}>
+                  {fmtTimestamp(seg.start_time)}–{fmtTimestamp(seg.end_time)}
+                </span>
+                <span className={`tag ${meta.tagClass}`} style={{ fontSize: 10 }}>{meta.label}</span>
+                {seg.stretch_ratio != null && seg.stretch_ratio !== 1 && (
+                  <span style={{ fontSize: 10.5, color: 'var(--text-3)' }}>{seg.stretch_ratio.toFixed(2)}×</span>
+                )}
+                <div style={{ flex: 1 }} />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--text-3)', cursor: busy ? 'default' : 'pointer' }}>
+                  <input type="checkbox" checked={seg.muted} disabled={busy} onChange={() => onToggleMute(seg)} />
+                  Mute (keep original audio)
+                </label>
+              </div>
+
+              {seg.original_text && (
+                <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginBottom: 6, fontStyle: 'italic' }}>
+                  "{seg.original_text}"
+                </div>
+              )}
+
+              {isEditing ? (
+                <div>
+                  <textarea
+                    value={editText}
+                    onChange={e => setEditText(e.target.value)}
+                    className="full-input"
+                    rows={2}
+                    style={{ width: '100%', resize: 'vertical', fontSize: 13 }}
+                    autoFocus
+                    disabled={busy}
+                  />
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                    <button className="btn btn--primary btn--sm" onClick={() => onSaveEdit(seg)} disabled={busy}>Save</button>
+                    <button className="btn btn--ghost btn--sm" onClick={onCancelEdit} disabled={busy}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  onClick={() => !busy && !seg.muted && onStartEdit(seg)}
+                  style={{ fontSize: 13.5, cursor: seg.muted ? 'default' : 'text', padding: '4px 0', minHeight: 20 }}
+                  title={seg.muted ? undefined : 'Click to edit'}
+                >
+                  {seg.translated_text || <span style={{ color: 'var(--text-3)' }}>(empty)</span>}
+                </div>
+              )}
+
+              {seg.status === 'synth_failed' && (
+                <div style={{ fontSize: 11.5, color: 'var(--danger, #d9534f)', marginTop: 4 }}>
+                  Synthesis failed for this segment — original silence was used instead.
+                </div>
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                {voiceProfiles.length > 0 && !seg.muted && (
+                  <select
+                    value={currentVoice}
+                    onChange={e => onSetVoice(seg, e.target.value)}
+                    className="full-input"
+                    disabled={busy}
+                    style={{ fontSize: 12, padding: '4px 8px', width: 'auto', flex: '0 1 auto' }}
+                    title="Voice for this segment (defaults to the job's voice)"
+                  >
+                    <option value="">Default voice</option>
+                    {voiceProfiles.map(p => (
+                      <option key={p.profile_id} value={p.profile_id}>{p.name}</option>
+                    ))}
+                  </select>
+                )}
+                <div style={{ flex: 1 }} />
+                {seg.has_audio && !seg.muted && (
+                  <button className="btn btn--ghost btn--sm" onClick={() => onPlay(seg)} disabled={busy}>
+                    {playingSegmentId === seg.id ? 'Stop' : '▶ Preview'}
+                  </button>
+                )}
+                {!seg.muted && (
+                  <button className="btn btn--ghost btn--sm" onClick={() => onResynthesize(seg)} disabled={busy}>
+                    {busy ? <span className="spinner" style={{ marginRight: 4 }} /> : null}
+                    Resynthesize
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function DubbingPage({ voiceProfiles, engineCaps }: { voiceProfiles: VoiceProfile[]; engineCaps?: EngineCaps }) {
   const caps: EngineCaps = engineCaps ?? { xtts: true, f5: false }
   const { engine, setEngine } = useTTSEngine()
@@ -307,6 +462,145 @@ export function DubbingPage({ voiceProfiles, engineCaps }: { voiceProfiles: Voic
     loadPreviewMedia(job)
   }
 
+  // ── Advanced (Tier 1): per-segment editor ──────────────────────────
+  const loadSegments = useCallback(async (jobId: string, force = false) => {
+    if (!force && segmentsLoadedFor === jobId) return
+    try {
+      const res = await api.listDubbingSegments(jobId) as { segments: SegmentRow[] }
+      setSegments(res.segments ?? [])
+      setSegmentsLoadedFor(jobId)
+    } catch (e) {
+      toast.err(e instanceof Error ? e.message : 'Failed to load segments.')
+    }
+  }, [segmentsLoadedFor])
+
+  function openAdvancedTab() {
+    setPreviewTab('advanced')
+    if (selectedJob) loadSegments(selectedJob.job_id)
+  }
+
+  function startEditingSegment(seg: SegmentRow) {
+    setEditingSegmentId(seg.id)
+    setEditText(seg.translated_text)
+  }
+
+  async function saveSegmentText(seg: SegmentRow) {
+    if (!selectedJob) return
+    if (editText === seg.translated_text) { setEditingSegmentId(null); return }
+    setSegmentBusy(prev => ({ ...prev, [seg.id]: true }))
+    try {
+      const res = await api.updateDubbingSegment(selectedJob.job_id, seg.id, { translated_text: editText }) as { segment: SegmentRow }
+      setSegments(prev => prev.map(s => s.id === seg.id ? res.segment : s))
+      setEditingSegmentId(null)
+    } catch (e) {
+      toast.err(e instanceof Error ? e.message : 'Failed to save.')
+    } finally {
+      setSegmentBusy(prev => ({ ...prev, [seg.id]: false }))
+    }
+  }
+
+  async function toggleMute(seg: SegmentRow) {
+    if (!selectedJob) return
+    setSegmentBusy(prev => ({ ...prev, [seg.id]: true }))
+    try {
+      const res = await api.updateDubbingSegment(selectedJob.job_id, seg.id, { muted: !seg.muted }) as { segment: SegmentRow }
+      setSegments(prev => prev.map(s => s.id === seg.id ? res.segment : s))
+    } catch (e) {
+      toast.err(e instanceof Error ? e.message : 'Failed to update.')
+    } finally {
+      setSegmentBusy(prev => ({ ...prev, [seg.id]: false }))
+    }
+  }
+
+  async function setSegmentVoice(seg: SegmentRow, voiceProfileId: string) {
+    if (!selectedJob) return
+    setSegmentBusy(prev => ({ ...prev, [seg.id]: true }))
+    try {
+      // '' means "use the job's default voice" — send null to clear the override.
+      const res = await api.updateDubbingSegment(selectedJob.job_id, seg.id, { voice_profile_id: voiceProfileId || null }) as { segment: SegmentRow }
+      setSegments(prev => prev.map(s => s.id === seg.id ? res.segment : s))
+    } catch (e) {
+      toast.err(e instanceof Error ? e.message : 'Failed to update voice.')
+    } finally {
+      setSegmentBusy(prev => ({ ...prev, [seg.id]: false }))
+    }
+  }
+
+  async function resynthesizeSegment(seg: SegmentRow) {
+    if (!selectedJob) return
+    // Any unsaved text edit on this row should apply before resynthesizing,
+    // or the resynth would use stale text.
+    if (editingSegmentId === seg.id && editText !== seg.translated_text) {
+      await saveSegmentText(seg)
+    }
+    setSegmentBusy(prev => ({ ...prev, [seg.id]: true }))
+    try {
+      const res = await api.resynthesizeDubbingSegment(selectedJob.job_id, seg.id) as { segment: SegmentRow }
+      setSegments(prev => prev.map(s => s.id === seg.id ? res.segment : s))
+      // Stale audio blob, if this segment was ever played — force a refetch next play.
+      const cached = segmentAudioUrlsRef.current[seg.id]
+      if (cached) { URL.revokeObjectURL(cached); delete segmentAudioUrlsRef.current[seg.id] }
+      toast.ok('Segment resynthesized.')
+    } catch (e) {
+      toast.err(e instanceof Error ? e.message : 'Resynthesis failed.')
+    } finally {
+      setSegmentBusy(prev => ({ ...prev, [seg.id]: false }))
+    }
+  }
+
+  async function playSegment(seg: SegmentRow) {
+    if (!selectedJob) return
+    if (playingSegmentId === seg.id) {
+      segmentAudioRef.current?.pause()
+      setPlayingSegmentId(null)
+      return
+    }
+    try {
+      let url = segmentAudioUrlsRef.current[seg.id]
+      if (!url) {
+        const blob = await api.fetchDubbingSegmentAudio(selectedJob.job_id, seg.id)
+        url = URL.createObjectURL(blob)
+        segmentAudioUrlsRef.current[seg.id] = url
+      }
+      if (!segmentAudioRef.current) segmentAudioRef.current = new Audio()
+      const audioEl = segmentAudioRef.current
+      audioEl.src = url
+      audioEl.onended = () => setPlayingSegmentId(null)
+      await audioEl.play()
+      setPlayingSegmentId(seg.id)
+    } catch (e) {
+      toast.err(e instanceof Error ? e.message : 'Could not play this segment — it may not have audio yet.')
+    }
+  }
+
+  async function applyRemux() {
+    if (!selectedJob) return
+    setRemuxBusy(true)
+    try {
+      await api.remuxDubbingJob(selectedJob.job_id)
+      toast.ok('Video rebuilt with your changes.')
+      // The result changed — drop the cached preview blob so it refetches,
+      // and jump back to the Dubbed tab to show the updated video.
+      setPreviewUrls(prev => {
+        const cached = prev[selectedJob.job_id]
+        if (cached?.result) URL.revokeObjectURL(cached.result)
+        return { ...prev, [selectedJob.job_id]: { ...cached, result: undefined } }
+      })
+      await refreshList()
+      setPreviewTab('dubbed')
+    } catch (e) {
+      toast.err(e instanceof Error ? e.message : 'Remux failed.')
+    } finally {
+      setRemuxBusy(false)
+    }
+  }
+
+  // Release segment audio blob URLs on unmount, same pattern as the
+  // source/result preview blobs elsewhere in this component.
+  useEffect(() => () => {
+    Object.values(segmentAudioUrlsRef.current).forEach(u => URL.revokeObjectURL(u))
+  }, [])
+
   // Keep media in sync if the selected job transitions (e.g. finishes)
   // while its panel is already open — the panel doesn't need to be
   // reopened to pick up the freshly-available result.
@@ -492,16 +786,44 @@ export function DubbingPage({ voiceProfiles, engineCaps }: { voiceProfiles: Voic
               </div>
             )}
 
-            {(selectedJob.has_result || selectedJob.has_source) && (
+            {(selectedJob.has_result || selectedJob.has_source || selectedJob.status === 'done') && (
               <>
-                {selectedJob.has_result && selectedJob.has_source && (
-                  <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                  {selectedJob.has_result && (
                     <button className={`btn btn--sm ${previewTab === 'dubbed' ? 'btn--primary' : 'btn--ghost'}`} onClick={() => setPreviewTab('dubbed')}>Dubbed</button>
+                  )}
+                  {selectedJob.has_source && (
                     <button className={`btn btn--sm ${previewTab === 'original' ? 'btn--primary' : 'btn--ghost'}`} onClick={() => setPreviewTab('original')}>Original</button>
-                  </div>
-                )}
+                  )}
+                  {selectedJob.status === 'done' && (
+                    <button className={`btn btn--sm ${previewTab === 'advanced' ? 'btn--primary' : 'btn--ghost'}`} onClick={openAdvancedTab}>
+                      Advanced
+                    </button>
+                  )}
+                </div>
 
-                {previewLoading && !activePreviewUrls?.[previewTab === 'dubbed' ? 'result' : 'source'] ? (
+                {previewTab === 'advanced' ? (
+                  <SegmentEditor
+                    job={selectedJob}
+                    segments={segments}
+                    loaded={segmentsLoadedFor === selectedJob.job_id}
+                    voiceProfiles={voiceProfiles}
+                    editingSegmentId={editingSegmentId}
+                    editText={editText}
+                    setEditText={setEditText}
+                    segmentBusy={segmentBusy}
+                    remuxBusy={remuxBusy}
+                    playingSegmentId={playingSegmentId}
+                    onStartEdit={startEditingSegment}
+                    onCancelEdit={() => setEditingSegmentId(null)}
+                    onSaveEdit={saveSegmentText}
+                    onToggleMute={toggleMute}
+                    onSetVoice={setSegmentVoice}
+                    onResynthesize={resynthesizeSegment}
+                    onPlay={playSegment}
+                    onApplyRemux={applyRemux}
+                  />
+                ) : previewLoading && !activePreviewUrls?.[previewTab === 'dubbed' ? 'result' : 'source'] ? (
                   <div style={{ textAlign: 'center', padding: '50px 0' }}><span className="spinner" /></div>
                 ) : (
                   // Capped height + object-fit: contain so a portrait/vertical
