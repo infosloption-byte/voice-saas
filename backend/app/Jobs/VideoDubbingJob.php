@@ -154,7 +154,7 @@ class VideoDubbingJob implements ShouldQueue
             $audioPath = $tmpDir . '/audio.wav';
             $this->runFfmpeg([
                 'ffmpeg', '-y', '-i', $videoPath,
-                '-vn', '-ar', (string) self::SAMPLE_RATE, '-ac', '1',
+                '-vn', '-map_metadata', '-1', '-ar', (string) self::SAMPLE_RATE, '-ac', '1',
                 '-f', 'wav', '-acodec', 'pcm_s16le', $audioPath,
             ], 'Audio extraction');
 
@@ -289,7 +289,7 @@ class VideoDubbingJob implements ShouldQueue
                 $this->runFfmpeg([
                     'ffmpeg', '-y', '-i', $segPath,
                     '-af', 'highpass=f=80,loudnorm=I=-16:LRA=11:TP=-1.5',
-                    '-ar', (string) self::SAMPLE_RATE, '-ac', '1',
+                    '-map_metadata', '-1', '-ar', (string) self::SAMPLE_RATE, '-ac', '1',
                     '-f', 'wav', '-acodec', 'pcm_s16le', $normPath,
                 ], "Segment {$i} loudness normalization");
                 $segPath = $normPath;
@@ -306,7 +306,7 @@ class VideoDubbingJob implements ShouldQueue
                     $this->runFfmpeg([
                         'ffmpeg', '-y', '-i', $segPath,
                         '-af', 'atempo=' . round($ratio, 4),
-                        '-ar', (string) self::SAMPLE_RATE, '-ac', '1',
+                        '-map_metadata', '-1', '-ar', (string) self::SAMPLE_RATE, '-ac', '1',
                         '-f', 'wav', '-acodec', 'pcm_s16le', $stretchedPath,
                     ], "Segment {$i} time-fit");
                     $segAudio = file_get_contents($stretchedPath);
@@ -335,7 +335,7 @@ class VideoDubbingJob implements ShouldQueue
                         $this->runFfmpeg([
                             'ffmpeg', '-y', '-i', $segPath,
                             '-af', 'atempo=' . round($recoverRatio, 4),
-                            '-ar', (string) self::SAMPLE_RATE, '-ac', '1',
+                            '-map_metadata', '-1', '-ar', (string) self::SAMPLE_RATE, '-ac', '1',
                             '-f', 'wav', '-acodec', 'pcm_s16le', $recoverPath,
                         ], "Segment {$i} drift recovery");
                         $segAudio = file_get_contents($recoverPath);
@@ -615,9 +615,29 @@ class VideoDubbingJob implements ShouldQueue
 
     /**
      * Splice multiple PCM WAV blobs into one continuous track.
-     * Same raw-header-plus-concatenated-PCM technique as
-     * BulkSynthesisJob::concatWavs, generalized for a mixed list of
-     * synthesized-segment and silence-padding WAVs.
+     *
+     * Every WAV this receives (segment audio, silence padding) was
+     * produced by our own ffmpeg calls with a fixed, known format — mono,
+     * 16-bit PCM at SAMPLE_RATE — so rather than borrowing any input
+     * file's raw header bytes, this builds one fresh canonical 44-byte
+     * header from those known constants, and uses findWavDataChunk() to
+     * correctly locate each input's actual 'data' payload.
+     *
+     * This used to instead assume every WAV was exactly the minimal
+     * 44-byte-header layout, slicing at a hardcoded offset for both the
+     * borrowed header and every payload. ffmpeg's WAV muxer can — and,
+     * depending on what metadata the upstream TTS engine's own output
+     * carried, sometimes did — insert an extra chunk (most commonly a
+     * LIST/INFO metadata chunk) between 'fmt ' and 'data'. Slicing at
+     * byte 44 in that case corrupted the assembled file two ways at
+     * once: it fed that chunk's raw bytes into the concatenated PCM
+     * stream as if they were audio samples, AND (since the donor
+     * header's own byte 40-43 no longer lined up with an actual 'data'
+     * size field) it overwrote unrelated bytes with the wrong value.
+     * That combination is exactly what produced ffmpeg's "too big INFO
+     * subchunk" / "no 'data' tag found" failure on final mux — and only
+     * on jobs where at least one segment's WAV happened to carry such a
+     * chunk, which is why it didn't reproduce on every dub.
      *
      * @param string[] $wavs
      */
@@ -628,26 +648,79 @@ class VideoDubbingJob implements ShouldQueue
             throw new \RuntimeException('No audio segments to splice — dubbing produced no output.');
         }
 
-        $header = substr($wavs[0], 0, 44);
         $allPcm = '';
         foreach ($wavs as $wav) {
-            $allPcm .= substr($wav, 44);
+            [$offset, $length] = $this->findWavDataChunk($wav);
+            $allPcm .= substr($wav, $offset, $length);
         }
 
-        $dataSize = strlen($allPcm);
-        $riffSize = 36 + $dataSize;
+        $channels      = 1;
+        $bitsPerSample = 16;
+        $byteRate      = self::SAMPLE_RATE * $channels * intdiv($bitsPerSample, 8);
+        $blockAlign    = $channels * intdiv($bitsPerSample, 8);
+        $dataSize      = strlen($allPcm);
+        $riffSize      = 36 + $dataSize;
 
-        $header = substr_replace($header, pack('V', $riffSize), 4, 4);
-        $header = substr_replace($header, pack('V', $dataSize), 40, 4);
+        $header  = 'RIFF' . pack('V', $riffSize) . 'WAVE';
+        $header .= 'fmt ' . pack('V', 16) . pack('v', 1) . pack('v', $channels)
+                 . pack('V', self::SAMPLE_RATE) . pack('V', $byteRate)
+                 . pack('v', $blockAlign) . pack('v', $bitsPerSample);
+        $header .= 'data' . pack('V', $dataSize);
 
         return $header . $allPcm;
+    }
+
+    /**
+     * Locate the 'data' subchunk within a RIFF/WAVE byte string and
+     * return [dataOffset, dataLength] for the actual PCM payload — does
+     * NOT assume a fixed 44-byte header. See spliceWavs() for why that
+     * assumption was wrong and what it broke.
+     *
+     * @return array{0:int,1:int} [dataOffset, dataLength]
+     */
+    private function findWavDataChunk(string $wav): array
+    {
+        $len = strlen($wav);
+        if ($len < 12 || substr($wav, 0, 4) !== 'RIFF' || substr($wav, 8, 4) !== 'WAVE') {
+            throw new \RuntimeException('Not a valid RIFF/WAVE file.');
+        }
+
+        $pos = 12; // past the 12-byte RIFF/size/WAVE header
+        while ($pos + 8 <= $len) {
+            $chunkId   = substr($wav, $pos, 4);
+            $chunkSize = unpack('V', substr($wav, $pos + 4, 4))[1] ?? 0;
+            $dataStart = $pos + 8;
+
+            if ($chunkId === 'data') {
+                // Clamp to what's actually present, in case a chunk's
+                // declared size overshoots a truncated/corrupt buffer.
+                $available = max(0, $len - $dataStart);
+                return [$dataStart, min($chunkSize, $available)];
+            }
+
+            // Every RIFF chunk is padded to an even number of bytes; that
+            // pad byte isn't counted in chunkSize, so it must be skipped
+            // separately or the next chunk header gets misread by one
+            // byte on any chunk with an odd size.
+            $pos = $dataStart + $chunkSize + ($chunkSize % 2);
+        }
+
+        throw new \RuntimeException("No 'data' chunk found in WAV segment.");
     }
 
     private function estimateWavDuration(string $wavData): float
     {
         if (strlen($wavData) >= 44) {
+            try {
+                [, $dataSize] = $this->findWavDataChunk($wavData);
+            } catch (\Throwable) {
+                // Best-effort fallback only — this function must never
+                // itself throw, since callers use it purely as a duration
+                // estimate (probeDuration() via ffprobe is the primary
+                // source; this only backs it up).
+                $dataSize = max(0, strlen($wavData) - 44);
+            }
             $byteRate = unpack('V', substr($wavData, 28, 4))[1] ?? 0;
-            $dataSize = strlen($wavData) - 44;
             if ($byteRate > 0 && $dataSize > 0) {
                 return round($dataSize / $byteRate, 3);
             }
