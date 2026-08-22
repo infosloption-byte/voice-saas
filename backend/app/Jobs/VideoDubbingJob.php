@@ -688,7 +688,16 @@ class VideoDubbingJob implements ShouldQueue
         $exitCode = proc_close($proc);
 
         if ($exitCode !== 0) {
-            throw new \RuntimeException("{$context} failed (ffmpeg exit {$exitCode}): " . $this->truncate($stderr, 300));
+            // ffmpeg ALWAYS prints its version/build-configuration banner
+            // first on stderr, then any per-command output, then the actual
+            // fatal error last, right before it exits. Truncating from the
+            // start (as truncate() does) reliably keeps the useless banner
+            // and throws away the one line that would actually explain the
+            // failure — which is exactly what happened here (the stored
+            // error was just "...--enable-gpl --disable…", cut off mid-
+            // banner, with the real reason never making it into the
+            // message at all). Take the tail instead.
+            throw new \RuntimeException("{$context} failed (ffmpeg exit {$exitCode}): " . $this->tailOutput($stderr, 500));
         }
     }
 
@@ -733,6 +742,17 @@ class VideoDubbingJob implements ShouldQueue
     {
         $text = trim(preg_replace('/\s+/', ' ', $text));
         return strlen($text) > $max ? substr($text, 0, $max - 1) . '…' : $text;
+    }
+
+    /**
+     * Same shape as truncate(), but keeps the END of the text instead of
+     * the start — for ffmpeg's stderr specifically, where the banner is
+     * always first and the actual error is always last. See runFfmpeg().
+     */
+    private function tailOutput(string $text, int $max): string
+    {
+        $text = trim(preg_replace('/\s+/', ' ', $text));
+        return strlen($text) > $max ? '…' . substr($text, -$max) : $text;
     }
 
     private function rrmdir(string $dir): void
