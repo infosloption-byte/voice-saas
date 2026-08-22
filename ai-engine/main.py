@@ -960,10 +960,27 @@ _TRANSLATE_SYSTEM = (
     "translated text — no explanations, no quotes around the result."
 )
 
+_TRANSLATE_SYSTEM_WITH_CONTEXT = (
+    "You are a professional translator working through a video transcript one "
+    "segment at a time. You will be shown the previous and next segments purely "
+    "as context — to keep pronouns, tense, and tone consistent with surrounding "
+    "dialogue — but you must translate ONLY the segment marked "
+    "[TRANSLATE THIS SEGMENT]. Preserve punctuation exactly as it appears in that "
+    "segment. Output only the translated text for that one segment — no "
+    "explanations, no quotes, no context segments, no labels."
+)
+
 class TranslateRequest(BaseModel):
     text: str
     source_lang: str = "en"
     target_lang: str = "es"
+    # Optional surrounding-segment text (not translated, just shown for
+    # disambiguation) — used by dubbing to keep pronoun/tense/tone
+    # consistent across a video's segments instead of translating each
+    # one in complete isolation. Left blank for normal single-text
+    # translation, which behaves exactly as before.
+    context_before: str = ""
+    context_after: str = ""
 
 def _http_post_json(url: str, payload: dict, headers: dict) -> dict:
     """POST JSON and return parsed response. On HTTP error, raise with the
@@ -981,7 +998,7 @@ def _http_post_json(url: str, payload: dict, headers: dict) -> dict:
             pass
         raise RuntimeError(f"HTTP {e.code}: {body or e.reason}") from None
 
-def _translate_gemini(model: str, user_msg: str, api_key: str) -> str:
+def _translate_gemini(model: str, user_msg: str, api_key: str, system_prompt: str = _TRANSLATE_SYSTEM) -> str:
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent?key={api_key}"
@@ -989,7 +1006,7 @@ def _translate_gemini(model: str, user_msg: str, api_key: str) -> str:
     data = _http_post_json(
         url,
         {
-            "system_instruction": {"parts": [{"text": _TRANSLATE_SYSTEM}]},
+            "system_instruction": {"parts": [{"text": system_prompt}]},
             "contents": [{"parts": [{"text": user_msg}]}],
         },
         {},
@@ -1012,12 +1029,25 @@ async def translate_text(
 
     src = LANG_NAMES.get(body.source_lang, body.source_lang)
     tgt = LANG_NAMES.get(body.target_lang, body.target_lang)
-    user_msg = f"Translate the following text from {src} to {tgt}:\n\n{body.text}"
+
+    has_context = bool(body.context_before.strip() or body.context_after.strip())
+    if has_context:
+        parts = [f"Translate the following text from {src} to {tgt}.\n"]
+        if body.context_before.strip():
+            parts.append(f"[PREVIOUS SEGMENT, for context only]\n{body.context_before}\n")
+        parts.append(f"[TRANSLATE THIS SEGMENT]\n{body.text}\n")
+        if body.context_after.strip():
+            parts.append(f"[NEXT SEGMENT, for context only]\n{body.context_after}\n")
+        user_msg = "\n".join(parts)
+        system_prompt = _TRANSLATE_SYSTEM_WITH_CONTEXT
+    else:
+        user_msg = f"Translate the following text from {src} to {tgt}:\n\n{body.text}"
+        system_prompt = _TRANSLATE_SYSTEM
 
     errors: list[str] = []
     for model in GEMINI_MODELS:
         try:
-            return {"translated_text": _translate_gemini(model, user_msg, gemini_key), "provider": model}
+            return {"translated_text": _translate_gemini(model, user_msg, gemini_key, system_prompt), "provider": model}
         except Exception as e:
             errors.append(f"{model}: {e}")
 

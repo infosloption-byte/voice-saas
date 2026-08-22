@@ -641,6 +641,11 @@ export function DubbingPage({ voiceProfiles, engineCaps }: { voiceProfiles: Voic
                 )}
               </div>
 
+              <div>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>TTS engine</label>
+                <EngineSwitcher engine={engine} setEngine={setEngine} engineCaps={caps} />
+              </div>
+
               <div style={{ display: 'flex', gap: 12 }}>
                 <div style={{ flex: 1 }}>
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Source language</label>

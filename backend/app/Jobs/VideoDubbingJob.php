@@ -35,12 +35,17 @@ use Illuminate\Support\Facades\Storage;
  * Chosen v1 timing behavior (agreed in the task #6 planning discussion):
  * segments that overrun their window by more than MAX_STRETCH_RATIO are
  * NOT force-compressed (that starts sounding artificial past ~15-20%
- * speed-up) — they're left at natural length and allowed to drift the
- * timeline for subsequent segments. segment_overflow_count on the
- * DubbingJob row exists specifically so this can be monitored in
- * production; if it climbs, that's the signal to build the "absorb into
- * next gap" refinement mentioned in planning, rather than guessing at it
- * up front.
+ * speed-up) — they're left at natural length. That still holds. What
+ * changed (Aug 22, 2026 quality pass, item #4): the resulting drift is no
+ * longer just left to silently compound for the rest of the video —
+ * later segments that have natural slack in their own window (i.e. don't
+ * need any compression to fit) are opportunistically squeezed a little
+ * further, within RECOVERY_STRETCH_RATIO, to actively pay that debt back
+ * down. This is best-effort, not a guarantee: a video with back-to-back
+ * segments and no slack anywhere can still end up with unrecovered
+ * drift by the end. segment_overflow_count (and the peak/recovered drift
+ * now logged alongside it) exist specifically so this can be watched in
+ * production.
  */
 class VideoDubbingJob implements ShouldQueue
 {
@@ -62,7 +67,30 @@ class VideoDubbingJob implements ShouldQueue
      */
     private const MAX_STRETCH_RATIO = 1.20;
 
-    private const SAMPLE_RATE = 22050;
+    /**
+     * Segments that overrun by more than MAX_STRETCH_RATIO are left at
+     * natural length and the overflow counted (never force-compressed —
+     * see docblock). This tighter ceiling is only for OPTIONAL drift
+     * recovery on segments that already fit their own window with slack
+     * to spare: those get squeezed a little further, up to this ratio,
+     * to help pay down debt from an earlier overflowed segment. Kept
+     * stricter than MAX_STRETCH_RATIO since this compression isn't
+     * needed for the segment to fit — it's purely opportunistic, so it
+     * should stay closer to inaudible.
+     */
+    private const RECOVERY_STRETCH_RATIO = 1.10;
+
+    /**
+     * Both TTS engines actually synthesize at 24000Hz natively (see
+     * ai-engine/main.py: xtts_synthesize_with_latents's sf.write(...,
+     * 24000, ...) and F5's sr = 24000). This pipeline previously pinned
+     * everything to 22050Hz — extraction, silence padding, and every
+     * atempo-stretch re-encode — which meant every synthesized segment
+     * got needlessly downsampled from its real output rate before ever
+     * reaching the final mux. Matching the engines' native rate here
+     * avoids that avoidable loss.
+     */
+    private const SAMPLE_RATE = 24000;
 
     public function __construct(
         public readonly string $dubbingJobId,
@@ -146,10 +174,23 @@ class VideoDubbingJob implements ShouldQueue
             $sourceLang = $segments[0]['detected_language'] ?? ($job->source_language ?: 'en');
             $translated = [];
             foreach ($segments as $i => $seg) {
+                // Pass the immediately adjacent segments' ORIGINAL text as
+                // context only (never translated themselves) so Gemini can
+                // keep pronouns/tense/tone consistent across segment
+                // boundaries, instead of translating each segment as if it
+                // were the only sentence in the video. Whisper's segment
+                // cuts aren't sentence-aware, so this also helps when a
+                // segment boundary lands mid-clause.
+                $contextBefore = $i > 0 ? $segments[$i - 1]['text'] : '';
+                $contextAfter  = $i < count($segments) - 1 ? $segments[$i + 1]['text'] : '';
+
                 $translated[] = [
                     'start' => $seg['start'],
                     'end'   => $seg['end'],
-                    'text'  => $this->translateSegment($engineUrl, $seg['text'], $sourceLang, $job->target_language),
+                    'text'  => $this->translateSegment(
+                        $engineUrl, $seg['text'], $sourceLang, $job->target_language,
+                        $contextBefore, $contextAfter
+                    ),
                 ];
                 if ($i % 5 === 0) {
                     $pct = 25 + (int) round(($i / max(1, count($segments))) * 20);
@@ -169,9 +210,11 @@ class VideoDubbingJob implements ShouldQueue
                 }
             }
 
-            $pieces         = []; // ordered list of WAV byte-strings to splice
-            $cursor         = 0.0; // absolute seconds already placed in the output track
-            $overflowCount  = 0;
+            $pieces          = []; // ordered list of WAV byte-strings to splice
+            $cursor          = 0.0; // absolute seconds already placed in the output track
+            $overflowCount   = 0;
+            $driftRecovered  = 0.0; // seconds of overflow debt actively paid down (item #4 fix)
+            $peakDrift       = 0.0; // worst unrecovered drift seen at any point, for visibility
 
             foreach ($translated as $i => $seg) {
                 $windowSeconds = max(0.1, $seg['end'] - $seg['start']);
@@ -180,8 +223,27 @@ class VideoDubbingJob implements ShouldQueue
                 $segPath = $tmpDir . "/seg_{$i}.wav";
                 file_put_contents($segPath, $rawWav);
 
+                // Loudness-normalize each segment before measuring/fitting
+                // its duration — other synthesis paths (BulkSynthesisJob)
+                // already apply this same EBU R128 pass so a single script's
+                // sentences sound consistent; dubbing previously skipped it
+                // entirely, so segment-to-segment volume could vary a lot
+                // (louder/quieter lines back to back sound obviously wrong
+                // in a dubbed track even when the words are correct).
+                $normPath = $tmpDir . "/seg_{$i}_norm.wav";
+                $this->runFfmpeg([
+                    'ffmpeg', '-y', '-i', $segPath,
+                    '-af', 'highpass=f=80,loudnorm=I=-16:LRA=11:TP=-1.5',
+                    '-ar', (string) self::SAMPLE_RATE, '-ac', '1',
+                    '-f', 'wav', '-acodec', 'pcm_s16le', $normPath,
+                ], "Segment {$i} loudness normalization");
+                $segPath = $normPath;
+
                 $actualDuration = $this->probeDuration($segPath) ?: $this->estimateWavDuration($rawWav);
                 $ratio = $actualDuration > 0 ? $actualDuration / $windowSeconds : 1.0;
+
+                $driftBefore = max(0.0, $cursor - $seg['start']);
+                $peakDrift   = max($peakDrift, $driftBefore);
 
                 if ($ratio > 1.0 && $ratio <= self::MAX_STRETCH_RATIO) {
                     // Compress to fit: ffmpeg atempo, clamped to its valid [0.5, 100] range.
@@ -195,11 +257,39 @@ class VideoDubbingJob implements ShouldQueue
                     $segAudio = file_get_contents($stretchedPath);
                 } elseif ($ratio > self::MAX_STRETCH_RATIO) {
                     // Too far over to stretch naturally — leave at natural
-                    // length and let the timeline drift (see class docblock).
+                    // length (see class docblock). Never force-compressed
+                    // for its own fit, but it's also not a candidate for
+                    // drift recovery below since it's already at capacity.
                     $overflowCount++;
-                    $segAudio = $rawWav;
+                    $segAudio = file_get_contents($segPath);
+                } elseif ($driftBefore > 0.05) {
+                    // This segment fits its own window with slack to spare
+                    // AND we're carrying drift from an earlier overflowed
+                    // segment — opportunistically squeeze it a bit further
+                    // (bounded, near-inaudible) to actively pay that debt
+                    // down, instead of only recovering whenever a large
+                    // natural silence gap happens to appear later. This is
+                    // the fix for item #4: overflow used to just sit there,
+                    // uncorrected, compounding for the rest of the video.
+                    $recoverable  = min($driftBefore, $windowSeconds * (self::RECOVERY_STRETCH_RATIO - 1.0));
+                    $targetWindow = max(0.1, $windowSeconds - $recoverable);
+                    $recoverRatio = min(self::RECOVERY_STRETCH_RATIO, $actualDuration / $targetWindow);
+
+                    if ($recoverRatio > 1.02) {
+                        $recoverPath = $tmpDir . "/seg_{$i}_recover.wav";
+                        $this->runFfmpeg([
+                            'ffmpeg', '-y', '-i', $segPath,
+                            '-af', 'atempo=' . round($recoverRatio, 4),
+                            '-ar', (string) self::SAMPLE_RATE, '-ac', '1',
+                            '-f', 'wav', '-acodec', 'pcm_s16le', $recoverPath,
+                        ], "Segment {$i} drift recovery");
+                        $segAudio = file_get_contents($recoverPath);
+                        $driftRecovered += ($actualDuration - $this->probeDuration($recoverPath));
+                    } else {
+                        $segAudio = file_get_contents($segPath);
+                    }
                 } else {
-                    $segAudio = $rawWav;
+                    $segAudio = file_get_contents($segPath);
                 }
 
                 // Pad with silence up to this segment's original start time,
@@ -222,7 +312,9 @@ class VideoDubbingJob implements ShouldQueue
             $job->update(['segment_overflow_count' => $overflowCount]);
             if ($overflowCount > 0) {
                 Log::info("VideoDubbingJob {$job->id}: {$overflowCount}/" . count($translated)
-                    . ' segment(s) exceeded the ' . self::MAX_STRETCH_RATIO . 'x stretch ceiling and were left at natural length.');
+                    . ' segment(s) exceeded the ' . self::MAX_STRETCH_RATIO . 'x stretch ceiling and were left at natural length. '
+                    . 'Peak drift: ' . round($peakDrift, 2) . 's, actively recovered: ' . round($driftRecovered, 2) . 's '
+                    . '(remaining unrecovered drift by end of job carries forward into final duration only, not into any segment\'s own audio).');
             }
 
             $dubbedTrack = $this->spliceWavs($pieces);
@@ -306,8 +398,10 @@ class VideoDubbingJob implements ShouldQueue
         return $resp->json('segments') ?? [];
     }
 
-    private function translateSegment(string $engineUrl, string $text, string $sourceLang, string $targetLang): string
-    {
+    private function translateSegment(
+        string $engineUrl, string $text, string $sourceLang, string $targetLang,
+        string $contextBefore = '', string $contextAfter = ''
+    ): string {
         if (trim($text) === '') {
             return '';
         }
@@ -321,9 +415,11 @@ class VideoDubbingJob implements ShouldQueue
             ->timeout(60)
             ->retry(2, 300, throw: false)
             ->post($engineUrl . '/translate', [
-                'text'        => $text,
-                'source_lang' => $sourceLang,
-                'target_lang' => $targetLang,
+                'text'           => $text,
+                'source_lang'    => $sourceLang,
+                'target_lang'    => $targetLang,
+                'context_before' => $contextBefore,
+                'context_after'  => $contextAfter,
             ]);
 
         if (! $resp->successful()) {
