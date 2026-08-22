@@ -456,6 +456,26 @@ class VideoDubbingJob implements ShouldQueue
                 'ended_at' => now(),
             ]);
         }
+
+        // This hook fires on a DIFFERENT path than handle()'s own try/catch:
+        // it's what Laravel calls when the job times out (killed forcibly
+        // once it passes $timeout — 3600s — bypassing the try/catch/finally
+        // inside handle() entirely) or the worker crashes/restarts mid-job.
+        // The inline catch in handle() updates BOTH the DubbingJob row and
+        // the ActivityLog row on failure; this hook was only doing the
+        // former. That's exactly why a timed-out job showed correctly as
+        // "Failed" in the Dubbing workspace (reads DubbingJob) while the
+        // Background Tasks panel kept showing it as "Running" indefinitely
+        // (reads ActivityLog, which nothing had ever told to stop).
+        if ($job?->activity_log_id) {
+            $log = ActivityLog::find($job->activity_log_id);
+            $this->updateActivityLog(
+                $log,
+                'Video dubbing failed: ' . $this->truncate($exception->getMessage(), 200),
+                'failed',
+                now()
+            );
+        }
     }
 
     // ── Pipeline steps ───────────────────────────────────────────────────
