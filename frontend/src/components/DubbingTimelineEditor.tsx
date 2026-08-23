@@ -22,6 +22,17 @@ interface SegmentsResponse {
   segments: DubSegment[]
 }
 
+interface ThumbMeta {
+  frame_count: number
+  interval_seconds: number
+  columns: number
+  rows: number
+  thumb_width: number
+  thumb_height: number
+}
+
+const THUMB_ROW_H = 44
+
 export function DubbingTimelineEditor({
   jobId, targetLanguage, onFinalized, onCancel,
 }: {
@@ -42,13 +53,14 @@ export function DubbingTimelineEditor({
   const segments = history.present
   const setSegments = useCallback((segs: DubSegment[]) => dispatch({ type: 'SET', segments: segs }), [])
   // Snapshot of the last-saved state, to know whether there's anything to save.
-  const savedRef = useRef<string>('[]')
-  const dirty = JSON.stringify(segments) !== savedRef.current
+  const [savedSnapshot, setSavedSnapshot] = useState<string>('[]')
+  const dirty = JSON.stringify(segments) !== savedSnapshot
 
   const [zoom, setZoom] = useState(70) // px per second
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [playhead, setPlayhead] = useState(0)
   const [playing, setPlaying] = useState(false)
+  const [videoDuration, setVideoDuration] = useState(0)
   const videoRef = useRef<HTMLVideoElement>(null)
   const trackScrollRef = useRef<HTMLDivElement>(null)
 
@@ -59,6 +71,11 @@ export function DubbingTimelineEditor({
 
   const [saving, setSaving] = useState(false)
   const [finalizing, setFinalizing] = useState(false)
+
+  const [thumbMeta, setThumbMeta] = useState<ThumbMeta | null>(null)
+  const [thumbSpriteUrl, setThumbSpriteUrl] = useState<string | null>(null)
+  const [splitting, setSplitting] = useState(false)
+  const [merging, setMerging] = useState(false)
 
   useEscapeKey(() => setSelectedId(null))
 
@@ -74,7 +91,7 @@ export function DubbingTimelineEditor({
       if (cancelled) return
       const segs = segRes.segments ?? []
       setSegments(segs)
-      savedRef.current = JSON.stringify(segs)
+      setSavedSnapshot(JSON.stringify(segs))
       setEditable(segRes.editable)
       if (videoBlob) setVideoUrl(URL.createObjectURL(videoBlob))
     }).catch(e => {
@@ -86,6 +103,27 @@ export function DubbingTimelineEditor({
   }, [jobId])
 
   useEffect(() => () => { if (videoUrl) URL.revokeObjectURL(videoUrl) }, [videoUrl])
+
+  // ── Load the thumbnail filmstrip separately — this can be slow (it's
+  // generated on first request) and is purely cosmetic, so it shouldn't
+  // block or fail the main segments/video load above.
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      api.fetchDubbingThumbnailMeta(jobId),
+      api.fetchDubbingThumbnailSprite(jobId),
+    ]).then(([meta, spriteBlob]) => {
+      if (cancelled) return
+      setThumbMeta(meta)
+      setThumbSpriteUrl(URL.createObjectURL(spriteBlob))
+    }).catch(() => {
+      // Filmstrip is a nice-to-have — the editor works fine without it,
+      // just plainer, so a failure here is silent rather than toast-worthy.
+    })
+    return () => { cancelled = true }
+  }, [jobId])
+
+  useEffect(() => () => { if (thumbSpriteUrl) URL.revokeObjectURL(thumbSpriteUrl) }, [thumbSpriteUrl])
 
   // ── Undo/redo keyboard shortcuts ────────────────────────────────
   useEffect(() => {
@@ -107,13 +145,18 @@ export function DubbingTimelineEditor({
     const onTime = () => setPlayhead(v.currentTime)
     const onPlay = () => setPlaying(true)
     const onPause = () => setPlaying(false)
+    const onDuration = () => setVideoDuration(v.duration || 0)
     v.addEventListener('timeupdate', onTime)
     v.addEventListener('play', onPlay)
     v.addEventListener('pause', onPause)
+    v.addEventListener('loadedmetadata', onDuration)
+    v.addEventListener('durationchange', onDuration)
     return () => {
       v.removeEventListener('timeupdate', onTime)
       v.removeEventListener('play', onPlay)
       v.removeEventListener('pause', onPause)
+      v.removeEventListener('loadedmetadata', onDuration)
+      v.removeEventListener('durationchange', onDuration)
     }
   }, [videoUrl])
 
@@ -187,11 +230,56 @@ export function DubbingTimelineEditor({
     setSegments(segments.map(s => s.id === selectedId ? { ...s, text } : s))
   }
 
+  /**
+   * Split creates a genuinely new segment id — unlike every other edit
+   * here (retime/resize/mute/text), that can't be done purely client-side
+   * and folded into the next "Save changes": the backend deliberately
+   * rejects unrecognized ids on the general save path (see
+   * VideoDubbingController::updateSegments), so a fresh id has to come
+   * from a dedicated, validated endpoint. That means split (and merge,
+   * same reasoning) commits immediately rather than waiting for Save.
+   */
+  async function handleSplit() {
+    if (!selected) return
+    setSplitting(true)
+    try {
+      const res = await api.splitDubbingSegment(jobId, selected.id, playhead)
+      const segs = res.segments as unknown as DubSegment[]
+      setSegments(segs)
+      setSavedSnapshot(JSON.stringify(segs))
+      toast.ok('Segment split.')
+    } catch (e) {
+      toast.err(e instanceof ApiError ? e.message : 'Could not split this segment.')
+    } finally {
+      setSplitting(false)
+    }
+  }
+
+  async function handleMerge() {
+    if (!selected) return
+    const idx = segments.findIndex(s => s.id === selected.id)
+    const next = segments[idx + 1]
+    if (!next) return
+    setMerging(true)
+    try {
+      const res = await api.mergeDubbingSegments(jobId, selected.id, next.id)
+      const segs = res.segments as unknown as DubSegment[]
+      setSegments(segs)
+      setSavedSnapshot(JSON.stringify(segs))
+      setSelectedId(selected.id) // merged segment keeps the earlier id
+      toast.ok('Segments merged.')
+    } catch (e) {
+      toast.err(e instanceof ApiError ? e.message : 'Could not merge these segments.')
+    } finally {
+      setMerging(false)
+    }
+  }
+
   async function handleSave() {
     setSaving(true)
     try {
       await api.saveDubbingSegments(jobId, segments.map(s => ({ id: s.id, start: s.start, end: s.end, text: s.text })))
-      savedRef.current = JSON.stringify(segments)
+      setSavedSnapshot(JSON.stringify(segments))
       toast.ok('Changes saved.')
     } catch (e) {
       toast.err(e instanceof ApiError ? e.message : 'Could not save changes.')
@@ -205,7 +293,7 @@ export function DubbingTimelineEditor({
     try {
       if (dirty) {
         await api.saveDubbingSegments(jobId, segments.map(s => ({ id: s.id, start: s.start, end: s.end, text: s.text })))
-        savedRef.current = JSON.stringify(segments)
+        setSavedSnapshot(JSON.stringify(segments))
       }
       await api.finalizeDubbingJob(jobId)
       toast.ok('Generating your dubbed video…')
@@ -217,7 +305,7 @@ export function DubbingTimelineEditor({
     }
   }
 
-  const totalDur = Math.max(30, ...segments.map(s => s.end), (videoRef.current?.duration ?? 0))
+  const totalDur = Math.max(30, ...segments.map(s => s.end), videoDuration)
   const trackWidth = Math.max(totalDur * zoom + 120, 400)
   const tickInterval = zoom >= 120 ? 2 : zoom >= 60 ? 5 : zoom >= 30 ? 10 : 30
   const ticks = useMemo(() => {
@@ -227,6 +315,10 @@ export function DubbingTimelineEditor({
   }, [totalDur, tickInterval])
 
   const selected = segments.find(s => s.id === selectedId) ?? null
+  const canSplit = !!selected && editable
+    && playhead > selected.start + MIN_SEGMENT_DUR && playhead < selected.end - MIN_SEGMENT_DUR
+  const selectedIdx = selected ? segments.findIndex(s => s.id === selected.id) : -1
+  const canMerge = !!selected && editable && selectedIdx !== -1 && selectedIdx < segments.length - 1
 
   const S = {
     wrap: { display: 'flex', flexDirection: 'column' as const, gap: 12 },
@@ -265,6 +357,18 @@ export function DubbingTimelineEditor({
         <button style={S.tBtn()} title="Mute segment (keeps timing, removes speech)" disabled={!selected}
           onClick={() => selected && muteSegment(selected.id)}>
           <span style={{ width: 14, height: 14, opacity: selected ? 1 : 0.4 }}>{icons.silence}</span>
+        </button>
+        <button style={S.tBtn()} title={canSplit ? 'Split segment at playhead' : 'Move the playhead inside the selected segment to split it'}
+          disabled={!canSplit || splitting} onClick={handleSplit}>
+          {splitting
+            ? <span className="spinner" style={{ width: 12, height: 12 }} />
+            : <span style={{ width: 14, height: 14, opacity: canSplit ? 1 : 0.4 }}>{icons.split}</span>}
+        </button>
+        <button style={S.tBtn()} title={canMerge ? 'Merge with next segment' : 'Select a segment with another one right after it to merge'}
+          disabled={!canMerge || merging} onClick={handleMerge}>
+          {merging
+            ? <span className="spinner" style={{ width: 12, height: 12 }} />
+            : <span style={{ width: 14, height: 14, opacity: canMerge ? 1 : 0.4 }}>{icons.merge}</span>}
         </button>
         <div style={{ width: 1, height: 18, background: 'var(--border-2)' }} />
         <button style={S.tBtn()} title="Undo (Ctrl/⌘+Z)" disabled={!history.past.length} onClick={() => dispatch({ type: 'UNDO' })}>
@@ -337,10 +441,33 @@ export function DubbingTimelineEditor({
                 </div>
               )
             })}
-
-            {/* Playhead */}
-            <div style={{ position: 'absolute', left: playhead * zoom, top: 0, bottom: 0, width: 2, background: 'var(--accent)', pointerEvents: 'none', zIndex: 30 }} />
           </div>
+
+          {/* Thumbnail filmstrip — purely visual, absent if generation hasn't
+              finished/succeeded yet; the timeline is fully usable without it. */}
+          {thumbMeta && thumbSpriteUrl && (
+            <div style={{ position: 'relative', height: THUMB_ROW_H, borderTop: '1px solid var(--border)', overflow: 'hidden', background: '#000' }}>
+              {Array.from({ length: thumbMeta.frame_count }).map((_, i) => {
+                const col = i % thumbMeta.columns
+                const row = Math.floor(i / thumbMeta.columns)
+                return (
+                  <div key={i} style={{
+                    position: 'absolute',
+                    left: i * thumbMeta.interval_seconds * zoom,
+                    top: 0, height: THUMB_ROW_H,
+                    width: thumbMeta.interval_seconds * zoom,
+                    backgroundImage: `url(${thumbSpriteUrl})`,
+                    backgroundPosition: `-${col * thumbMeta.thumb_width}px -${row * thumbMeta.thumb_height}px`,
+                    backgroundSize: `${thumbMeta.columns * thumbMeta.thumb_width}px ${thumbMeta.rows * thumbMeta.thumb_height}px`,
+                    borderRight: '1px solid rgba(0,0,0,0.35)',
+                  }} />
+                )
+              })}
+            </div>
+          )}
+
+          {/* Playhead — spans the ruler, segment track, and filmstrip */}
+          <div style={{ position: 'absolute', left: playhead * zoom, top: 0, bottom: 0, width: 2, background: 'var(--accent)', pointerEvents: 'none', zIndex: 30 }} />
         </div>
       </div>
 

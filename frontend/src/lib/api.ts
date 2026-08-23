@@ -112,7 +112,7 @@ class ApiClient {
     if (response.status === 204) return null
 
     const contentType = response.headers.get('Content-Type') ?? ''
-    if (contentType.includes('audio/') || contentType.includes('video/') || contentType.includes('application/octet-stream')) {
+    if (contentType.includes('audio/') || contentType.includes('video/') || contentType.includes('image/') || contentType.includes('application/octet-stream')) {
       return response.blob()
     }
 
@@ -363,6 +363,28 @@ class ApiClient {
   /** Commits the currently-saved segments and starts synthesis + mux. */
   finalizeDubbingJob(jobId: string): Promise<unknown> {
     return this.post(`/dubbing/${jobId}/finalize`)
+  }
+
+  /** Metadata for the review timeline's thumbnail filmstrip — frame count/spacing/pixel size. Generates + caches the sprite server-side on first call. */
+  fetchDubbingThumbnailMeta(jobId: string): Promise<{ frame_count: number; interval_seconds: number; columns: number; rows: number; thumb_width: number; thumb_height: number }> {
+    return this.get(`/dubbing/${jobId}/thumbnails`) as Promise<{ frame_count: number; interval_seconds: number; columns: number; rows: number; thumb_width: number; thumb_height: number }>
+  }
+
+  /** The actual tiled filmstrip image, as a Blob — pair with fetchDubbingThumbnailMeta() to know how to slice it. */
+  async fetchDubbingThumbnailSprite(jobId: string): Promise<Blob> {
+    const result = await this.get(`/dubbing/${jobId}/thumbnails/sprite.jpg`)
+    if (result instanceof Blob) return result
+    throw new ApiError('Expected image response from server', 502)
+  }
+
+  /** Splits one segment into two at splitAt (absolute seconds in the source video). Both halves start out with the same text — see backend docblock for why. */
+  splitDubbingSegment(jobId: string, segmentId: string, splitAt: number): Promise<{ message: string; segments: unknown[] }> {
+    return this.post(`/dubbing/${jobId}/segments/${segmentId}/split`, { split_at: splitAt }) as Promise<{ message: string; segments: unknown[] }>
+  }
+
+  /** Merges two ADJACENT segments into one. Rejects non-adjacent pairs server-side. */
+  mergeDubbingSegments(jobId: string, firstId: string, secondId: string): Promise<{ message: string; segments: unknown[] }> {
+    return this.post(`/dubbing/${jobId}/segments/merge`, { first_id: firstId, second_id: secondId }) as Promise<{ message: string; segments: unknown[] }>
   }
 }
 

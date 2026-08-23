@@ -187,6 +187,10 @@ Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
         ->where('jobId', '[A-Za-z0-9\-]{1,64}');
     Route::get('/dubbing/{jobId}/segments', [VideoDubbingController::class, 'segments'])
         ->where('jobId', '[A-Za-z0-9\-]{1,64}');
+    Route::get('/dubbing/{jobId}/thumbnails', [VideoDubbingController::class, 'thumbnails'])
+        ->where('jobId', '[A-Za-z0-9\-]{1,64}');
+    Route::get('/dubbing/{jobId}/thumbnails/sprite.jpg', [VideoDubbingController::class, 'thumbnailSprite'])
+        ->where('jobId', '[A-Za-z0-9\-]{1,64}');
 });
 
 // Review-timeline edits (retiming/text changes) get their own throttle —
@@ -195,6 +199,10 @@ Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
 // write so it shouldn't share the 60/min read-polling tier either.
 Route::middleware(['auth:sanctum', 'throttle:40,1'])->group(function () {
     Route::patch('/dubbing/{jobId}/segments', [VideoDubbingController::class, 'updateSegments'])
+        ->where('jobId', '[A-Za-z0-9\-]{1,64}');
+    Route::post('/dubbing/{jobId}/segments/{segmentId}/split', [VideoDubbingController::class, 'splitSegment'])
+        ->where(['jobId' => '[A-Za-z0-9\-]{1,64}', 'segmentId' => '[A-Za-z0-9\-]{1,64}']);
+    Route::post('/dubbing/{jobId}/segments/merge', [VideoDubbingController::class, 'mergeSegments'])
         ->where('jobId', '[A-Za-z0-9\-]{1,64}');
 });
 

@@ -179,6 +179,219 @@ class VideoDubbingController extends Controller
     }
 
     /**
+     * GET /api/dubbing/{jobId}/thumbnails — metadata for the review
+     * timeline's thumbnail filmstrip (frame count, spacing, per-thumb
+     * pixel size). Generates and caches a single tiled sprite image on
+     * first request (see thumbnailSprite() for the actual bytes) rather
+     * than one file per frame — one HTTP request for the whole filmstrip,
+     * one ffmpeg call, one cached file to clean up.
+     *
+     * Runs the extraction synchronously in this request rather than as a
+     * background job — acceptable for the video lengths this app expects
+     * (same 200MB/short-form ceiling as upload itself), but if much longer
+     * videos become common this should move to a queued job like the rest
+     * of the pipeline instead of blocking the request.
+     */
+    public function thumbnails(Request $request, string $jobId)
+    {
+        $job = DubbingJob::where('id', $jobId)->where('user_id', $request->user()->id)->first();
+        if (! $job) {
+            return response()->json(['message' => 'Dubbing job not found.'], 404);
+        }
+        if (! Storage::disk('video')->exists($job->source_video_path)) {
+            return response()->json(['message' => 'Original upload is no longer available.'], 410);
+        }
+
+        try {
+            $meta = $this->ensureThumbnailSprite($job);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Could not generate thumbnails: ' . $e->getMessage()], 500);
+        }
+
+        return response()->json($meta);
+    }
+
+    /** GET /api/dubbing/{jobId}/thumbnails/sprite.jpg — the actual tiled filmstrip image. */
+    public function thumbnailSprite(Request $request, string $jobId)
+    {
+        $job = DubbingJob::where('id', $jobId)->where('user_id', $request->user()->id)->first();
+        if (! $job) {
+            return response()->json(['message' => 'Dubbing job not found.'], 404);
+        }
+
+        $spritePath = $this->thumbnailSpritePath($job);
+        if (! Storage::disk('video')->exists($spritePath)) {
+            // Defensive — the frontend always calls thumbnails() first,
+            // which generates this, but don't 500 if hit directly/early.
+            try {
+                $this->ensureThumbnailSprite($job);
+            } catch (\Throwable $e) {
+                return response()->json(['message' => 'Could not generate thumbnails: ' . $e->getMessage()], 500);
+            }
+        }
+
+        return response($this->getVideoDiskContents($spritePath), 200, [
+            'Content-Type'  => 'image/jpeg',
+            'Cache-Control' => 'private, max-age=86400', // sprite is immutable once generated for a given job
+        ]);
+    }
+
+    private function thumbnailSpritePath(DubbingJob $job): string
+    {
+        return 'video/' . $job->user_id . '/' . $job->id . '_sprite.jpg';
+    }
+
+    /**
+     * Generates the tiled thumbnail sprite if it isn't already cached, and
+     * returns the metadata the frontend needs to slice it up: how many
+     * frames, how far apart in the source video, and each frame's pixel
+     * size within the sprite (read back from the generated image itself
+     * via getimagesize(), rather than assumed, since scale=WIDTH:-2 lets
+     * ffmpeg pick a height that varies with the source video's aspect ratio).
+     */
+    private function ensureThumbnailSprite(DubbingJob $job): array
+    {
+        $thumbWidth  = 160;
+        $maxThumbs   = 60;
+        $minInterval = 1.0;
+
+        $duration = (float) ($job->duration_seconds ?: 30.0);
+        $interval = max($minInterval, $duration / $maxThumbs);
+        $frameCount = max(1, (int) floor($duration / $interval) + 1);
+        $columns = min($frameCount, 10);
+        $rows = (int) ceil($frameCount / $columns);
+
+        $spritePath = $this->thumbnailSpritePath($job);
+
+        if (! Storage::disk('video')->exists($spritePath)) {
+            $tmpDir = sys_get_temp_dir() . '/dubthumb_' . $job->id;
+            @mkdir($tmpDir, 0700, true);
+
+            try {
+                $videoPath = $tmpDir . '/source.mp4';
+                $sourceStream = Storage::disk('video')->readStream($job->source_video_path);
+                if (! $sourceStream) {
+                    throw new \RuntimeException('Could not read the source video.');
+                }
+                file_put_contents($videoPath, stream_get_contents($sourceStream));
+                fclose($sourceStream);
+
+                $spriteLocalPath = $tmpDir . '/sprite.jpg';
+                $this->runFfmpegSync([
+                    'ffmpeg', '-y', '-i', $videoPath,
+                    '-vf', "fps=1/{$interval},scale={$thumbWidth}:-2,tile={$columns}x{$rows}",
+                    '-frames:v', '1', '-q:v', '4',
+                    $spriteLocalPath,
+                ], 'Thumbnail sprite generation');
+
+                if (! file_exists($spriteLocalPath) || filesize($spriteLocalPath) === 0) {
+                    throw new \RuntimeException('ffmpeg produced no sprite output.');
+                }
+
+                Storage::disk('video')->put($spritePath, file_get_contents($spriteLocalPath));
+            } finally {
+                $this->rrmdirController($tmpDir);
+            }
+        }
+
+        // Read the real generated dimensions back rather than assuming
+        // thumbWidth * (some guessed aspect ratio) — scale=WIDTH:-2 means
+        // ffmpeg itself picked the height based on this specific video.
+        $spriteBytes = $this->getVideoDiskContents($spritePath);
+        $tmpImg = tempnam(sys_get_temp_dir(), 'dubthumb_dim_') . '.jpg';
+        file_put_contents($tmpImg, $spriteBytes);
+        $dims = @getimagesize($tmpImg);
+        @unlink($tmpImg);
+
+        [$totalW, $totalH] = $dims ?: [$thumbWidth * $columns, (int) round($thumbWidth * 9 / 16) * $rows];
+
+        return [
+            'frame_count'      => $frameCount,
+            'interval_seconds' => round($interval, 3),
+            'columns'          => $columns,
+            'rows'             => $rows,
+            'thumb_width'      => (int) round($totalW / $columns),
+            'thumb_height'     => (int) round($totalH / $rows),
+            'sprite_url'       => "/api/dubbing/{$job->id}/thumbnails/sprite.jpg",
+        ];
+    }
+
+    /** Small helper — Storage facades return streams/strings inconsistently across drivers; this normalizes to bytes. */
+    private function getVideoDiskContents(string $path): string
+    {
+        $stream = Storage::disk('video')->readStream($path);
+        $data = stream_get_contents($stream);
+        fclose($stream);
+        return $data;
+    }
+
+    /**
+     * Minimal, self-contained ffmpeg runner for this controller — NOT a
+     * duplicate of DubbingPipelineHelpers::runFfmpeg() by oversight, that
+     * trait is written for the queued Job classes (assumes job/quota
+     * context) and pulling a controller into using it would be an awkward
+     * fit for one call site. Same hang-timeout protection either way.
+     */
+    private function runFfmpegSync(array $cmd, string $context, int $timeoutSeconds = 300): void
+    {
+        $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        if (! is_resource($proc)) {
+            throw new \RuntimeException("{$context}: could not start ffmpeg process.");
+        }
+
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+
+        $stderr   = '';
+        $deadline = microtime(true) + $timeoutSeconds;
+        $killed   = false;
+
+        while (true) {
+            $status = proc_get_status($proc);
+            stream_get_contents($pipes[1]); // drain stdout, unused
+            $stderr .= (string) stream_get_contents($pipes[2]);
+
+            if (! $status['running']) {
+                break;
+            }
+            if (microtime(true) > $deadline) {
+                proc_terminate($proc, 15);
+                usleep(500_000);
+                if (proc_get_status($proc)['running']) {
+                    proc_terminate($proc, 9);
+                }
+                $killed = true;
+                break;
+            }
+            usleep(100_000);
+        }
+
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $exitCode = proc_close($proc);
+
+        if ($killed) {
+            throw new \RuntimeException("{$context} timed out after {$timeoutSeconds}s and was killed.");
+        }
+        if ($exitCode !== 0) {
+            $tail = trim(preg_replace('/\s+/', ' ', $stderr));
+            $tail = strlen($tail) > 500 ? '…' . substr($tail, -500) : $tail;
+            throw new \RuntimeException("{$context} failed (ffmpeg exit {$exitCode}): {$tail}");
+        }
+    }
+
+    private function rrmdirController(string $dir): void
+    {
+        if (! is_dir($dir)) return;
+        foreach (scandir($dir) ?: [] as $f) {
+            if ($f === '.' || $f === '..') continue;
+            $path = "{$dir}/{$f}";
+            is_dir($path) ? $this->rrmdirController($path) : @unlink($path);
+        }
+        @rmdir($dir);
+    }
+
+    /**
      * GET /api/dubbing/{jobId}/segments — the review timeline's data
      * source. Returns the segments array PrepareDubbingJob produced
      * (each: id, start, end, original, text), plus enough job metadata
@@ -265,6 +478,120 @@ class VideoDubbingController extends Controller
         $job->update(['segments_json' => json_encode($merged)]);
 
         return response()->json(['message' => 'Saved.', 'segments' => $merged]);
+    }
+
+    /** Minimum segment duration allowed — mirrors MIN_SEGMENT_DUR in frontend/src/lib/dubbing.ts. Enforced here too since split creates genuinely new segments the client-side clamps don't otherwise gate. */
+    private const MIN_SEGMENT_DUR = 0.3;
+
+    /**
+     * POST /api/dubbing/{jobId}/segments/{segmentId}/split — splits one
+     * segment into two at a given point in time. Deliberately a separate,
+     * narrowly-validated endpoint rather than letting updateSegments()
+     * accept unknown ids — that endpoint's whole point is refusing
+     * client-fabricated segments; split is the one legitimate way a new
+     * segment id can come into existence, so it gets its own explicit,
+     * semantically-checked operation instead of a loophole in the general
+     * save path.
+     *
+     * Both halves inherit the SAME original transcript text and the SAME
+     * translated text as the segment being split — there's no word-level
+     * timing to split the transcript accurately by, so this hands the user
+     * a sensible starting point (trim each half's text by hand) rather
+     * than guessing at a word boundary or leaving one half blank (which
+     * would misleadingly render as "Muted" in the timeline).
+     */
+    public function splitSegment(Request $request, string $jobId, string $segmentId)
+    {
+        $job = DubbingJob::where('id', $jobId)->where('user_id', $request->user()->id)->first();
+        if (! $job) {
+            return response()->json(['message' => 'Dubbing job not found.'], 404);
+        }
+        if ($job->status !== 'ready_for_review') {
+            return response()->json(['message' => 'This job is not open for editing right now.', 'status' => $job->status], 409);
+        }
+
+        $validated = $request->validate([
+            'split_at' => ['required', 'numeric'],
+        ]);
+        $splitAt = round((float) $validated['split_at'], 3);
+
+        $segments = json_decode($job->segments_json ?? '[]', true) ?? [];
+        $idx = null;
+        foreach ($segments as $i => $s) {
+            if ($s['id'] === $segmentId) { $idx = $i; break; }
+        }
+        if ($idx === null) {
+            return response()->json(['message' => 'Segment not found.'], 404);
+        }
+
+        $seg = $segments[$idx];
+        if ($splitAt <= $seg['start'] + self::MIN_SEGMENT_DUR || $splitAt >= $seg['end'] - self::MIN_SEGMENT_DUR) {
+            return response()->json([
+                'message' => 'Split point is too close to the edge of this segment — each half must be at least '
+                    . self::MIN_SEGMENT_DUR . 's long.',
+            ], 422);
+        }
+
+        $firstHalf  = ['id' => $seg['id'], 'start' => $seg['start'], 'end' => $splitAt, 'original' => $seg['original'], 'text' => $seg['text']];
+        $secondHalf = ['id' => (string) Str::uuid(), 'start' => $splitAt, 'end' => $seg['end'], 'original' => $seg['original'], 'text' => $seg['text']];
+
+        array_splice($segments, $idx, 1, [$firstHalf, $secondHalf]);
+        usort($segments, fn($a, $b) => $a['start'] <=> $b['start']);
+
+        $job->update(['segments_json' => json_encode($segments)]);
+
+        return response()->json(['message' => 'Split.', 'segments' => $segments]);
+    }
+
+    /**
+     * POST /api/dubbing/{jobId}/segments/merge — combines two ADJACENT
+     * segments into one. Rejects non-adjacent pairs (there's always
+     * exactly one sensible merge target for a given segment — "the next
+     * one" — reordering isn't a concept this editor supports, so merging
+     * across a gap would just be confusing).
+     */
+    public function mergeSegments(Request $request, string $jobId)
+    {
+        $job = DubbingJob::where('id', $jobId)->where('user_id', $request->user()->id)->first();
+        if (! $job) {
+            return response()->json(['message' => 'Dubbing job not found.'], 404);
+        }
+        if ($job->status !== 'ready_for_review') {
+            return response()->json(['message' => 'This job is not open for editing right now.', 'status' => $job->status], 409);
+        }
+
+        $validated = $request->validate([
+            'first_id'  => ['required', 'string', 'max:64'],
+            'second_id' => ['required', 'string', 'max:64'],
+        ]);
+
+        $segments = json_decode($job->segments_json ?? '[]', true) ?? [];
+        usort($segments, fn($a, $b) => $a['start'] <=> $b['start']);
+
+        $firstIdx = null;
+        foreach ($segments as $i => $s) {
+            if ($s['id'] === $validated['first_id']) { $firstIdx = $i; break; }
+        }
+        if ($firstIdx === null || ! isset($segments[$firstIdx + 1]) || $segments[$firstIdx + 1]['id'] !== $validated['second_id']) {
+            return response()->json(['message' => 'Those two segments are not adjacent — cannot merge.'], 422);
+        }
+
+        $first  = $segments[$firstIdx];
+        $second = $segments[$firstIdx + 1];
+
+        $mergedSegment = [
+            'id'       => $first['id'],
+            'start'    => $first['start'],
+            'end'      => $second['end'],
+            'original' => trim($first['original'] . ' ' . $second['original']),
+            'text'     => trim($first['text'] . ' ' . $second['text']),
+        ];
+
+        array_splice($segments, $firstIdx, 2, [$mergedSegment]);
+
+        $job->update(['segments_json' => json_encode($segments)]);
+
+        return response()->json(['message' => 'Merged.', 'segments' => $segments]);
     }
 
     /**

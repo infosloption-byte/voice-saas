@@ -102,11 +102,65 @@ class FinalizeDubbingJob implements ShouldQueue
             $overflowCount   = 0;
             $driftRecovered  = 0.0;
             $peakDrift       = 0.0;
+            $emptySegmentCount    = 0; // no real speech content (incl. the review-timeline "Mute" action, which blanks text) — substituted with silence, never sent to the engine
+            $failedSynthesisCount = 0; // engine genuinely couldn't synthesize this segment — substituted with silence rather than failing the whole job
 
             foreach ($translated as $i => $seg) {
                 $windowSeconds = max(0.1, (float) $seg['end'] - (float) $seg['start']);
 
-                $rawWav = $this->synthesizeSegment($engineUrl, $seg['text'], $engineKey, $job->target_language, $ttsEngine);
+                // A segment can have no real speech content — translation
+                // came back empty, or the review timeline's "Mute" action
+                // deliberately blanked the text (see DubbingTimelineEditor::
+                // muteSegment — its own comment documents that finalize is
+                // expected to pad silence here, so this is that contract).
+                // Sending empty/degenerate text into TTS is exactly what
+                // crashed Chatterbox in production before ("max(): Expected
+                // reduction dim 1 to have non-zero size" — no phonemes to
+                // align against for empty input), so this is checked BEFORE
+                // ever reaching the engine, not left to fail there.
+                $hasSpeechContent = trim($seg['text']) !== '' && preg_match('/\p{L}|\p{N}/u', $seg['text']) === 1;
+                if (! $hasSpeechContent) {
+                    $emptySegmentCount++;
+                    $segStart = (float) $seg['start'];
+                    if ($cursor < $segStart) {
+                        $pieces[] = $this->generateSilenceWav($segStart - $cursor);
+                        $cursor = $segStart;
+                    }
+                    $pieces[] = $this->generateSilenceWav($windowSeconds);
+                    $cursor  += $windowSeconds;
+
+                    $pct = 50 + (int) round((($i + 1) / max(1, count($translated))) * 35);
+                    $job->update(['progress' => min(85, $pct)]);
+                    continue;
+                }
+
+                // Belt-and-suspenders: even non-empty text can occasionally
+                // crash a given engine on some edge case not seen yet. One
+                // bad segment shouldn't fail an otherwise-fine dub — swap in
+                // silence for that segment and keep going. If MOST segments
+                // fail this way, that's not an isolated bad-text problem,
+                // it's the engine itself being broken — the check after
+                // this loop escalates that into a real failure instead of
+                // quietly handing back an almost-entirely-silent "success".
+                try {
+                    $rawWav = $this->synthesizeSegment($engineUrl, $seg['text'], $engineKey, $job->target_language, $ttsEngine);
+                } catch (\Throwable $e) {
+                    $failedSynthesisCount++;
+                    Log::warning("FinalizeDubbingJob {$job->id}: segment {$i} synthesis failed, substituting silence — {$e->getMessage()}");
+
+                    $segStart = (float) $seg['start'];
+                    if ($cursor < $segStart) {
+                        $pieces[] = $this->generateSilenceWav($segStart - $cursor);
+                        $cursor = $segStart;
+                    }
+                    $pieces[] = $this->generateSilenceWav($windowSeconds);
+                    $cursor  += $windowSeconds;
+
+                    $pct = 50 + (int) round((($i + 1) / max(1, count($translated))) * 35);
+                    $job->update(['progress' => min(85, $pct)]);
+                    continue;
+                }
+
                 $segPath = $tmpDir . "/seg_{$i}.wav";
                 file_put_contents($segPath, $rawWav);
 
@@ -183,6 +237,28 @@ class FinalizeDubbingJob implements ShouldQueue
                 Log::info("FinalizeDubbingJob {$job->id}: {$overflowCount}/" . count($translated)
                     . ' segment(s) exceeded the ' . self::MAX_STRETCH_RATIO . 'x stretch ceiling and were left at natural length. '
                     . 'Peak drift: ' . round($peakDrift, 2) . 's, actively recovered: ' . round($driftRecovered, 2) . 's.');
+            }
+
+            // If most segments failed synthesis, this isn't "a few bad
+            // segments" — the engine/model itself is broken for this job
+            // (wrong voice profile on this engine, model crash-looping,
+            // server down mid-job, etc). Handing back a "done" video that's
+            // 80% silence would be worse than a clear failure the user can
+            // act on, so escalate past a fixed threshold instead of
+            // silently declaring success. Empty/muted segments are NOT
+            // counted here — those are deliberate, not a sign of trouble.
+            if (count($translated) > 0 && ($failedSynthesisCount / count($translated)) > 0.4) {
+                throw new \RuntimeException(
+                    "Synthesis failed for {$failedSynthesisCount} of " . count($translated) . ' segments — '
+                    . 'this looks like an engine problem rather than isolated bad text. Check that the '
+                    . strtoupper($ttsEngine) . ' engine is healthy and that this voice profile works on it.'
+                );
+            }
+
+            if ($emptySegmentCount > 0 || $failedSynthesisCount > 0) {
+                Log::info("FinalizeDubbingJob {$job->id}: {$emptySegmentCount} segment(s) had no speech content "
+                    . "(silence substituted, never sent to the engine); {$failedSynthesisCount} segment(s) failed "
+                    . 'synthesis and were substituted with silence instead of failing the job.');
             }
 
             $dubbedTrack = $this->spliceWavs($pieces);

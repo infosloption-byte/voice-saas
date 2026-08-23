@@ -248,19 +248,74 @@ trait DubbingPipelineHelpers
         return is_numeric($val) ? round((float) $val, 3) : null;
     }
 
-    private function runFfmpeg(array $cmd, string $context): void
+    private function runFfmpeg(array $cmd, string $context, int $timeoutSeconds = 480): void
     {
         $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         if (! is_resource($proc)) {
             throw new \RuntimeException("{$context}: could not start ffmpeg process.");
         }
-        $stderr = stream_get_contents($pipes[2]);
+
+        // A hung ffmpeg call used to just sit there for as long as the
+        // WHOLE JOB's timeout allowed before anything noticed it — this is
+        // exactly what "still running" on a single mux/atempo step for
+        // 30+ minutes looked like in production before this fix. No single
+        // ffmpeg invocation in this pipeline legitimately needs more than a
+        // few minutes (the final mux uses -c:v copy, so even that's a
+        // remux, not a re-encode), so a hang this long can only mean it's
+        // genuinely stuck — kill it and fail fast with a clear reason
+        // instead of silently occupying the queue slot indefinitely.
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+
+        $stdout   = '';
+        $stderr   = '';
+        $deadline = microtime(true) + $timeoutSeconds;
+        $killed   = false;
+
+        while (true) {
+            $status = proc_get_status($proc);
+
+            // Drain both pipes every iteration, whether or not the process
+            // has exited yet — the OS pipe buffer is finite, and a process
+            // still flushing its last output when we notice it's done
+            // would otherwise lose those final bytes (including the fatal
+            // error tailOutput() below exists to surface).
+            $stdout .= (string) stream_get_contents($pipes[1]);
+            $stderr .= (string) stream_get_contents($pipes[2]);
+
+            if (! $status['running']) {
+                break;
+            }
+
+            if (microtime(true) > $deadline) {
+                proc_terminate($proc, 15); // SIGTERM — ask nicely first
+                usleep(500_000);
+                if (proc_get_status($proc)['running']) {
+                    proc_terminate($proc, 9); // SIGKILL — it didn't listen
+                }
+                $killed = true;
+                break;
+            }
+
+            usleep(100_000);
+        }
+
         fclose($pipes[1]);
         fclose($pipes[2]);
         $exitCode = proc_close($proc);
 
+        if ($killed) {
+            throw new \RuntimeException("{$context} timed out after {$timeoutSeconds}s and was killed — ffmpeg was hung, not just slow.");
+        }
+
         if ($exitCode !== 0) {
-            throw new \RuntimeException("{$context} failed (ffmpeg exit {$exitCode}): " . $this->truncate($stderr, 300));
+            // ffmpeg ALWAYS prints its version/build-configuration banner
+            // first on stderr, then any per-command output, then the actual
+            // fatal error last, right before it exits. Truncating from the
+            // start (as truncate() does) reliably keeps the useless banner
+            // and throws away the one line that would actually explain the
+            // failure, so this keeps the TAIL instead.
+            throw new \RuntimeException("{$context} failed (ffmpeg exit {$exitCode}): " . $this->tailOutput($stderr, 500));
         }
     }
 
@@ -305,6 +360,18 @@ trait DubbingPipelineHelpers
     {
         $text = trim(preg_replace('/\s+/', ' ', $text));
         return strlen($text) > $max ? substr($text, 0, $max - 1) . '…' : $text;
+    }
+
+    /**
+     * Same shape as truncate(), but keeps the END of the text instead of
+     * the start — for ffmpeg's stderr specifically, where the version/
+     * build banner is always first and the actual fatal error is always
+     * last. See runFfmpeg().
+     */
+    private function tailOutput(string $text, int $max): string
+    {
+        $text = trim(preg_replace('/\s+/', ' ', $text));
+        return strlen($text) > $max ? '…' . substr($text, -$max) : $text;
     }
 
     private function rrmdir(string $dir): void
