@@ -49,6 +49,12 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasMany(Project::class);
     }
 
+    /** Task #6a (Video Studio) — the new media-bin/timeline video projects, parallel to projects(). */
+    public function videoProjects()
+    {
+        return $this->hasMany(VideoProject::class);
+    }
+
     public function voiceProfiles()
     {
         return $this->hasMany(VoiceProfile::class);

@@ -13,6 +13,7 @@
 | 4a | Multi-engine admin control (separate from AI Engine host-swap) | P1 | ✅ Done — Aug 19, 2026 |
 | 5 | Public API tier | P1 | Not started |
 | 6 | Video dubbing MVP | P1 | ✅ Done — Aug 21, 2026 · quality fixes (engine selection, translation context, sample rate/loudness, drift recovery) Aug 22, 2026 · fixed event-loop-blocking bug in chatterbox-engine (found on first live test) Aug 22, 2026 · rebuilt as a two-phase review-timeline workflow (drag/resize/retime, undo/redo) Aug 22, 2026 · thumbnail filmstrip + split/merge built, two regressions found & fixed (ffmpeg hang timeout, empty-segment crash on Mute), Vite/Rolldown pin re-applied, clamp math numerically verified Aug 23, 2026 — **still not live-tested** |
+| 6a | Video Studio — Video Projects (media bin, dubbing-as-operation, multi-lane timeline, render) | P1 | 🔶 Phase 1 of 4 built (schema/models/API/hook) — Aug 23, 2026 · **not migrated, not live-tested** |
 | 7 | Base model quality tier | P1 | Not started |
 | 8 | Public system-health status page | P2 | Not started |
 | 9 | No-signup "try your voice" widget | P2 | Not started |
@@ -279,6 +280,33 @@ Picked this up by reading every backend/frontend file involved end to end (not j
 - **Why:** This is the single biggest lever on output quality — the thing every buyer actually judges the product on — and it's currently the widest gap versus competitors.
 - **Effort:** Large. Option (b) is faster to ship (proxy integration + billing logic, days–weeks) but has ongoing per-generation cost and vendor dependency. Option (a) is a deeper engine change (model integration, hosting/GPU cost, testing) but keeps the self-hosted story intact. Recommend starting with (b) as a paid add-on tier to validate demand before committing to (a).
 - **Done when:** At least one synthesis path produces output that's competitive with ElevenLabs Multilingual v2 in a blind A/B, gated behind a plan tier or add-on.
+
+---
+
+### 6a. Video Studio — Video Projects (media bin, dubbing-as-operation, multi-lane timeline, render)
+- **What:** A full pivot of what task #6 (Video dubbing MVP) started: video dubbing stops being a standalone top-level page and becomes one operation inside a real video-editing project. A `VideoProject` has a media bin of multiple uploaded clips; any clip can be dubbed (reusing the existing `DubbingJob`/`DubbingSegment` pipeline unchanged, output landing back in the bin as a `dubbed` variant of its source clip); a multi-lane (ORIG/DUB/VIDEO) timeline composes chosen clips/variants into one deliverable; a render job concatenates the timeline into the final output video.
+- **Why:** The actual product need turned out to be broader than "dub one video" — a user is building a video that has *some* clips needing dubbing plus other clips needing other edits, and wants one project that outputs a single finished video. Task #6's one-job-per-upload model can't express that.
+- **Effort:** Large, genuinely multi-session. Phased on purpose:
+  - Phase 1 — schema + models + basic media-bin upload flow (no timeline editing yet)
+  - Phase 2 — wire dubbing into a bin clip ("Dub this clip" → existing pipeline → new variant in the bin)
+  - Phase 3 — the 3-lane ORIG/DUB/VIDEO timeline editor UI
+  - Phase 4 — render/export (ffmpeg concat job)
+- **Done when:** A user can create a video project, upload several clips into its media bin, dub any of them in place, arrange original/dubbed clips on a timeline, and export one finished video.
+
+**What was actually done (Phase 1, Aug 23, 2026):**
+- `video_projects` table/model — parallel to the existing (audio) `projects`/`Project`, same UUID-PK + `array`-cast JSON-column conventions (`timeline_json` plays `Project::timeline_clips`'s role).
+- `video_project_clips` table/model — the media bin. `kind` (`source`/`dubbed`) + `parent_clip_id` (self-referencing) + `dubbing_job_id` (nullable FK into the **existing, untouched** `video_dubbing_jobs` table) is how a dub result becomes a clip variant without duplicating or modifying anything in the dubbing pipeline itself.
+- `VideoProjectController` — index/store/show/update/destroy on projects, plus `addClip` (multipart upload, same 200MB/mimetype limits as `VideoDubbingController::submit`, ffprobe duration via the same pattern `DubbingPipelineHelpers::probeDuration` uses) and `destroyClip` (refuses to delete a clip still referenced in `timeline_json`).
+- `User::videoProjects()` relation added.
+- Routes added: read/write/delete share the default auth throttle like `projects`; `addClip` gets its own 5/min throttle group, same reasoning as `/dubbing/submit`.
+- `useVideoProjects.ts` — new, additive frontend hook (list/create/rename/save-timeline/delete/upload-clip/delete-clip), same optimistic-update-with-rollback shape as `useProjects.ts`. Kept its own local types rather than extending `lib/types.ts`, since that file is Assembly's (audio) type surface.
+- **Caught before it became a live bug:** `frontend/src/lib/api.ts` has a `LARAVEL_PATHS` allowlist that decides whether a request goes to the Laravel backend or the AI-engine base — `/video-projects` has been added there; without it every call from the new hook would 404 silently against the wrong host.
+
+**Not yet done:**
+- Migration hasn't been run against any real database — this is schema-as-code only, verify with `php artisan migrate` on a dev DB before deploying.
+- No `PlanLimits` quota check on video-project count (unlike `ProjectController::store`'s `project_limit`) — `plan_limits` is DB-seeded per plan and adding a `video_project_limit` key is a product decision (what number, which plans), not something to guess at while writing a controller. Flagging it so it doesn't get load-bearing-forgotten.
+- No frontend *page* yet (list view / studio view / the actual 3-lane timeline from the reference screenshot) — only the data hook it'll plug into. Didn't want to guess at this app's page-routing convention (how `DubbingPage`'s list↔detail toggle is wired into the shell) without checking it first; that's Phase 1's natural next slice, not a redo.
+- Phases 2–4 (dub-a-clip wiring, timeline UI, render/export) not started.
 
 ---
 
