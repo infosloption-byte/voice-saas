@@ -395,6 +395,13 @@ class ApiClient {
     if (result instanceof Blob) return result
     throw new ApiError('Expected video response from server', 502)
   }
+
+  /** Streams a project's own rendered output, as a Blob — Phase 4. Only valid once status is 'done'. */
+  async fetchVideoProjectOutputFile(projectId: string): Promise<Blob> {
+    const result = await this.get(`/video-projects/${projectId}/file`)
+    if (result instanceof Blob) return result
+    throw new ApiError('Expected video response from server', 502)
+  }
 }
 
 export const api = new ApiClient()

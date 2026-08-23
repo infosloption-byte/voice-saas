@@ -285,6 +285,8 @@ function StudioView({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [jobs, setJobs] = useState<JobRow[]>([])
+  const [rendering, setRendering] = useState(false)
+  const [downloading, setDownloading] = useState(false)
 
   const sourceClips = useMemo(() => project.clips.filter(c => c.kind === 'source'), [project.clips])
   const dubbedClips = useMemo(() => project.clips.filter(c => c.kind === 'dubbed'), [project.clips])
@@ -292,6 +294,20 @@ function StudioView({
   const jobsById = useMemo(() => new Map(jobs.map(j => [j.job_id, j])), [jobs])
 
   const hasProcessing = project.clips.some(c => c.kind === 'dubbed' && c.status === 'processing')
+  const isRendering = project.status === 'rendering'
+
+  // ── Poll while this project is rendering — same interval as the
+  // dubbing-jobs poll below, just watching loadProject() itself rather
+  // than /dubbing, since a render's only observable state is the
+  // project's own status column (no per-percent progress column exists
+  // on video_projects the way dubbing_jobs has one — see
+  // RenderVideoProjectJob's docblock). ──────────────────────────────
+  useEffect(() => {
+    if (!isRendering) return
+    let cancelled = false
+    const t = setInterval(() => { if (!cancelled) onRefresh() }, LIST_POLL_MS)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [isRendering, onRefresh])
 
   // ── Poll dubbing jobs while anything in this project is processing ──
   useEffect(() => {
@@ -365,6 +381,38 @@ function StudioView({
       setDubTarget(null)
     } catch (e) {
       toast.err(e instanceof ApiError ? e.message : 'Failed to start dubbing.')
+    }
+  }
+
+  // ── Render ──────────────────────────────────────────────────────
+  async function handleRender() {
+    setRendering(true)
+    try {
+      await vp.renderProject(project.id)
+      toast.ok('Rendering started — this can take a few minutes.')
+      await onRefresh()
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 422 || e.status === 409)) toast.err(e.message)
+      else toast.err('Could not start the render.')
+    } finally {
+      setRendering(false)
+    }
+  }
+
+  async function handleDownload() {
+    setDownloading(true)
+    try {
+      const blob = await api.fetchVideoProjectOutputFile(project.id)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${name || 'video'}.mp4`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      toast.err(e instanceof ApiError ? e.message : 'Download failed.')
+    } finally {
+      setDownloading(false)
     }
   }
 
@@ -453,6 +501,29 @@ function StudioView({
           style={{ fontSize: 18, fontWeight: 700, border: 'none', background: 'transparent', color: 'var(--text-1)', flex: 1, minWidth: 160 }}
         />
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{fmtDur(totalDuration)} on timeline</span>
+
+        {project.status === 'rendering' && (
+          <span className="tag tag--accent" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span className="spinner" style={{ width: 10, height: 10 }} /> Rendering…
+          </span>
+        )}
+        {project.status === 'failed' && (
+          <span className="tag tag--warn" title={project.error ?? undefined}>Render failed</span>
+        )}
+        {project.status === 'done' && (
+          <button className="btn btn--ghost btn--sm" onClick={handleDownload} disabled={downloading} title="Download rendered video">
+            {downloading ? <span className="spinner" style={{ width: 12, height: 12 }} /> : icons.download} Download
+          </button>
+        )}
+        <button
+          className="btn btn--primary btn--sm"
+          onClick={handleRender}
+          disabled={rendering || isRendering || timeline.length === 0}
+          title={timeline.length === 0 ? 'Add clips to the timeline first' : 'Render this timeline into one video'}
+        >
+          {(rendering || isRendering) ? <span className="spinner" style={{ marginRight: 6 }} /> : null}
+          {isRendering ? 'Rendering…' : project.status === 'done' ? 'Re-render' : 'Render'}
+        </button>
       </div>
 
       <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>

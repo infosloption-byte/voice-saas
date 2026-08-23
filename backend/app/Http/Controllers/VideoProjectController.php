@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\PrepareDubbingJob;
+use App\Jobs\RenderVideoProjectJob;
 use App\Models\ActivityLog;
 use App\Models\DubbingJob;
 use App\Models\VideoProject;
@@ -39,13 +40,22 @@ use Illuminate\Support\Str;
  * schema for a visual multi-lane layout that Phase 4's render job would
  * just flatten back into a sequence anyway.
  *
+ * Phase 4 (Aug 23, 2026) — render()/outputFile(): the render/export step
+ * Phase 3's docblock said would flatten timeline_json into a sequence.
+ * render() validates the timeline is non-empty and every clip it
+ * references is 'ready', flips the project to 'rendering', and
+ * dispatches RenderVideoProjectJob — same validate-then-dispatch split
+ * as dubClip()/PrepareDubbingJob. outputFile() streams the finished
+ * result once status is 'done' (distinct from clipFile(), which streams
+ * one bin clip, not the rendered project).
+ *
  * NOT yet wired (see docs/ENHANCEMENT_TASKS.md task #6a):
- *  - PlanLimits quota check on project count — project_limit is
- *    DB-seeded per plan (plan_limits table) and adding a
- *    video_project_limit key means a seed/migration decision that
- *    belongs to product, not something to guess a number for here.
- *  - Render/export (Phase 4) — timeline_json is composed and saved, but
- *    nothing consumes it into an actual output video file yet.
+ *  - PlanLimits quota check on project count or on render itself —
+ *    same reasoning as Phase 1/2: a new quota key is a seed/migration +
+ *    product decision, not something to guess a number for here.
+ *  - Progress reporting during a render (video_projects has no
+ *    `progress` column the way dubbing_jobs does) — the UI polls for a
+ *    status flip (rendering → done/failed) rather than a percentage.
  */
 class VideoProjectController extends Controller
 {
@@ -343,6 +353,71 @@ class VideoProjectController extends Controller
         }
 
         return $this->streamVideo(Storage::disk('video'), $clip->storage_path, ($clip->original_filename ?: $clip->id) . '.mp4');
+    }
+
+    /**
+     * POST /api/video-projects/{id}/render — Phase 4. Validates the
+     * timeline has at least one entry and every clip it references is
+     * currently 'ready' (not removed, still processing, or failed),
+     * flips the project to 'rendering', and dispatches
+     * RenderVideoProjectJob — same validate-up-front/do-the-real-work-
+     * in-the-queued-job split dubClip()/PrepareDubbingJob already use.
+     */
+    public function render(Request $request, string $id)
+    {
+        $project = $request->user()->videoProjects()->with('clips')->findOrFail($id);
+
+        if ($project->status === 'rendering') {
+            return response()->json(['message' => 'This project is already rendering.'], 409);
+        }
+
+        $timeline = collect($project->timeline_json ?? []);
+        if ($timeline->isEmpty()) {
+            return response()->json([
+                'message' => 'Add at least one clip to the timeline before rendering.',
+                'code'    => 'timeline_empty',
+            ], 422);
+        }
+
+        $clipsById = $project->clips->keyBy('id');
+        foreach ($timeline as $i => $entry) {
+            $clip = $clipsById->get($entry['clip_id'] ?? null);
+            if (! $clip || $clip->status !== 'ready') {
+                return response()->json([
+                    'message' => 'Timeline entry ' . ($i + 1) . " isn't ready to render (clip removed, still processing, or failed) — fix it in the studio first.",
+                    'code'    => 'timeline_clip_not_ready',
+                ], 422);
+            }
+        }
+
+        $project->update(['status' => 'rendering', 'error' => null]);
+
+        RenderVideoProjectJob::dispatch($project->id);
+
+        return response()->json(['status' => 'rendering']);
+    }
+
+    /**
+     * GET /api/video-projects/{id}/file — Phase 4: streams the PROJECT's
+     * own rendered output, once render() has produced one. Distinct from
+     * clipFile() above, which streams one bin clip rather than the
+     * composed result.
+     */
+    public function outputFile(Request $request, string $id)
+    {
+        $project = $request->user()->videoProjects()->findOrFail($id);
+
+        if ($project->status === 'failed') {
+            return response()->json(['message' => $project->error ?: 'Render failed.'], 422);
+        }
+        if ($project->status !== 'done' || ! $project->output_video_path) {
+            return response()->json(['message' => 'This project has not finished rendering yet.', 'status' => $project->status], 409);
+        }
+        if (! Storage::disk('video')->exists($project->output_video_path)) {
+            return response()->json(['message' => 'Rendered output is missing or has expired.'], 410);
+        }
+
+        return $this->streamVideo(Storage::disk('video'), $project->output_video_path, ($project->name ?: 'video') . '.mp4');
     }
 
     /**

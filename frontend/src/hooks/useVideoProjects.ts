@@ -32,6 +32,7 @@ export interface VideoProject {
   clips: VideoProjectClip[]
   outputVideoPath: string | null
   durationSeconds: number | null
+  error: string | null
 }
 
 /** Params for "Dub this clip" (Phase 2) — same shape /dubbing/submit takes. */
@@ -63,6 +64,7 @@ function mapVideoProject(raw: Record<string, unknown>): VideoProject {
     clips: ((raw.clips as Record<string, unknown>[]) ?? []).map(mapClip),
     outputVideoPath: (raw.output_video_path as string) ?? null,
     durationSeconds: (raw.duration_seconds as number) ?? null,
+    error: (raw.error as string) ?? null,
   }
 }
 
@@ -79,6 +81,7 @@ interface UseVideoProjectsReturn {
   uploadClip: (projectId: string, file: File) => Promise<VideoProjectClip | null>
   deleteClip: (projectId: string, clipId: string) => Promise<void>
   dubClip: (projectId: string, clipId: string, params: DubClipParams) => Promise<{ clip: VideoProjectClip; jobId: string } | null>
+  renderProject: (projectId: string) => Promise<void>
 }
 
 export function useVideoProjects(): UseVideoProjectsReturn {
@@ -230,9 +233,20 @@ export function useVideoProjects(): UseVideoProjectsReturn {
     }
   }, [])
 
+  /**
+   * Phase 4 — kicks off RenderVideoProjectJob. Optimistically flips
+   * status to 'rendering' locally (the backend does the same before
+   * dispatch); the caller is expected to poll loadProject() until status
+   * flips to 'done'/'failed', same pattern as dubClip()'s hand-off.
+   */
+  const renderProject = useCallback(async (projectId: string): Promise<void> => {
+    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, status: 'rendering' } : p))
+    await api.post(`/video-projects/${projectId}/render`, {})
+  }, [])
+
   return {
     projects, loading, error,
     loadProjects, loadProject, createProject, renameProject,
-    saveTimeline, deleteProject, uploadClip, deleteClip, dubClip,
+    saveTimeline, deleteProject, uploadClip, deleteClip, dubClip, renderProject,
   }
 }

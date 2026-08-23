@@ -199,6 +199,17 @@ Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
 // action-tier groups above.
 Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
     Route::get('/video-projects/{id}/clips/{clipId}/file', [VideoProjectController::class, 'clipFile']);
+    // Rendered project output (task #6a Phase 4) — same read tier as
+    // clipFile() just above; polled while a render is in flight, then
+    // fetched once to download, so it's a read endpoint, not an action.
+    Route::get('/video-projects/{id}/file', [VideoProjectController::class, 'outputFile']);
+});
+
+// Video Studio render/export (task #6a Phase 4) — kicks off
+// RenderVideoProjectJob, same action-tier throttle as dubClip()/addClip()
+// just above (a heavy queued job, not a cheap read).
+Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
+    Route::post('/video-projects/{id}/render', [VideoProjectController::class, 'render']);
 });
 
 Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
