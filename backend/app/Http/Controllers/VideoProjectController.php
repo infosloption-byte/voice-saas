@@ -29,12 +29,23 @@ use Illuminate\Support\Str;
  * variant clip in the same bin. No changes to DubbingJob, PrepareDubbingJob,
  * FinalizeDubbingJob, or the segment-review endpoints were needed or made.
  *
+ * Phase 3 (Aug 23, 2026) — clipFile(): streams a bin clip's own video file
+ * (source OR dubbed) so the studio UI can preview clips and play back the
+ * composed timeline. Nothing else changed on the backend this phase — the
+ * timeline itself is just `timeline_json` (an ordered array of
+ * {clip_id, trim_in, trim_out, variant}), already scaffolded in Phase 1's
+ * `update()`, since the flat ordered-list shape already satisfies "compose
+ * chosen clips/variants into one deliverable" without inventing a new
+ * schema for a visual multi-lane layout that Phase 4's render job would
+ * just flatten back into a sequence anyway.
+ *
  * NOT yet wired (see docs/ENHANCEMENT_TASKS.md task #6a):
  *  - PlanLimits quota check on project count — project_limit is
  *    DB-seeded per plan (plan_limits table) and adding a
  *    video_project_limit key means a seed/migration decision that
  *    belongs to product, not something to guess a number for here.
- *  - Timeline UI (Phase 3) and render/export (Phase 4).
+ *  - Render/export (Phase 4) — timeline_json is composed and saved, but
+ *    nothing consumes it into an actual output video file yet.
  */
 class VideoProjectController extends Controller
 {
@@ -311,6 +322,30 @@ class VideoProjectController extends Controller
     }
 
     /**
+     * GET /api/video-projects/{id}/clips/{clipId}/file — streams a bin
+     * clip's own video file (whichever `storage_path` it currently has,
+     * source or dubbed). Phase 3: the studio UI needs this both for the
+     * media-bin preview player and for playing back timeline entries;
+     * neither existed as a fetchable resource before this phase since
+     * Phase 1/2 only ever wrote clip files, never served them back.
+     * Same inline-stream pattern as VideoDubbingController::source()/
+     * result() (duplicated rather than shared for now — see
+     * probeDuration()'s docblock below for the same "third caller"
+     * promotion note, which this now nudges closer to true).
+     */
+    public function clipFile(Request $request, string $id, string $clipId)
+    {
+        $project = $request->user()->videoProjects()->findOrFail($id);
+        $clip = $project->clips()->findOrFail($clipId);
+
+        if (! $clip->storage_path || ! Storage::disk('video')->exists($clip->storage_path)) {
+            return response()->json(['message' => 'This clip\'s video file is missing or has expired.'], 410);
+        }
+
+        return $this->streamVideo(Storage::disk('video'), $clip->storage_path, ($clip->original_filename ?: $clip->id) . '.mp4');
+    }
+
+    /**
      * Refreshes every 'processing' dubbed-variant clip on this project
      * against its linked DubbingJob. Called from show() rather than run
      * as a queued callback — keeps FinalizeDubbingJob completely
@@ -369,5 +404,28 @@ class VideoProjectController extends Controller
 
         $val = trim($out);
         return is_numeric($val) ? round((float) $val, 3) : null;
+    }
+
+    /**
+     * Same streaming pattern as VideoDubbingController::streamVideo() —
+     * duplicated for the same reason probeDuration() above is: it's
+     * private to that controller. This is now the second copy of this
+     * exact method (probeDuration's docblock flagged a "third caller"
+     * threshold for promoting to a shared Service — worth doing either of
+     * these next time a third one shows up).
+     */
+    private function streamVideo($disk, string $path, string $downloadName)
+    {
+        $stream = $disk->readStream($path);
+
+        return response()->stream(function () use ($stream) {
+            fpassthru($stream);
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+        }, 200, [
+            'Content-Type'        => 'video/mp4',
+            'Content-Disposition' => 'inline; filename="' . $downloadName . '"',
+        ]);
     }
 }

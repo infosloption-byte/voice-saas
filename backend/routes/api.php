@@ -193,6 +193,14 @@ Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
     Route::post('/video-projects/{id}/clips/{clipId}/dub', [VideoProjectController::class, 'dubClip']);
 });
 
+// Video Studio clip file streaming (task #6a Phase 3) — media-bin preview
+// + timeline playback both hit this per clip, so it gets the same 60/min
+// read tier as /dubbing/source and /dubbing/result rather than the
+// action-tier groups above.
+Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
+    Route::get('/video-projects/{id}/clips/{clipId}/file', [VideoProjectController::class, 'clipFile']);
+});
+
 Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
     Route::post('/dubbing/submit', [VideoDubbingController::class, 'submit']);
     Route::post('/dubbing/{jobId}/retry', [VideoDubbingController::class, 'retry'])

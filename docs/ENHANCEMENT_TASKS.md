@@ -13,7 +13,7 @@
 | 4a | Multi-engine admin control (separate from AI Engine host-swap) | P1 | ✅ Done — Aug 19, 2026 |
 | 5 | Public API tier | P1 | Not started |
 | 6 | Video dubbing MVP | P1 | ✅ Done — Aug 21, 2026 · quality fixes (engine selection, translation context, sample rate/loudness, drift recovery) Aug 22, 2026 · fixed event-loop-blocking bug in chatterbox-engine (found on first live test) Aug 22, 2026 · rebuilt as a two-phase review-timeline workflow (drag/resize/retime, undo/redo) Aug 22, 2026 · thumbnail filmstrip + split/merge built, two regressions found & fixed (ffmpeg hang timeout, empty-segment crash on Mute), Vite/Rolldown pin re-applied, clamp math numerically verified Aug 23, 2026 — **still not live-tested** |
-| 6a | Video Studio — Video Projects (media bin, dubbing-as-operation, multi-lane timeline, render) | P1 | 🔶 Phase 1 pushed to main Aug 23, 2026 · Phase 2 (dub-a-clip wiring) built Aug 23, 2026 — **still not live-tested, migration not yet run** |
+| 6a | Video Studio — Video Projects (media bin, dubbing-as-operation, multi-lane timeline, render) | P1 | 🔶 Phase 1 pushed to main Aug 23, 2026 · Phase 2 (dub-a-clip wiring) built Aug 23, 2026 · Phase 3 (studio UI) built Aug 23, 2026 — **still not live-tested, migration not yet run** |
 | 7 | Base model quality tier | P1 | Not started |
 | 8 | Public system-health status page | P2 | Not started |
 | 9 | No-signup "try your voice" widget | P2 | Not started |
@@ -314,11 +314,27 @@ Picked this up by reading every backend/frontend file involved end to end (not j
 - `useVideoProjects.ts`: added `dubClip()`, matching the same optimistic-add shape as `uploadClip()`.
 - `destroyClip()` extended to also refuse deleting a `dubbed` clip that's still `processing` (mirrors `VideoDubbingController::destroy()`'s "can't delete a running job" rule) — an in-flight `DubbingJob` would otherwise have nowhere to land its result.
 
-**Not yet done:**
-- Still not live-tested end-to-end (needs a real dub to actually finish and confirm the sync picks it up correctly), and the Phase 1 migration still hasn't been run against a real DB — do that first.
+**Not yet done (as of Phase 2):**
 - No duplicate-dub guard — a user can kick off multiple dubs of the same source clip (including to the same target language) with no warning. Left alone on purpose: dubbing the same clip to *different* languages is legitimate desired behavior per the reference UI, and a same-language duplicate isn't harmful, just wasteful — a confirm-dialog nudge belongs in the Phase 3 UI, not a backend restriction.
 - No quota/plan-limit check on `dubClip()` itself — it rides on whatever `PrepareDubbingJob`/`FinalizeDubbingJob` already enforce for translation/synthesis quota, same as `/dubbing/submit`; no new gate was added or needed here.
-- Phase 3 (timeline UI) and Phase 4 (render/export) not started.
+
+**What was actually done (Phase 3, Aug 23, 2026) — the studio UI:**
+- `VideoProjectController::clipFile()` — new `GET /video-projects/{id}/clips/{clipId}/file`, streams a bin clip's own video (source or dubbed, whichever `storage_path` it currently has) inline. Neither Phase 1 nor Phase 2 needed this (they only ever *wrote* clip files); Phase 3's bin preview and timeline playback are the first callers that need to read one back. Same `streamVideo()` pattern as `VideoDubbingController::source()`/`result()`, at the same 60/min read throttle tier as `/dubbing/source` and `/dubbing/result`.
+- `frontend/src/pages/VideoStudioPage.tsx` — new, self-contained page following the exact routing convention `DubbingPage` already established (checked it first, per Phase 1's note it hadn't been checked yet): one `'video-studio'` entry in `Page`/nav/topbar-title/App.tsx's page-render block, with the list↔studio toggle kept as this component's own internal state rather than threaded through the app-level router. No guest tier, same reasoning as Video Dubbing's nav item (dubbing quota/ownership needs a real account throughout).
+  - **List view** — project cards (name, clip count, total timeline duration), new-project card, delete with inline confirm. Mirrors `ProjectsPage`'s card-grid conventions (`project-card`/`project-grid` classes) rather than inventing new ones.
+  - **Studio view** — media bin split into "Original clips" and "Dubbed variants" sections (the two lanes to pick *from*), each clip row showing status/duration and, for a `dubbed` clip whose linked `DubbingJob` has reached `ready_for_review`, a "Review" badge + button. A single ordered "Video timeline" section below composes chosen clips (the third, output lane) — add-from-bin, per-entry trim-in/trim-out fields, reorder via up/down (no drag-and-drop this phase), remove. Directly reads/writes the existing `timeline_json` shape from Phase 1 (`{clip_id, trim_in, trim_out, variant}[]`) with no schema change — see the controller docblock for why a literal simultaneous 3-track visual wasn't built instead. Autosaves the timeline 600ms after the last edit.
+  - **"Dub this clip" → review hand-off** — clicking "Dub" opens a small dialog (voice/engine/languages, reusing `EngineSwitcher`/`LANGUAGES` exactly as `DubbingPage` does) that calls the existing `dubClip()`. While any clip in the open project is `processing`, the page polls `/dubbing` (same 6s interval `DubbingPage` uses) to catch its linked job reaching `ready_for_review` (surfaces the "Review" badge) or `done`/`failed` (triggers `loadProject()` to pick up `syncDubbedClipStatuses()`'s result). Clicking "Review" swaps the studio view for the *existing, completely unchanged* `DubbingTimelineEditor` component using the job's `job_id`; `onFinalized` returns to the studio and refreshes the project — this is the exact hand-off Phase 2's docblock described, now actually wired up.
+  - A preview player (top of the main column) streams whichever bin clip or timeline entry was last clicked, via the new `clipFile` endpoint.
+- `frontend/src/lib/api.ts` — added `fetchVideoProjectClipFile()`, same blob-fetch shape as `fetchDubbingSource()`/`fetchDubbingResult()`.
+- `frontend/src/lib/types.ts` — added `'video-studio'` to `Page`.
+- `frontend/src/lib/constants.tsx` — added a `layers` icon (three stacked lanes) for the nav item, distinct from Dubbing's single-camera `video` icon.
+
+**Not yet done (as of Phase 3):**
+- Still not live-tested end-to-end (needs a real dub to actually finish and confirm the bin/timeline pick it up correctly), and the Phase 1 migration still hasn't been run against a real DB — do that first, same caveat carried from Phase 1/2.
+- Duplicate-dub guard and `dubClip()` quota gate — still open, carried from Phase 2 (see above), untouched this phase.
+- No drag-and-drop reorder or drag-to-add on the timeline — up/down buttons and a bin-row "+" button only. A literal simultaneous 3-track visual (clips positioned at their own timecodes across three stacked rows, like the reference screenshot) is a bigger, separate UI lift from the ordered-sequence-with-trim-fields built this phase; revisit if the flat sequence turns out not to be expressive enough once people are actually using it.
+- No thumbnail/filmstrip preview in the bin or on timeline rows — clips show name/duration/status text only; the review-timeline hand-off still gets the full filmstrip experience via the reused `DubbingTimelineEditor`.
+- Phase 4 (render/export — an ffmpeg concat job that actually consumes `timeline_json` into `output_video_path`) not started. The timeline is fully composable and saved, but nothing renders it into a real output file yet.
 
 ---
 

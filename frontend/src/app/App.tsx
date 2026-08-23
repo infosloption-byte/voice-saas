@@ -28,6 +28,7 @@ import {
 import { WorkspacePage } from '../pages/WorkspacePage'
 import { AssemblyPage } from '../pages/AssemblyPage'
 import { DubbingPage } from '../pages/DubbingPage'
+import { VideoStudioPage } from '../pages/VideoStudioPage'
 import type { Page, WorkspaceTab, VoiceProfile, EngineStatus, EngineCaps } from '../lib/types'
 
 // ── Cookie consent ────────────────────────────────────────────────
@@ -633,6 +634,10 @@ export default function App() {
     // job needs a real account's quota/ownership checks throughout, unlike
     // Projects/Profiles which have a parallel guest-local implementation.
     ...(guestMode ? [] : [{ key: 'dubbing' as Page, label: 'Video Dubbing', icon: icons.video }]),
+    // Video Studio (task #6a) — same no-guest-tier reasoning as Dubbing
+    // above: "Dub this clip" rides the same DubbingJob quota/ownership
+    // path, so a guest-local parallel implementation doesn't make sense here either.
+    ...(guestMode ? [] : [{ key: 'video-studio' as Page, label: 'Video Studio', icon: icons.layers }]),
   ]
 
   // ── Engine pill label ─────────────────────────────────────────────
@@ -850,6 +855,7 @@ export default function App() {
                 : page === 'projects'  ? 'Projects'
                 : page === 'profiles'  ? 'Voice Profiles'
                 : page === 'dubbing'   ? 'Video Dubbing'
+                : page === 'video-studio' ? 'Video Studio'
                 : page === 'settings'  ? 'Settings'
                 : ''}
             </span>
@@ -1066,6 +1072,23 @@ export default function App() {
               </div>
             ) : (
               <DubbingPage voiceProfiles={voiceProfiles} engineCaps={engineCaps} />
+            )
+          )}
+
+          {page === 'video-studio' && (
+            guestMode ? (
+              // Same defensive fallback as the 'dubbing' block above, same
+              // reason: the nav item is hidden for guests, but a stale
+              // saved page state could still land here directly.
+              <div style={{ maxWidth: 480, margin: '60px auto', textAlign: 'center' }}>
+                <h2>Video Studio needs an account</h2>
+                <p style={{ color: 'var(--text-3)', fontSize: 13.5, marginBottom: 16 }}>
+                  Sign up to build a video project with a media bin, dubbing, and a timeline.
+                </p>
+                <button className="btn btn--primary" onClick={() => setPage('signup')}>Sign up</button>
+              </div>
+            ) : (
+              <VideoStudioPage voiceProfiles={voiceProfiles} engineCaps={engineCaps} />
             )
           )}
 
