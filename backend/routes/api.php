@@ -186,6 +186,13 @@ Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
     Route::post('/video-projects/{id}/clips', [VideoProjectController::class, 'addClip']);
 });
 
+// Video Studio "Dub this clip" (task #6a Phase 2) — creates a DubbingJob
+// + copies a file + dispatches PrepareDubbingJob, same weight as
+// /dubbing/submit and /dubbing/{jobId}/retry just below, same throttle tier.
+Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
+    Route::post('/video-projects/{id}/clips/{clipId}/dub', [VideoProjectController::class, 'dubClip']);
+});
+
 Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
     Route::post('/dubbing/submit', [VideoDubbingController::class, 'submit']);
     Route::post('/dubbing/{jobId}/retry', [VideoDubbingController::class, 'retry'])

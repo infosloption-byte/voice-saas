@@ -13,7 +13,7 @@
 | 4a | Multi-engine admin control (separate from AI Engine host-swap) | P1 | ✅ Done — Aug 19, 2026 |
 | 5 | Public API tier | P1 | Not started |
 | 6 | Video dubbing MVP | P1 | ✅ Done — Aug 21, 2026 · quality fixes (engine selection, translation context, sample rate/loudness, drift recovery) Aug 22, 2026 · fixed event-loop-blocking bug in chatterbox-engine (found on first live test) Aug 22, 2026 · rebuilt as a two-phase review-timeline workflow (drag/resize/retime, undo/redo) Aug 22, 2026 · thumbnail filmstrip + split/merge built, two regressions found & fixed (ffmpeg hang timeout, empty-segment crash on Mute), Vite/Rolldown pin re-applied, clamp math numerically verified Aug 23, 2026 — **still not live-tested** |
-| 6a | Video Studio — Video Projects (media bin, dubbing-as-operation, multi-lane timeline, render) | P1 | 🔶 Phase 1 of 4 built (schema/models/API/hook) — Aug 23, 2026 · **not migrated, not live-tested** |
+| 6a | Video Studio — Video Projects (media bin, dubbing-as-operation, multi-lane timeline, render) | P1 | 🔶 Phase 1 pushed to main Aug 23, 2026 · Phase 2 (dub-a-clip wiring) built Aug 23, 2026 — **still not live-tested, migration not yet run** |
 | 7 | Base model quality tier | P1 | Not started |
 | 8 | Public system-health status page | P2 | Not started |
 | 9 | No-signup "try your voice" widget | P2 | Not started |
@@ -306,7 +306,19 @@ Picked this up by reading every backend/frontend file involved end to end (not j
 - Migration hasn't been run against any real database — this is schema-as-code only, verify with `php artisan migrate` on a dev DB before deploying.
 - No `PlanLimits` quota check on video-project count (unlike `ProjectController::store`'s `project_limit`) — `plan_limits` is DB-seeded per plan and adding a `video_project_limit` key is a product decision (what number, which plans), not something to guess at while writing a controller. Flagging it so it doesn't get load-bearing-forgotten.
 - No frontend *page* yet (list view / studio view / the actual 3-lane timeline from the reference screenshot) — only the data hook it'll plug into. Didn't want to guess at this app's page-routing convention (how `DubbingPage`'s list↔detail toggle is wired into the shell) without checking it first; that's Phase 1's natural next slice, not a redo.
-- Phases 2–4 (dub-a-clip wiring, timeline UI, render/export) not started.
+
+**What was actually done (Phase 2, Aug 23, 2026) — wiring dubbing into a bin clip:**
+- `VideoProjectController::dubClip()` — new `POST /video-projects/{id}/clips/{clipId}/dub`. Takes a `source`-kind bin clip, copies its file into a new job-scoped key (identical copy-not-point-at pattern `VideoDubbingController::retry()` already uses so the job's file lifecycle stays independent of the bin's), creates a normal `DubbingJob` + `ActivityLog`, dispatches the **existing, unmodified** `PrepareDubbingJob`, and immediately creates a `dubbed`-kind placeholder clip (`status='processing'`, `dubbing_job_id` pointing at the new job, `parent_clip_id` pointing at the source clip).
+- `VideoProjectController::syncDubbedClipStatuses()` — called from `show()`. Any `dubbed` clip still `processing` gets checked against its linked `DubbingJob`; once that job reaches `done`, the clip's `storage_path`/`duration_seconds` are filled from `job->result_video_path`/`duration_seconds` and it flips to `ready` (or `failed` if the job failed). Chose poll-on-read over a webhook/callback from `FinalizeDubbingJob` specifically to avoid touching that job at all — the review-timeline UI the user is actually watching already polls the `DubbingJob` directly for live progress, so this only needs to catch up on the *next* time the project is fetched.
+- **Nothing in the dubbing pipeline itself changed** — `DubbingJob`, `PrepareDubbingJob`, `FinalizeDubbingJob`, and every `/dubbing/{jobId}/segments*` endpoint are byte-for-byte what Phase 1 found them to be. The frontend is expected to route the user into the existing `DubbingTimelineEditor` review flow using the `job_id` `dubClip()` returns, then call `loadProject()` again afterward to pick up the finished variant — that hand-off point is a frontend/UI decision for Phase 3, not something this backend endpoint needed to solve.
+- `useVideoProjects.ts`: added `dubClip()`, matching the same optimistic-add shape as `uploadClip()`.
+- `destroyClip()` extended to also refuse deleting a `dubbed` clip that's still `processing` (mirrors `VideoDubbingController::destroy()`'s "can't delete a running job" rule) — an in-flight `DubbingJob` would otherwise have nowhere to land its result.
+
+**Not yet done:**
+- Still not live-tested end-to-end (needs a real dub to actually finish and confirm the sync picks it up correctly), and the Phase 1 migration still hasn't been run against a real DB — do that first.
+- No duplicate-dub guard — a user can kick off multiple dubs of the same source clip (including to the same target language) with no warning. Left alone on purpose: dubbing the same clip to *different* languages is legitimate desired behavior per the reference UI, and a same-language duplicate isn't harmful, just wasteful — a confirm-dialog nudge belongs in the Phase 3 UI, not a backend restriction.
+- No quota/plan-limit check on `dubClip()` itself — it rides on whatever `PrepareDubbingJob`/`FinalizeDubbingJob` already enforce for translation/synthesis quota, same as `/dubbing/submit`; no new gate was added or needed here.
+- Phase 3 (timeline UI) and Phase 4 (render/export) not started.
 
 ---
 

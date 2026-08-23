@@ -34,6 +34,14 @@ export interface VideoProject {
   durationSeconds: number | null
 }
 
+/** Params for "Dub this clip" (Phase 2) — same shape /dubbing/submit takes. */
+export interface DubClipParams {
+  targetLanguage: string
+  sourceLanguage?: string
+  voiceProfileId: string
+  engine?: string
+}
+
 function mapClip(raw: Record<string, unknown>): VideoProjectClip {
   return {
     id: raw.id as string,
@@ -70,6 +78,7 @@ interface UseVideoProjectsReturn {
   deleteProject: (id: string) => Promise<void>
   uploadClip: (projectId: string, file: File) => Promise<VideoProjectClip | null>
   deleteClip: (projectId: string, clipId: string) => Promise<void>
+  dubClip: (projectId: string, clipId: string, params: DubClipParams) => Promise<{ clip: VideoProjectClip; jobId: string } | null>
 }
 
 export function useVideoProjects(): UseVideoProjectsReturn {
@@ -185,9 +194,45 @@ export function useVideoProjects(): UseVideoProjectsReturn {
     }
   }, [])
 
+  /**
+   * Phase 2 — "Dub this clip". Kicks off the existing dubbing pipeline
+   * on a source bin clip and drops a 'processing' placeholder variant
+   * into the bin immediately. The placeholder's real status/duration/
+   * storage_path only refresh on the *next* loadProject()/GET call
+   * (the backend syncs it there) — so after the user finishes the
+   * existing review-timeline flow (segments → finalize) for the
+   * returned jobId, call loadProject(projectId) again to pick up the
+   * finished result.
+   */
+  const dubClip = useCallback(async (
+    projectId: string,
+    clipId: string,
+    params: DubClipParams
+  ): Promise<{ clip: VideoProjectClip; jobId: string } | null> => {
+    try {
+      const data = await api.post(`/video-projects/${projectId}/clips/${clipId}/dub`, {
+        target_language: params.targetLanguage,
+        source_language: params.sourceLanguage,
+        voice_profile_id: params.voiceProfileId,
+        engine: params.engine,
+      }) as Record<string, unknown>
+
+      const clip = mapClip(data.clip as Record<string, unknown>)
+      const jobId = data.job_id as string
+
+      setProjects(prev => prev.map(p => p.id === projectId ? { ...p, clips: [...p.clips, clip] } : p))
+
+      return { clip, jobId }
+    } catch (e) {
+      if (e instanceof ApiError) console.error('[useVideoProjects] dubClip:', e.status, e.message)
+      else console.error('[useVideoProjects] dubClip:', e)
+      throw e
+    }
+  }, [])
+
   return {
     projects, loading, error,
     loadProjects, loadProject, createProject, renameProject,
-    saveTimeline, deleteProject, uploadClip, deleteClip,
+    saveTimeline, deleteProject, uploadClip, deleteClip, dubClip,
   }
 }

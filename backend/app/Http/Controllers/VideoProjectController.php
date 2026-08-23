@@ -2,27 +2,39 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\PrepareDubbingJob;
+use App\Models\ActivityLog;
+use App\Models\DubbingJob;
 use App\Models\VideoProject;
 use App\Models\VideoProjectClip;
+use App\Models\VoiceProfile;
+use App\Services\EngineResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
- * Task #6a (Video Studio), Phase 1 — video_projects CRUD and the
- * media-bin upload flow. Deliberately mirrors ProjectController's shape
- * (the audio-workspace equivalent) and VideoDubbingController::submit()'s
- * upload handling (same 200MB cap, same mimetypes, same 'video' disk).
+ * Task #6a (Video Studio).
  *
- * NOT yet wired in this phase (see docs/ENHANCEMENT_TASKS.md task #6a):
+ * Phase 1 (Aug 23, 2026) — video_projects CRUD and the media-bin upload
+ * flow. Deliberately mirrors ProjectController's shape (the audio-
+ * workspace equivalent) and VideoDubbingController::submit()'s upload
+ * handling (same 200MB cap, same mimetypes, same 'video' disk).
+ *
+ * Phase 2 (Aug 23, 2026) — dubClip(): "Dub this clip" wires an existing
+ * bin item into the *existing, unmodified* dubbing pipeline
+ * (DubbingJob → PrepareDubbingJob → the review timeline →
+ * FinalizeDubbingJob), exactly the way VideoDubbingController::submit()/
+ * retry() already do it, and links the result back as a `dubbed`
+ * variant clip in the same bin. No changes to DubbingJob, PrepareDubbingJob,
+ * FinalizeDubbingJob, or the segment-review endpoints were needed or made.
+ *
+ * NOT yet wired (see docs/ENHANCEMENT_TASKS.md task #6a):
  *  - PlanLimits quota check on project count — project_limit is
  *    DB-seeded per plan (plan_limits table) and adding a
  *    video_project_limit key means a seed/migration decision that
  *    belongs to product, not something to guess a number for here.
- *  - "Dub this clip" endpoint (Phase 2) — will live here or in
- *    VideoDubbingController, TBD when that phase starts; it reuses
- *    DubbingJob/PrepareDubbingJob unchanged.
- *  - Render/export endpoint (Phase 4).
+ *  - Timeline UI (Phase 3) and render/export (Phase 4).
  */
 class VideoProjectController extends Controller
 {
@@ -58,11 +70,18 @@ class VideoProjectController extends Controller
     }
 
     /**
-     * GET /api/video-projects/{id} — includes the media bin.
+     * GET /api/video-projects/{id} — includes the media bin. Any
+     * 'dubbed' clip still marked 'processing' gets its status refreshed
+     * against its linked DubbingJob first (see syncDubbedClipStatuses) —
+     * cheap self-healing sync instead of a webhook/callback from
+     * FinalizeDubbingJob, since this endpoint is already polled whenever
+     * the studio page is open.
      */
     public function show(Request $request, string $id)
     {
         $project = $request->user()->videoProjects()->with('clips')->findOrFail($id);
+
+        $this->syncDubbedClipStatuses($project);
 
         return response()->json($project);
     }
@@ -94,10 +113,12 @@ class VideoProjectController extends Controller
         $project = $request->user()->videoProjects()->with('clips')->findOrFail($id);
 
         foreach ($project->clips as $clip) {
-            try {
-                Storage::disk('video')->delete($clip->storage_path);
-            } catch (\Throwable) {
-                // Missing/unreachable file must not block the project delete
+            if ($clip->storage_path) {
+                try {
+                    Storage::disk('video')->delete($clip->storage_path);
+                } catch (\Throwable) {
+                    // Missing/unreachable file must not block the project delete
+                }
             }
         }
 
@@ -147,7 +168,11 @@ class VideoProjectController extends Controller
      * DELETE /api/video-projects/{id}/clips/{clipId} — remove one bin
      * item. Refuses if it's still referenced in timeline_json so a user
      * can't silently break a saved timeline; frontend should prompt to
-     * remove it from the timeline first.
+     * remove it from the timeline first. Also refuses while a dub is
+     * still processing on it (matches destroy()'s "can't delete a
+     * running dubbing job" rule in VideoDubbingController) — deleting a
+     * dubbed-variant *placeholder* clip out from under an in-flight
+     * DubbingJob would just leave an orphaned job with nowhere to land.
      */
     public function destroyClip(Request $request, string $id, string $clipId)
     {
@@ -164,15 +189,162 @@ class VideoProjectController extends Controller
             ], 422);
         }
 
-        try {
-            Storage::disk('video')->delete($clip->storage_path);
-        } catch (\Throwable) {
-            // Missing/unreachable file must not block the clip delete
+        if ($clip->kind === 'dubbed' && $clip->status === 'processing') {
+            return response()->json([
+                'message' => 'This dub is still processing — wait for it to finish before removing it.',
+                'code'    => 'dub_in_progress',
+            ], 409);
+        }
+
+        if ($clip->storage_path) {
+            try {
+                Storage::disk('video')->delete($clip->storage_path);
+            } catch (\Throwable) {
+                // Missing/unreachable file must not block the clip delete
+            }
         }
 
         $clip->delete();
 
         return response()->json(null, 204);
+    }
+
+    /**
+     * POST /api/video-projects/{id}/clips/{clipId}/dub — Phase 2:
+     * "Dub this clip". Takes a `source` bin clip, kicks off a DubbingJob
+     * on a copy of its file (exact same copy-not-point-at pattern
+     * VideoDubbingController::retry() uses, so the two jobs' file
+     * lifecycles stay independent), and immediately creates the
+     * `dubbed`-kind placeholder clip in the bin pointing at that job.
+     *
+     * The placeholder starts life with no storage_path/duration and
+     * status='processing' — show()'s syncDubbedClipStatuses() fills
+     * those in once the job reaches 'done' (or flips status to 'failed'
+     * if the job fails). The frontend should route the user into the
+     * *existing* review-timeline UI (DubbingTimelineEditor) using the
+     * returned job_id — that whole flow (segments/updateSegments/
+     * finalize) is reused completely unchanged.
+     */
+    public function dubClip(Request $request, string $id, string $clipId)
+    {
+        $user = $request->user();
+        $project = $user->videoProjects()->findOrFail($id);
+        $sourceClip = $project->clips()->findOrFail($clipId);
+
+        if ($sourceClip->kind !== 'source') {
+            return response()->json([
+                'message' => 'Only an originally-uploaded clip can be dubbed — pick a source clip, not a dubbed variant.',
+                'code'    => 'not_a_source_clip',
+            ], 422);
+        }
+
+        if (! $sourceClip->storage_path || ! Storage::disk('video')->exists($sourceClip->storage_path)) {
+            return response()->json(['message' => 'This clip\'s video file is missing or has expired.'], 410);
+        }
+
+        $validated = $request->validate([
+            'target_language'  => ['required', 'string', 'max:10'],
+            'source_language'  => ['nullable', 'string', 'max:10'],
+            'voice_profile_id' => ['required', 'string', 'max:100'],
+            'engine'           => ['nullable', 'string', EngineResolver::engineValidationRule()],
+        ]);
+
+        $profileId = $validated['voice_profile_id'];
+        if ($profileId !== '' && ! str_starts_with($profileId, 'builtin:')) {
+            $owned = VoiceProfile::where('user_id', $user->id)
+                ->where('profile_id', $profileId)
+                ->exists();
+            if (! $owned) {
+                return response()->json(['message' => 'Voice profile not found on your account.'], 422);
+            }
+        }
+
+        // Same copy-into-a-new-job-scoped-key pattern as
+        // VideoDubbingController::retry() — the DubbingJob owns its own
+        // independent copy of the file, never a pointer back into the
+        // project's media bin storage.
+        $jobId = (string) Str::uuid();
+        $jobStoredPath = 'video/' . $user->id . '/' . $jobId . '_source.mp4';
+        Storage::disk('video')->copy($sourceClip->storage_path, $jobStoredPath);
+
+        $log = ActivityLog::create([
+            'user_id'    => $user->id,
+            'event_type' => 'dubbing',
+            'message'    => 'Video dubbing queued (' . strtoupper($validated['target_language']) . ')',
+            'status'     => 'running',
+            'started_at' => now(),
+        ]);
+
+        $job = DubbingJob::create([
+            'id'                => $jobId,
+            'user_id'           => $user->id,
+            'activity_log_id'   => $log->id,
+            'voice_profile_id'  => $profileId,
+            'engine'            => $validated['engine'] ?? null,
+            'source_language'   => $validated['source_language'] ?? null,
+            'target_language'   => $validated['target_language'],
+            'original_filename' => $sourceClip->original_filename,
+            'status'            => 'queued',
+            'progress'          => 0,
+            'source_video_path' => $jobStoredPath,
+        ]);
+
+        PrepareDubbingJob::dispatch($job->id);
+
+        $dubbedClip = VideoProjectClip::create([
+            'id'                => (string) Str::uuid(),
+            'video_project_id'  => $project->id,
+            'kind'              => 'dubbed',
+            'parent_clip_id'    => $sourceClip->id,
+            'dubbing_job_id'    => $job->id,
+            'original_filename' => $sourceClip->original_filename,
+            'storage_path'      => null,
+            'duration_seconds'  => null,
+            'status'            => 'processing',
+        ]);
+
+        return response()->json([
+            'clip'   => $dubbedClip,
+            'job_id' => $job->id,
+            'status' => 'queued',
+        ]);
+    }
+
+    /**
+     * Refreshes every 'processing' dubbed-variant clip on this project
+     * against its linked DubbingJob. Called from show() rather than run
+     * as a queued callback — keeps FinalizeDubbingJob completely
+     * unmodified, at the cost of only updating on next fetch (acceptable:
+     * the review-timeline UI the user is actually watching already polls
+     * the DubbingJob directly for live progress).
+     */
+    private function syncDubbedClipStatuses(VideoProject $project): void
+    {
+        foreach ($project->clips as $clip) {
+            if ($clip->kind !== 'dubbed' || $clip->status !== 'processing') {
+                continue;
+            }
+
+            $job = $clip->dubbingJob;
+            if (! $job) {
+                continue;
+            }
+
+            if ($job->status === 'done' && $job->result_video_path) {
+                $clip->update([
+                    'storage_path'     => $job->result_video_path,
+                    'duration_seconds' => $job->duration_seconds,
+                    'status'           => 'ready',
+                ]);
+            } elseif ($job->status === 'failed') {
+                $clip->update(['status' => 'failed']);
+            }
+            // Any other job status (queued/transcribing/translating/
+            // ready_for_review/synthesizing/muxing) — still in flight,
+            // clip stays 'processing'. 'ready_for_review' in particular
+            // means the job is waiting on the user in the review
+            // timeline, not stuck; nothing to sync yet either way.
+        }
     }
 
     /**
