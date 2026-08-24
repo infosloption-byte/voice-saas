@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { api, ApiError } from '../lib/api'
 import { toast } from '../lib/toast'
-import { icons, LANGUAGES } from '../lib/constants'
+import { icons, LANGUAGES, CLIP_COLORS, CLIP_LIGHTS } from '../lib/constants'
 import { fmt } from '../lib/audio'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { useTTSEngine } from '../hooks/useTTSEngine'
@@ -50,14 +50,24 @@ interface JobRow {
   job_id: string
   status: 'queued' | 'transcribing' | 'translating' | 'ready_for_review' | 'synthesizing' | 'muxing' | 'done' | 'failed'
   target_language: string
+  source_language?: string | null
 }
 
 function clipLabel(clip: VideoProjectClip): string {
   return clip.originalFilename ?? (clip.kind === 'dubbed' ? 'Dubbed clip' : 'Clip')
 }
 
-// ── Media bin row ────────────────────────────────────────────────────
-function BinRow({
+// Stable, cheap string→color-index hash so a clip's placeholder thumbnail
+// tile keeps the same color across renders (no real frame thumbnails
+// exist yet — see docs/ENHANCEMENT_TASKS.md task #6a Phase 5 notes).
+function hashIdx(id: string, mod: number): number {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
+  return h % mod
+}
+
+// ── Media bin card (file-browser grid tile) ─────────────────────────
+function BinCard({
   clip, job, isPreviewing, onPreview, onDub, onDelete, onAddToTimeline, onOpenReview, deleting,
 }: {
   clip: VideoProjectClip
@@ -76,49 +86,44 @@ function BinRow({
     clip.status === 'processing' ? { text: 'Dubbing…', cls: 'tag--accent' } :
     null
 
+  const colorIdx = hashIdx(clip.id, CLIP_COLORS.length)
+  const sub = clip.kind === 'dubbed' && job?.target_language
+    ? `→ ${job.target_language.toUpperCase()}`
+    : fmtDur(clip.durationSeconds)
+
   return (
     <div
+      className={`vs-bincard${isPreviewing ? ' vs-bincard--active' : ''}`}
       onClick={clip.status === 'ready' ? onPreview : undefined}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8,
-        background: isPreviewing ? 'var(--accent-lt)' : 'transparent',
-        border: isPreviewing ? '1px solid var(--accent)' : '1px solid transparent',
-        cursor: clip.status === 'ready' ? 'pointer' : 'default',
-      }}
+      style={{ cursor: clip.status === 'ready' ? 'pointer' : 'default' }}
     >
-      <span style={{ display: 'flex', width: 15, height: 15, color: 'var(--text-3)', flexShrink: 0 }}>
-        {clip.kind === 'dubbed' ? icons.globe : icons.video}
-      </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {clipLabel(clip)}
-        </div>
-        <div style={{ fontSize: 10.5, color: 'var(--text-3)', display: 'flex', gap: 6, alignItems: 'center' }}>
-          <span>{fmtDur(clip.durationSeconds)}</span>
-          {badge && <span className={`tag ${badge.cls}`} style={{ fontSize: 9, padding: '1px 5px' }}>{badge.text}</span>}
+      <div className="vs-bincard__thumb" style={{ background: CLIP_LIGHTS[colorIdx] }}>
+        <span style={{ display: 'flex', width: 22, height: 22, color: CLIP_COLORS[colorIdx] }}>
+          {clip.kind === 'dubbed' ? icons.globe : icons.video}
+        </span>
+        <span className="vs-bincard__kind">{clip.kind === 'dubbed' ? 'DUB' : 'SRC'}</span>
+        <span className="vs-bincard__dur">{fmtDur(clip.durationSeconds)}</span>
+        {badge && <span className={`tag ${badge.cls} vs-bincard__badge`}>{badge.text}</span>}
+        <div className="vs-bincard__actions" onClick={e => e.stopPropagation()}>
+          {job?.status === 'ready_for_review' && (
+            <button className="btn btn--ghost btn--sm" title="Open review timeline" onClick={onOpenReview}>{icons.edit}</button>
+          )}
+          {clip.status === 'ready' && (
+            <button className="btn btn--ghost btn--sm" title="Add to timeline" onClick={onAddToTimeline}>{icons.plus}</button>
+          )}
+          {clip.kind === 'source' && clip.status === 'ready' && (
+            <button className="btn btn--ghost btn--sm" title="Dub this clip" onClick={onDub}>{icons.globe}</button>
+          )}
+          {clip.status !== 'processing' && (
+            <button className="btn btn--ghost btn--sm" title="Delete" onClick={onDelete} disabled={deleting}>
+              {deleting ? <span className="spinner" style={{ width: 12, height: 12 }} /> : icons.trash}
+            </button>
+          )}
         </div>
       </div>
-      <div style={{ display: 'flex', gap: 2, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-        {job?.status === 'ready_for_review' && (
-          <button className="btn btn--ghost btn--sm" title="Open review timeline" onClick={onOpenReview}>
-            {icons.edit}
-          </button>
-        )}
-        {clip.status === 'ready' && (
-          <button className="btn btn--ghost btn--sm" title="Add to timeline" onClick={onAddToTimeline}>
-            {icons.plus}
-          </button>
-        )}
-        {clip.kind === 'source' && clip.status === 'ready' && (
-          <button className="btn btn--ghost btn--sm" title="Dub this clip" onClick={onDub}>
-            {icons.globe}
-          </button>
-        )}
-        {clip.status !== 'processing' && (
-          <button className="btn btn--ghost btn--sm" title="Delete" onClick={onDelete} disabled={deleting}>
-            {deleting ? <span className="spinner" style={{ width: 12, height: 12 }} /> : icons.trash}
-          </button>
-        )}
+      <div className="vs-bincard__meta">
+        <div className="vs-bincard__name" title={clipLabel(clip)}>{clipLabel(clip)}</div>
+        <div className="vs-bincard__sub">{sub}</div>
       </div>
     </div>
   )
@@ -201,54 +206,161 @@ function DubDialog({
   )
 }
 
-// ── Timeline row ─────────────────────────────────────────────────────
-function TimelineRow({
-  entry, clip, index, total, onMoveUp, onMoveDown, onRemove, onTrimChange, onSelect, isSelected,
+// ── Timeline ruler ───────────────────────────────────────────────────
+// A plain seconds ruler (TC row in the reference screenshot). Tick
+// spacing coarsens as zoom shrinks so labels never overlap.
+function TimelineRuler({ totalDuration, zoom }: { totalDuration: number; zoom: number }) {
+  const step = zoom >= 80 ? 2 : zoom >= 40 ? 5 : zoom >= 20 ? 10 : 30
+  const last = Math.max(step, Math.ceil((totalDuration + step) / step) * step)
+  const ticks: number[] = []
+  for (let t = 0; t <= last; t += step) ticks.push(t)
+  return (
+    <div style={{ position: 'relative', height: 20, borderBottom: '1px solid var(--border)' }}>
+      {ticks.map(t => (
+        <div key={t} style={{ position: 'absolute', left: t * zoom, top: 0, height: '100%', display: 'flex', alignItems: 'center' }}>
+          <div style={{ width: 1, height: 6, background: 'var(--border-2)', marginRight: 3 }} />
+          <span style={{ fontSize: 9.5, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>{fmt(t)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Timeline composition track ──────────────────────────────────────
+// video_projects.timeline_json is one ordered sequence, not literal
+// parallel ORIG/DUB/VIDEO lanes — see VideoProjectController's docblock
+// (task #6a Phase 3 notes) on why a simultaneous 3-track visual is a
+// separate, bigger lift. This renders that single sequence as
+// proportionally-positioned, color-coded blocks along a shared ruler
+// instead, which is the closest honest match to the actual data shape.
+function CompositionTrack({
+  timeline, clipsById, zoom, selectedIdx, onSelect,
+}: {
+  timeline: TimelineEntry[]
+  clipsById: Map<string, VideoProjectClip>
+  zoom: number
+  selectedIdx: number | null
+  onSelect: (idx: number) => void
+}) {
+  const offsets: number[] = []
+  timeline.reduce((acc, e) => {
+    offsets.push(acc)
+    return acc + Math.max(0, e.trimOut - e.trimIn)
+  }, 0)
+
+  return (
+    <div style={{ position: 'relative', height: 54 }}>
+      {timeline.map((entry, idx) => {
+        const dur = Math.max(0, entry.trimOut - entry.trimIn)
+        const left = offsets[idx] * zoom
+        const width = Math.max(dur * zoom, 28)
+        const clip = clipsById.get(entry.clipId)
+        const isSel = idx === selectedIdx
+        const isDub = entry.variant === 'dubbed'
+        return (
+          <div
+            key={idx}
+            onClick={e => { e.stopPropagation(); onSelect(idx) }}
+            title={clip ? clipLabel(clip) : 'Clip removed from bin'}
+            style={{
+              position: 'absolute', left, width, top: 5, bottom: 5,
+              borderRadius: 7, overflow: 'hidden', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', padding: '0 8px', zIndex: isSel ? 5 : 1,
+              background: isDub ? 'rgba(61,181,100,0.14)' : 'rgba(201,100,66,0.14)',
+              border: `1.5px solid ${isSel ? 'var(--accent)' : isDub ? 'rgba(61,181,100,0.55)' : 'rgba(201,100,66,0.55)'}`,
+              boxShadow: isSel ? '0 0 0 2px var(--accent-mid)' : 'none',
+            }}
+          >
+            <span style={{
+              fontSize: 11, fontWeight: 600, color: 'var(--text-1)',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            }}>
+              {clip ? clipLabel(clip) : 'Removed clip'}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Selected-clip inspector panel (stands in for the reference's
+// "SEGMENT" side panel — one project timeline entry rather than one
+// dubbing sub-segment; per-line translated text still lives one level
+// down, in the review timeline this links out to). ────────────────────
+function ClipInspector({
+  entry, index, total, clip, job, onTrimChange, onMove, onRemove, onOpenReview, onClose,
 }: {
   entry: TimelineEntry
-  clip: VideoProjectClip | undefined
   index: number
   total: number
-  onMoveUp: () => void
-  onMoveDown: () => void
-  onRemove: () => void
+  clip: VideoProjectClip | undefined
+  job: JobRow | undefined
   onTrimChange: (trimIn: number, trimOut: number) => void
-  onSelect: () => void
-  isSelected: boolean
+  onMove: (dir: -1 | 1) => void
+  onRemove: () => void
+  onOpenReview: () => void
+  onClose: () => void
 }) {
   const maxDur = clip?.durationSeconds ?? Math.max(entry.trimOut, 1)
   return (
-    <div
-      onClick={onSelect}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8,
-        background: isSelected ? 'var(--accent-lt)' : 'var(--surface-2)',
-        border: `1px solid ${isSelected ? 'var(--accent)' : 'var(--border-2)'}`, cursor: 'pointer',
-      }}
-    >
-      <span className={`tag ${entry.variant === 'dubbed' ? 'tag--accent' : ''}`} style={{ fontSize: 9, padding: '1px 5px', flexShrink: 0 }}>
-        {entry.variant === 'dubbed' ? 'DUB' : 'ORIG'}
-      </span>
-      <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {clip ? clipLabel(clip) : 'Clip removed from bin'}
+    <div className="vs-inspector">
+      <div className="vs-inspector__head">
+        <span className="vs-inspector__title">
+          Clip {index + 1} · {fmt(Math.floor(entry.trimIn))}–{fmt(Math.floor(entry.trimOut))}
+        </span>
+        <span className={`tag ${entry.variant === 'dubbed' ? 'tag--accent' : ''}`}>
+          {entry.variant === 'dubbed' ? 'DUB' : 'ORIG'}
+        </span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-        <input
-          type="number" min={0} max={maxDur} step={0.1} value={entry.trimIn}
-          onChange={e => onTrimChange(Math.max(0, Number(e.target.value)), entry.trimOut)}
-          style={{ width: 52, fontSize: 11, padding: '3px 5px', borderRadius: 5, border: '1px solid var(--border-2)', background: 'var(--bg-2)', color: 'var(--text-1)' }}
-        />
-        <span style={{ fontSize: 10, color: 'var(--text-3)' }}>→</span>
-        <input
-          type="number" min={0} max={maxDur} step={0.1} value={entry.trimOut}
-          onChange={e => onTrimChange(entry.trimIn, Math.min(maxDur, Number(e.target.value)))}
-          style={{ width: 52, fontSize: 11, padding: '3px 5px', borderRadius: 5, border: '1px solid var(--border-2)', background: 'var(--bg-2)', color: 'var(--text-1)' }}
-        />
+
+      <div className="vs-inspector__row">
+        <div className="vs-inspector__label">Source clip</div>
+        <div style={{ fontSize: 12.5, fontStyle: 'italic', color: 'var(--text-2)' }}>
+          {clip ? clipLabel(clip) : 'Clip removed from bin'}
+        </div>
       </div>
-      <div style={{ display: 'flex', gap: 2, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-        <button className="btn btn--ghost btn--sm" disabled={index === 0} onClick={onMoveUp} title="Move earlier">↑</button>
-        <button className="btn btn--ghost btn--sm" disabled={index === total - 1} onClick={onMoveDown} title="Move later">↓</button>
-        <button className="btn btn--ghost btn--sm" onClick={onRemove} title="Remove from timeline">{icons.close}</button>
+
+      {job && (
+        <div className="vs-inspector__row">
+          <div className="vs-inspector__label">Language</div>
+          <span className="tag tag--accent">
+            {(job.source_language ?? 'auto').toUpperCase()} → {job.target_language.toUpperCase()}
+          </span>
+        </div>
+      )}
+
+      <div className="vs-inspector__row">
+        <div className="vs-inspector__label">Trim</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="number" min={0} max={maxDur} step={0.1} value={entry.trimIn}
+            onChange={e => onTrimChange(Math.max(0, Number(e.target.value)), entry.trimOut)}
+            className="full-input" style={{ width: 72, padding: '6px 8px', fontSize: 12 }}
+          />
+          <span style={{ color: 'var(--text-3)', fontSize: 12 }}>→</span>
+          <input
+            type="number" min={0} max={maxDur} step={0.1} value={entry.trimOut}
+            onChange={e => onTrimChange(entry.trimIn, Math.min(maxDur, Number(e.target.value)))}
+            className="full-input" style={{ width: 72, padding: '6px 8px', fontSize: 12 }}
+          />
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn btn--ghost btn--sm" disabled={index === 0} onClick={() => onMove(-1)} style={{ flex: 1, justifyContent: 'center' }}>↑ Earlier</button>
+        <button className="btn btn--ghost btn--sm" disabled={index === total - 1} onClick={() => onMove(1)} style={{ flex: 1, justifyContent: 'center' }}>↓ Later</button>
+      </div>
+
+      {job?.status === 'ready_for_review' && (
+        <button className="btn btn--ghost" onClick={onOpenReview} style={{ justifyContent: 'center', gap: 7 }}>
+          <span style={{ display: 'flex', width: 14, height: 14 }}>{icons.edit}</span> Open review timeline
+        </button>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
+        <button className="btn btn--danger btn--sm" onClick={onRemove} style={{ flex: 1, justifyContent: 'center' }}>Remove from timeline</button>
+        <button className="btn btn--ghost btn--sm" onClick={onClose}>Done</button>
       </div>
     </div>
   )
@@ -287,11 +399,68 @@ function StudioView({
   const [jobs, setJobs] = useState<JobRow[]>([])
   const [rendering, setRendering] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
 
-  const sourceClips = useMemo(() => project.clips.filter(c => c.kind === 'source'), [project.clips])
-  const dubbedClips = useMemo(() => project.clips.filter(c => c.kind === 'dubbed'), [project.clips])
+  // ── File-browser (bin) filter + search ─────────────────────────────
+  const [binFilter, setBinFilter] = useState<'all' | 'source' | 'dubbed'>('all')
+  const [binQuery, setBinQuery] = useState('')
+
+  // ── Composition-track zoom (px/sec) ─────────────────────────────────
+  const [zoom, setZoom] = useState(40)
+
+  // ── Custom transport bar (native controls hidden, like the reference
+  // studio's own play/stop/mute row) ──────────────────────────────────
+  const videoElRef = useRef<HTMLVideoElement>(null)
+  const [playing, setPlaying] = useState(false)
+  const [curTime, setCurTime] = useState(0)
+  const [curDuration, setCurDuration] = useState(0)
+  const [muted, setMuted] = useState(false)
+
+  useEffect(() => {
+    const v = videoElRef.current
+    if (!v) return
+    const onTime = () => setCurTime(v.currentTime)
+    const onPlay = () => setPlaying(true)
+    const onPause = () => setPlaying(false)
+    const onDur = () => setCurDuration(v.duration || 0)
+    v.addEventListener('timeupdate', onTime)
+    v.addEventListener('play', onPlay)
+    v.addEventListener('pause', onPause)
+    v.addEventListener('loadedmetadata', onDur)
+    v.addEventListener('durationchange', onDur)
+    return () => {
+      v.removeEventListener('timeupdate', onTime)
+      v.removeEventListener('play', onPlay)
+      v.removeEventListener('pause', onPause)
+      v.removeEventListener('loadedmetadata', onDur)
+      v.removeEventListener('durationchange', onDur)
+    }
+  }, [previewUrl])
+
   const clipsById = useMemo(() => new Map(project.clips.map(c => [c.id, c])), [project.clips])
   const jobsById = useMemo(() => new Map(jobs.map(j => [j.job_id, j])), [jobs])
+
+  const binClips = useMemo(() => {
+    const q = binQuery.trim().toLowerCase()
+    return project.clips.filter(c => {
+      if (binFilter !== 'all' && c.kind !== binFilter) return false
+      if (q && !clipLabel(c).toLowerCase().includes(q)) return false
+      return true
+    })
+  }, [project.clips, binFilter, binQuery])
+
+  // ── Currently-previewed clip, its dubbing job (for the language
+  // badge), and its "paired" clip (source ↔ its dubbed variant, or vice
+  // versa) so the transport bar can offer an Original/Dubbed toggle. ──
+  const previewClip = previewClipId ? clipsById.get(previewClipId) ?? null : null
+  const previewJob = previewClip?.dubbingJobId ? jobsById.get(previewClip.dubbingJobId) : undefined
+  const pairedClip = useMemo(() => {
+    if (!previewClip) return null
+    if (previewClip.kind === 'dubbed') {
+      return previewClip.parentClipId ? clipsById.get(previewClip.parentClipId) ?? null : null
+    }
+    return project.clips.find(c => c.kind === 'dubbed' && c.parentClipId === previewClip.id && c.status === 'ready') ?? null
+  }, [previewClip, clipsById, project.clips])
 
   const hasProcessing = project.clips.some(c => c.kind === 'dubbed' && c.status === 'processing')
   const isRendering = project.status === 'rendering'
@@ -416,6 +585,17 @@ function StudioView({
     }
   }
 
+  async function handleDeleteProject() {
+    try {
+      await vp.deleteProject(project.id)
+      toast.ok('Deleted.')
+      onBack()
+    } catch {
+      toast.err('Could not delete this project.')
+      setDeleteConfirm(false)
+    }
+  }
+
   // ── Delete clip ─────────────────────────────────────────────────
   async function deleteClip(clip: VideoProjectClip) {
     setDeletingClipId(clip.id)
@@ -488,19 +668,31 @@ function StudioView({
     )
   }
 
+  const selectedEntry = selectedEntryIdx != null ? timeline[selectedEntryIdx] : undefined
+
   return (
-    <div style={{ maxWidth: 1180, margin: '0 auto', padding: '24px 20px 60px' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
-        <button className="btn btn--ghost btn--sm" onClick={onBack}>{icons.back}</button>
+    <div className="vs-studio">
+      {/* Breadcrumb header */}
+      <div className="vs-topbar">
+        <button className="vs-crumb" onClick={onBack}>
+          <span style={{ display: 'flex', width: 13, height: 13 }}>{icons.back}</span> Video Studio
+        </button>
+        <span className="vs-crumb__sep">/</span>
         <input
           value={name}
           onChange={e => setName(e.target.value)}
           onBlur={commitRename}
           onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-          style={{ fontSize: 18, fontWeight: 700, border: 'none', background: 'transparent', color: 'var(--text-1)', flex: 1, minWidth: 160 }}
+          className="vs-title-input"
         />
-        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{fmtDur(totalDuration)} on timeline</span>
+
+        <div style={{ flex: 1 }} />
+
+        {previewJob && (
+          <span className="tag" title="Language of the clip currently previewing">
+            {(previewJob.source_language ?? 'auto').toUpperCase()} → {previewJob.target_language.toUpperCase()}
+          </span>
+        )}
 
         {project.status === 'rendering' && (
           <span className="tag tag--accent" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -512,123 +704,196 @@ function StudioView({
         )}
         {project.status === 'done' && (
           <button className="btn btn--ghost btn--sm" onClick={handleDownload} disabled={downloading} title="Download rendered video">
-            {downloading ? <span className="spinner" style={{ width: 12, height: 12 }} /> : icons.download} Download
+            {downloading ? <span className="spinner" style={{ width: 12, height: 12 }} /> : icons.download}
           </button>
         )}
+
         <button
           className="btn btn--primary btn--sm"
           onClick={handleRender}
           disabled={rendering || isRendering || timeline.length === 0}
-          title={timeline.length === 0 ? 'Add clips to the timeline first' : 'Render this timeline into one video'}
+          title={timeline.length === 0 ? 'Add clips to the timeline first' : project.status === 'done' ? 'Re-export this timeline' : 'Export this timeline into one video'}
         >
           {(rendering || isRendering) ? <span className="spinner" style={{ marginRight: 6 }} /> : null}
-          {isRendering ? 'Rendering…' : project.status === 'done' ? 'Re-render' : 'Render'}
+          {isRendering ? 'Exporting…' : 'Export'}
         </button>
+
+        {deleteConfirm ? (
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn btn--danger btn--sm" onClick={handleDeleteProject}>Confirm</button>
+            <button className="btn btn--ghost btn--sm" onClick={() => setDeleteConfirm(false)}>Cancel</button>
+          </div>
+        ) : (
+          <button className="btn btn--ghost btn--sm" title="Delete project" onClick={() => setDeleteConfirm(true)}>{icons.trash}</button>
+        )}
       </div>
 
-      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
-        {/* Media bin */}
-        <div style={{ width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-3)' }}>
-                Original clips
-              </span>
-              <button className="btn btn--ghost btn--sm" onClick={() => fileInputRef.current?.click()} disabled={uploading} title="Add a clip">
-                {uploading ? <span className="spinner" style={{ width: 12, height: 12 }} /> : icons.upload}
-              </button>
-              <input ref={fileInputRef} type="file" accept="video/mp4,video/quicktime,video/x-matroska,video/webm" style={{ display: 'none' }}
-                onChange={e => pickAndUpload(e.target.files?.[0] ?? null)} />
-            </div>
-            {sourceClips.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '6px 2px' }}>No clips yet — add one to get started.</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {sourceClips.map(clip => (
-                  <BinRow
-                    key={clip.id}
-                    clip={clip}
-                    job={clip.dubbingJobId ? jobsById.get(clip.dubbingJobId) : undefined}
-                    isPreviewing={previewClipId === clip.id}
-                    onPreview={() => loadPreview(project.id, clip.id)}
-                    onDub={() => setDubTarget(clip)}
-                    onDelete={() => deleteClip(clip)}
-                    onAddToTimeline={() => addToTimeline(clip)}
-                    onOpenReview={() => clip.dubbingJobId && setReviewJobId(clip.dubbingJobId)}
-                    deleting={deletingClipId === clip.id}
-                  />
-                ))}
-              </div>
-            )}
+      <div className="vs-body">
+        {/* Media bin — file-browser sidebar */}
+        <div className="vs-bin">
+          <div className="vs-bin__head">
+            <span className="vs-bin__title">My files</span>
+            <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{fmtDur(totalDuration)} on timeline</span>
           </div>
 
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-3)', marginBottom: 8 }}>
-              Dubbed variants
-            </div>
-            {dubbedClips.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '6px 2px' }}>Dub a clip above to see variants here.</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {dubbedClips.map(clip => (
-                  <BinRow
-                    key={clip.id}
-                    clip={clip}
-                    job={clip.dubbingJobId ? jobsById.get(clip.dubbingJobId) : undefined}
-                    isPreviewing={previewClipId === clip.id}
-                    onPreview={() => loadPreview(project.id, clip.id)}
-                    onDub={() => {}}
-                    onDelete={() => deleteClip(clip)}
-                    onAddToTimeline={() => addToTimeline(clip)}
-                    onOpenReview={() => clip.dubbingJobId && setReviewJobId(clip.dubbingJobId)}
-                    deleting={deletingClipId === clip.id}
-                  />
-                ))}
-              </div>
-            )}
+          <button className="btn btn--primary vs-bin__add" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+            {uploading ? <span className="spinner" style={{ width: 13, height: 13 }} /> : <span style={{ display: 'flex', width: 14, height: 14 }}>{icons.plus}</span>}
+            Add files
+          </button>
+          <input ref={fileInputRef} type="file" accept="video/mp4,video/quicktime,video/x-matroska,video/webm" style={{ display: 'none' }}
+            onChange={e => pickAndUpload(e.target.files?.[0] ?? null)} />
+
+          <div className="vs-bin__tabs">
+            {(['all', 'source', 'dubbed'] as const).map(f => (
+              <button key={f} className={`vs-bin__tab${binFilter === f ? ' vs-bin__tab--active' : ''}`} onClick={() => setBinFilter(f)}>
+                {f === 'all' ? 'All' : f === 'source' ? 'Originals' : 'Dubbed'}
+              </button>
+            ))}
           </div>
+
+          <div className="vs-bin__search">
+            <span style={{ display: 'flex', width: 13, height: 13, color: 'var(--text-3)' }}>{icons.search}</span>
+            <input value={binQuery} onChange={e => setBinQuery(e.target.value)} placeholder="Search clips" />
+          </div>
+
+          {project.clips.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '10px 2px' }}>No clips yet — add one to get started.</div>
+          ) : binClips.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '10px 2px' }}>No clips match this filter.</div>
+          ) : (
+            <div className="vs-bin__grid">
+              {binClips.map(clip => (
+                <BinCard
+                  key={clip.id}
+                  clip={clip}
+                  job={clip.dubbingJobId ? jobsById.get(clip.dubbingJobId) : undefined}
+                  isPreviewing={previewClipId === clip.id}
+                  onPreview={() => loadPreview(project.id, clip.id)}
+                  onDub={() => setDubTarget(clip)}
+                  onDelete={() => deleteClip(clip)}
+                  onAddToTimeline={() => addToTimeline(clip)}
+                  onOpenReview={() => clip.dubbingJobId && setReviewJobId(clip.dubbingJobId)}
+                  deleting={deletingClipId === clip.id}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Preview + timeline */}
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ background: '#000', borderRadius: 10, overflow: 'hidden', minHeight: 240, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="vs-main">
+          <div className="vs-preview">
             {previewLoading ? (
               <span className="spinner" />
             ) : previewUrl ? (
-              <video key={previewClipId} src={previewUrl} controls style={{ display: 'block', width: '100%', maxHeight: 420, objectFit: 'contain' }} />
+              <>
+                <video
+                  ref={videoElRef}
+                  key={previewClipId}
+                  src={previewUrl}
+                  muted={muted}
+                  style={{ display: 'block', width: '100%', maxHeight: 420, objectFit: 'contain' }}
+                  onClick={() => playing ? videoElRef.current?.pause() : videoElRef.current?.play()}
+                />
+                <div className="vs-preview__tc">{fmt(Math.floor(curTime))} · {previewClip?.kind === 'dubbed' ? 'DUB' : 'SRC'}</div>
+                {previewClip && <div className="vs-preview__caption">{clipLabel(previewClip)}</div>}
+              </>
             ) : (
               <span style={{ fontSize: 12.5, color: 'var(--text-3)' }}>Select a clip from the bin to preview it</span>
             )}
           </div>
 
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-3)', marginBottom: 8 }}>
-              Video timeline
+          {previewUrl && (
+            <div className="vs-transport">
+              <button className="vs-transport__btn" title="Restart" onClick={() => { if (videoElRef.current) videoElRef.current.currentTime = 0 }}>
+                {icons.rewind}
+              </button>
+              <button className="vs-transport__btn" title={playing ? 'Pause' : 'Play'} onClick={() => playing ? videoElRef.current?.pause() : videoElRef.current?.play()}>
+                {playing ? icons.pause : icons.play}
+              </button>
+              <button className="vs-transport__btn" title="Stop" onClick={() => { const v = videoElRef.current; if (v) { v.pause(); v.currentTime = 0 } }}>
+                {icons.stop}
+              </button>
+              <button className="vs-transport__btn" title={muted ? 'Unmute' : 'Mute'} onClick={() => setMuted(m => !m)}>
+                {icons.volume}
+              </button>
+
+              {pairedClip && (
+                <div className="vs-transport__toggle">
+                  <button
+                    className={`vs-transport__toggle-btn${previewClip?.kind === 'source' ? ' vs-transport__toggle-btn--active' : ''}`}
+                    onClick={() => previewClip?.kind !== 'source' && loadPreview(project.id, pairedClip.kind === 'source' ? pairedClip.id : previewClip!.id)}
+                  >
+                    Original
+                  </button>
+                  <button
+                    className={`vs-transport__toggle-btn${previewClip?.kind === 'dubbed' ? ' vs-transport__toggle-btn--active' : ''}`}
+                    onClick={() => previewClip?.kind !== 'dubbed' && loadPreview(project.id, pairedClip.kind === 'dubbed' ? pairedClip.id : previewClip!.id)}
+                  >
+                    Dubbed
+                  </button>
+                </div>
+              )}
+
+              <span style={{ fontSize: 11.5, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>
+                {fmt(Math.floor(curTime))} / {fmt(Math.floor(curDuration))}
+              </span>
+
+              <div style={{ flex: 1 }} />
+
+              {previewClip?.kind === 'source' && previewClip.status === 'ready' && (
+                <button className="btn btn--ghost btn--sm" onClick={() => setDubTarget(previewClip)}>
+                  <span style={{ display: 'flex', width: 13, height: 13 }}>{icons.globe}</span> New dub
+                </button>
+              )}
+
+              <span style={{ display: 'flex', width: 13, height: 13, color: 'var(--text-3)' }}>{icons.zoomOut}</span>
+              <input type="range" min={10} max={100} step={5} value={zoom} onChange={e => setZoom(Number(e.target.value))} style={{ width: 80 }} />
+              <span style={{ display: 'flex', width: 13, height: 13, color: 'var(--text-3)' }}>{icons.zoomIn}</span>
             </div>
+          )}
+
+          <div>
+            <div className="vs-section-label">Video timeline</div>
             {timeline.length === 0 ? (
-              <div style={{
-                border: '1.5px dashed var(--border-2)', borderRadius: 10, padding: '28px 16px',
-                textAlign: 'center', fontSize: 12.5, color: 'var(--text-3)',
-              }}>
+              <div className="vs-timeline-empty">
                 Nothing on the timeline yet — use the + on a bin clip to add it here.
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {timeline.map((entry, idx) => (
-                  <TimelineRow
-                    key={idx}
-                    entry={entry}
-                    clip={clipsById.get(entry.clipId)}
-                    index={idx}
+              <div className="vs-timeline-body">
+                <div className="vs-timeline-scroll" onClick={() => setSelectedEntryIdx(null)}>
+                  <div style={{ position: 'relative', width: Math.max(totalDuration * zoom + 40, 200) }}>
+                    <TimelineRuler totalDuration={totalDuration} zoom={zoom} />
+                    <CompositionTrack
+                      timeline={timeline}
+                      clipsById={clipsById}
+                      zoom={zoom}
+                      selectedIdx={selectedEntryIdx}
+                      onSelect={idx => { setSelectedEntryIdx(idx); loadPreview(project.id, timeline[idx].clipId) }}
+                    />
+                  </div>
+                </div>
+
+                {selectedEntry && (
+                  <ClipInspector
+                    entry={selectedEntry}
+                    index={selectedEntryIdx!}
                     total={timeline.length}
-                    isSelected={selectedEntryIdx === idx}
-                    onSelect={() => { setSelectedEntryIdx(idx); loadPreview(project.id, entry.clipId) }}
-                    onMoveUp={() => moveEntry(idx, -1)}
-                    onMoveDown={() => moveEntry(idx, 1)}
-                    onRemove={() => removeEntry(idx)}
-                    onTrimChange={(trimIn, trimOut) => trimEntry(idx, trimIn, trimOut)}
+                    clip={clipsById.get(selectedEntry.clipId)}
+                    job={(() => {
+                      const c = clipsById.get(selectedEntry.clipId)
+                      return c?.dubbingJobId ? jobsById.get(c.dubbingJobId) : undefined
+                    })()}
+                    onTrimChange={(trimIn, trimOut) => trimEntry(selectedEntryIdx!, trimIn, trimOut)}
+                    onMove={dir => moveEntry(selectedEntryIdx!, dir)}
+                    onRemove={() => removeEntry(selectedEntryIdx!)}
+                    onOpenReview={() => {
+                      const c = clipsById.get(selectedEntry.clipId)
+                      if (c?.dubbingJobId) setReviewJobId(c.dubbingJobId)
+                    }}
+                    onClose={() => setSelectedEntryIdx(null)}
                   />
-                ))}
+                )}
               </div>
             )}
           </div>

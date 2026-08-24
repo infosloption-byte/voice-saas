@@ -133,4 +133,5 @@ export const icons = {
   newScript:    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 3H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8l-4-5z" /><path d="M12 3v5h5M8 12h4M10 10v4" /></svg>,
   star:         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M10 2l2.4 5H18l-4.5 3.3 1.7 5.2L10 12.5l-5.2 3 1.7-5.2L2 7h5.6z" /></svg>,
   externalLink: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M11 3h6v6M9 11L17 3M8 5H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-4" /></svg>,
+  search:       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="8.5" cy="8.5" r="5.5" /><line x1="17" y1="17" x2="13" y2="13" /></svg>,
 }

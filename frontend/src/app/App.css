@@ -3164,3 +3164,155 @@
   .auth-panel { padding: 24px 14px !important; }
   .auth-card { padding: 22px 16px !important; }
 }
+/* ── Video Studio (task #6a Phase 5 — studio UI overhaul) ──────────── */
+.vs-studio { max-width: 1240px; margin: 0 auto; padding: 22px 20px 60px; }
+
+.vs-topbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.vs-crumb {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none; border: none; cursor: pointer;
+  font-size: 13.5px; font-weight: 600; color: var(--text-3);
+  padding: 4px 2px;
+}
+.vs-crumb:hover { color: var(--text-1); }
+.vs-crumb__sep { color: var(--text-3); font-size: 13px; }
+.vs-title-input {
+  font-size: 17px; font-weight: 700; border: none; background: transparent;
+  color: var(--text-1); min-width: 140px; padding: 4px 6px; border-radius: 6px;
+}
+.vs-title-input:focus { outline: none; background: var(--bg-3); }
+
+.vs-body { display: flex; gap: 20px; align-items: flex-start; }
+
+/* Bin sidebar (file browser) */
+.vs-bin {
+  width: 292px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 14px;
+}
+.vs-bin__head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.vs-bin__title { font-size: 13.5px; font-weight: 700; }
+.vs-bin__add { width: 100%; justify-content: center; gap: 7px; padding: 9px 12px; }
+.vs-bin__tabs {
+  display: flex; gap: 3px; background: var(--bg-3); border-radius: 8px; padding: 3px;
+}
+.vs-bin__tab {
+  flex: 1; border: none; background: none; cursor: pointer; padding: 5px 6px;
+  border-radius: 6px; font-size: 11.5px; font-weight: 600; color: var(--text-3);
+}
+.vs-bin__tab--active { background: var(--surface); color: var(--text-1); box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+.vs-bin__search {
+  display: flex; align-items: center; gap: 7px; padding: 6px 9px;
+  border: 1px solid var(--border-2); border-radius: 8px; background: var(--bg-2);
+}
+.vs-bin__search input {
+  border: none; background: none; outline: none; font-size: 12.5px; color: var(--text-1);
+  width: 100%; font-family: var(--font);
+}
+.vs-bin__grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  max-height: 560px; overflow-y: auto; padding-top: 2px;
+}
+
+.vs-bincard {
+  border-radius: 10px; overflow: hidden; border: 1.5px solid transparent;
+  background: var(--surface); transition: border-color 0.12s ease;
+}
+.vs-bincard:hover { border-color: var(--border-2); }
+.vs-bincard--active { border-color: var(--accent); }
+.vs-bincard__thumb {
+  position: relative; aspect-ratio: 4 / 3; display: flex; align-items: center; justify-content: center;
+}
+.vs-bincard__kind {
+  position: absolute; top: 5px; left: 5px; font-size: 8.5px; font-weight: 700; letter-spacing: 0.4px;
+  background: rgba(0,0,0,0.55); color: #fff; padding: 1px 5px; border-radius: 4px;
+}
+.vs-bincard__dur {
+  position: absolute; bottom: 5px; right: 5px; font-size: 9px; font-weight: 600; font-family: var(--mono);
+  background: rgba(0,0,0,0.55); color: #fff; padding: 1px 5px; border-radius: 4px;
+}
+.vs-bincard__badge { position: absolute; top: 5px; right: 5px; font-size: 8px !important; padding: 1px 5px !important; }
+.vs-bincard__actions {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 2px;
+  background: rgba(20,16,12,0.45); opacity: 0; transition: opacity 0.12s ease;
+}
+.vs-bincard:hover .vs-bincard__actions,
+.vs-bincard--active .vs-bincard__actions { opacity: 1; }
+.vs-bincard__actions .btn { background: rgba(255,255,255,0.92); }
+.vs-bincard__meta { padding: 7px 8px 8px; }
+.vs-bincard__name {
+  font-size: 11.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vs-bincard__sub { font-size: 10px; color: var(--text-3); margin-top: 1px; }
+
+/* Main column */
+.vs-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+
+.vs-preview {
+  position: relative; background: #000; border-radius: var(--radius-lg); overflow: hidden;
+  min-height: 240px; display: flex; align-items: center; justify-content: center;
+}
+.vs-preview__tc {
+  position: absolute; top: 10px; left: 10px; font-size: 11px; font-family: var(--mono); font-weight: 600;
+  color: #fff; background: rgba(0,0,0,0.55); padding: 3px 8px; border-radius: 6px; letter-spacing: 0.3px;
+}
+.vs-preview__caption {
+  position: absolute; bottom: 0; left: 0; right: 0; text-align: center;
+  color: #fff; font-size: 13.5px; font-weight: 600; padding: 10px 14px;
+  background: linear-gradient(to top, rgba(0,0,0,0.65), transparent);
+}
+
+.vs-transport {
+  display: flex; align-items: center; gap: 6px; padding: 8px 12px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
+  flex-wrap: wrap;
+}
+.vs-transport__btn {
+  display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+  border-radius: 7px; border: none; background: none; cursor: pointer; color: var(--text-2);
+}
+.vs-transport__btn svg { width: 14px; height: 14px; }
+.vs-transport__btn:hover { background: var(--bg-3); color: var(--text-1); }
+.vs-transport__toggle {
+  display: flex; gap: 2px; background: var(--bg-3); border-radius: 7px; padding: 2px; margin: 0 4px;
+}
+.vs-transport__toggle-btn {
+  border: none; background: none; cursor: pointer; padding: 4px 10px; border-radius: 5px;
+  font-size: 11.5px; font-weight: 600; color: var(--text-3);
+}
+.vs-transport__toggle-btn--active { background: var(--surface); color: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+
+.vs-section-label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--text-3); margin-bottom: 8px;
+}
+.vs-timeline-empty {
+  border: 1.5px dashed var(--border-2); border-radius: var(--radius); padding: 28px 16px;
+  text-align: center; font-size: 12.5px; color: var(--text-3);
+}
+.vs-timeline-body { display: flex; gap: 14px; align-items: flex-start; }
+.vs-timeline-scroll {
+  flex: 1; min-width: 0; overflow-x: auto; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--bg-2); padding: 2px 0;
+}
+
+.vs-inspector {
+  width: 260px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px;
+}
+.vs-inspector__head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.vs-inspector__title { font-size: 11px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.4px; }
+.vs-inspector__row { display: flex; flex-direction: column; gap: 3px; }
+.vs-inspector__label { font-size: 10.5px; color: var(--text-3); }
+
+@media (max-width: 860px) {
+  .vs-body { flex-direction: column; }
+  .vs-bin { width: 100%; }
+  .vs-bin__grid { max-height: 320px; }
+  .vs-timeline-body { flex-direction: column; }
+  .vs-inspector { width: 100%; }
+}
