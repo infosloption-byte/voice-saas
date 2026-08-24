@@ -29,6 +29,7 @@ import { WorkspacePage } from '../pages/WorkspacePage'
 import { AssemblyPage } from '../pages/AssemblyPage'
 import { DubbingPage } from '../pages/DubbingPage'
 import { VideoStudioPage } from '../pages/VideoStudioPage'
+import { DubbingStudioPage } from '../pages/DubbingStudioPage'
 import type { Page, WorkspaceTab, VoiceProfile, EngineStatus, EngineCaps } from '../lib/types'
 
 // ── Cookie consent ────────────────────────────────────────────────
@@ -638,6 +639,9 @@ export default function App() {
     // above: "Dub this clip" rides the same DubbingJob quota/ownership
     // path, so a guest-local parallel implementation doesn't make sense here either.
     ...(guestMode ? [] : [{ key: 'video-studio' as Page, label: 'Video Studio', icon: icons.layers }]),
+    // Dubbing Studio — new CapCut-style dubbing editor UI, built from
+    // scratch alongside (not replacing) DubbingPage/VideoStudioPage above.
+    ...(guestMode ? [] : [{ key: 'dubbing-studio' as Page, label: 'Dubbing Studio', icon: icons.template }]),
   ]
 
   // ── Engine pill label ─────────────────────────────────────────────
@@ -856,6 +860,7 @@ export default function App() {
                 : page === 'profiles'  ? 'Voice Profiles'
                 : page === 'dubbing'   ? 'Video Dubbing'
                 : page === 'video-studio' ? 'Video Studio'
+                : page === 'dubbing-studio' ? 'Dubbing Studio'
                 : page === 'settings'  ? 'Settings'
                 : ''}
             </span>
@@ -1089,6 +1094,22 @@ export default function App() {
               </div>
             ) : (
               <VideoStudioPage voiceProfiles={voiceProfiles} engineCaps={engineCaps} />
+            )
+          )}
+
+          {page === 'dubbing-studio' && (
+            guestMode ? (
+              // Same defensive fallback as the 'dubbing' / 'video-studio'
+              // blocks above, same reason.
+              <div style={{ maxWidth: 480, margin: '60px auto', textAlign: 'center' }}>
+                <h2>Dubbing Studio needs an account</h2>
+                <p style={{ color: 'var(--text-3)', fontSize: 13.5, marginBottom: 16 }}>
+                  Sign up to use the full dubbing editor.
+                </p>
+                <button className="btn btn--primary" onClick={() => setPage('signup')}>Sign up</button>
+              </div>
+            ) : (
+              <DubbingStudioPage onExit={() => setPage('dashboard')} />
             )
           )}
 
