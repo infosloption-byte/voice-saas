@@ -68,7 +68,7 @@ function hashIdx(id: string, mod: number): number {
 
 // ── Media bin card (file-browser grid tile) ─────────────────────────
 function BinCard({
-  clip, job, isPreviewing, onPreview, onDub, onDelete, onAddToTimeline, onOpenReview, deleting,
+  clip, job, isPreviewing, onPreview, onDub, onDelete, onAddToTimeline, onOpenReview, deleting, onDragStart,
 }: {
   clip: VideoProjectClip
   job: JobRow | undefined
@@ -79,6 +79,7 @@ function BinCard({
   onAddToTimeline: () => void
   onOpenReview: () => void
   deleting: boolean
+  onDragStart?: (e: React.DragEvent) => void
 }) {
   const badge =
     clip.status === 'failed' ? { text: 'Failed', cls: 'tag--warn' } :
@@ -91,11 +92,15 @@ function BinCard({
     ? `→ ${job.target_language.toUpperCase()}`
     : fmtDur(clip.durationSeconds)
 
+  const draggable = clip.status === 'ready'
+
   return (
     <div
       className={`vs-bincard${isPreviewing ? ' vs-bincard--active' : ''}`}
       onClick={clip.status === 'ready' ? onPreview : undefined}
       style={{ cursor: clip.status === 'ready' ? 'pointer' : 'default' }}
+      draggable={draggable}
+      onDragStart={draggable ? onDragStart : undefined}
     >
       <div className="vs-bincard__thumb" style={{ background: CLIP_LIGHTS[colorIdx] }}>
         <span style={{ display: 'flex', width: 22, height: 22, color: CLIP_COLORS[colorIdx] }}>
@@ -207,21 +212,134 @@ function DubDialog({
 }
 
 // ── Timeline ruler ───────────────────────────────────────────────────
-// A plain seconds ruler (TC row in the reference screenshot). Tick
-// spacing coarsens as zoom shrinks so labels never overlap.
-function TimelineRuler({ totalDuration, zoom }: { totalDuration: number; zoom: number }) {
+// A plain seconds ruler (TC row in the reference screenshot), with a
+// draggable playhead handle (the orange triangle marker + red line in
+// the reference). The playhead here is a scrub/reference position for
+// editing, not tied to actual multi-clip playback — the project's
+// timeline_json entries preview individually (see loadPreview); there's
+// no rendered composite to play until Export finishes. See CompositionTrack's
+// docblock for why a literal 3-track visual isn't what this builds.
+function TimelineRuler({
+  totalDuration, zoom, scrubPos, onScrub,
+}: {
+  totalDuration: number
+  zoom: number
+  scrubPos: number
+  onScrub: (sec: number) => void
+}) {
   const step = zoom >= 80 ? 2 : zoom >= 40 ? 5 : zoom >= 20 ? 10 : 30
   const last = Math.max(step, Math.ceil((totalDuration + step) / step) * step)
   const ticks: number[] = []
   for (let t = 0; t <= last; t += step) ticks.push(t)
+
+  function xToSec(clientX: number, rulerEl: HTMLElement): number {
+    const rect = rulerEl.getBoundingClientRect()
+    return Math.max(0, (clientX - rect.left) / zoom)
+  }
+
+  function onRulerMouseDown(e: React.MouseEvent) {
+    if ((e.target as HTMLElement).closest('[data-playhead]')) return
+    const el = e.currentTarget as HTMLElement
+    onScrub(xToSec(e.clientX, el))
+    const onMove = (ev: MouseEvent) => onScrub(xToSec(ev.clientX, el))
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  function onHandleMouseDown(e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    const rulerEl = (e.currentTarget as HTMLElement).closest('.vs-track-ruler') as HTMLElement
+    if (!rulerEl) return
+    const onMove = (ev: MouseEvent) => onScrub(xToSec(ev.clientX, rulerEl))
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
   return (
-    <div style={{ position: 'relative', height: 20, borderBottom: '1px solid var(--border)' }}>
+    <div className="vs-track-ruler" style={{ position: 'relative', height: 20, borderBottom: '1px solid var(--border)', cursor: 'pointer' }} onMouseDown={onRulerMouseDown}>
       {ticks.map(t => (
-        <div key={t} style={{ position: 'absolute', left: t * zoom, top: 0, height: '100%', display: 'flex', alignItems: 'center' }}>
+        <div key={t} style={{ position: 'absolute', left: t * zoom, top: 0, height: '100%', display: 'flex', alignItems: 'center', pointerEvents: 'none' }}>
           <div style={{ width: 1, height: 6, background: 'var(--border-2)', marginRight: 3 }} />
           <span style={{ fontSize: 9.5, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>{fmt(t)}</span>
         </div>
       ))}
+      <div data-playhead="true" style={{ position: 'absolute', left: scrubPos * zoom, top: 0, bottom: 0, width: 2, background: 'var(--accent)', zIndex: 20 }}>
+        <div
+          data-playhead="true"
+          onMouseDown={onHandleMouseDown}
+          title="Drag to scrub"
+          style={{
+            position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 14, height: 18,
+            background: 'var(--accent)', borderRadius: '3px 3px 2px 2px', cursor: 'ew-resize',
+            display: 'flex', alignItems: 'flex-end', justifyContent: 'center', paddingBottom: 2,
+            boxShadow: '0 2px 6px rgba(201,100,66,0.4)',
+          }}
+        >
+          <svg width="6" height="5" viewBox="0 0 6 5"><polygon points="0,0 6,0 3,5" fill="rgba(255,255,255,0.7)" /></svg>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Mini overview strip ─────────────────────────────────────────────
+// A zoomed-out proportional view of the whole composition (the top
+// strip in the reference screenshot), so scrubbing/orienting doesn't
+// require scrolling a zoomed-in track. Click/drag anywhere to jump the
+// playhead; a thin outline shows the portion currently visible in the
+// zoomed-in track below.
+function TimelineOverview({
+  timeline, clipsById, totalDuration, scrubPos, onScrub, viewportStart, viewportRatio,
+}: {
+  timeline: TimelineEntry[]
+  clipsById: Map<string, VideoProjectClip>
+  totalDuration: number
+  scrubPos: number
+  onScrub: (sec: number) => void
+  viewportStart: number
+  viewportRatio: number
+}) {
+  const safeDur = Math.max(totalDuration, 0.001)
+  const offsets: number[] = []
+  timeline.reduce((acc, e) => { offsets.push(acc); return acc + Math.max(0, e.trimOut - e.trimIn) }, 0)
+
+  function pctToSec(clientX: number, el: HTMLElement): number {
+    const rect = el.getBoundingClientRect()
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    return ratio * safeDur
+  }
+  function onMouseDown(e: React.MouseEvent) {
+    const el = e.currentTarget as HTMLElement
+    onScrub(pctToSec(e.clientX, el))
+    const onMove = (ev: MouseEvent) => onScrub(pctToSec(ev.clientX, el))
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  return (
+    <div className="vs-overview" onMouseDown={onMouseDown}>
+      {timeline.map((entry, idx) => {
+        const dur = Math.max(0, entry.trimOut - entry.trimIn)
+        const clip = clipsById.get(entry.clipId)
+        const isDub = entry.variant === 'dubbed'
+        return (
+          <div
+            key={idx}
+            title={clip ? clipLabel(clip) : 'Clip removed from bin'}
+            style={{
+              position: 'absolute', left: `${(offsets[idx] / safeDur) * 100}%`, width: `${Math.max(0.3, (dur / safeDur) * 100)}%`,
+              top: 3, bottom: 3, borderRadius: 2,
+              background: isDub ? 'rgba(61,181,100,0.55)' : 'rgba(201,100,66,0.55)',
+            }}
+          />
+        )
+      })}
+      <div className="vs-overview__viewport" style={{ left: `${viewportStart * 100}%`, width: `${viewportRatio * 100}%` }} />
+      <div className="vs-overview__playhead" style={{ left: `${(scrubPos / safeDur) * 100}%` }} />
     </div>
   )
 }
@@ -233,6 +351,17 @@ function TimelineRuler({ totalDuration, zoom }: { totalDuration: number; zoom: n
 // separate, bigger lift. This renders that single sequence as
 // proportionally-positioned, color-coded blocks along a shared ruler
 // instead, which is the closest honest match to the actual data shape.
+// Fake-but-stable waveform bars for a clip block, in the absence of real
+// decoded peak data for video clips (mirrors AssemblyPage's placeholder
+// approach for scripts without waveformPeaks — see hashIdx above).
+function fakeBars(seed: string, count: number): number[] {
+  const out: number[] = []
+  for (let j = 0; j < count; j++) {
+    out.push(0.2 + Math.abs(Math.sin((seed.charCodeAt(j % seed.length) || 65) * 17 + j * 0.7)) * 0.6)
+  }
+  return out
+}
+
 function CompositionTrack({
   timeline, clipsById, zoom, selectedIdx, onSelect,
 }: {
@@ -249,34 +378,50 @@ function CompositionTrack({
   }, 0)
 
   return (
-    <div style={{ position: 'relative', height: 54 }}>
+    <div style={{ position: 'relative', height: 62 }}>
       {timeline.map((entry, idx) => {
         const dur = Math.max(0, entry.trimOut - entry.trimIn)
         const left = offsets[idx] * zoom
-        const width = Math.max(dur * zoom, 28)
+        const width = Math.max(dur * zoom, 36)
         const clip = clipsById.get(entry.clipId)
         const isSel = idx === selectedIdx
         const isDub = entry.variant === 'dubbed'
+        const col = isDub ? '#3db564' : '#c96442'
+        const lt = isDub ? 'rgba(61,181,100,0.14)' : 'rgba(201,100,66,0.14)'
+        const bars = Math.max(Math.floor((width - 14) / 6), 3)
+        const peaks = fakeBars(entry.clipId, bars)
         return (
           <div
             key={idx}
             onClick={e => { e.stopPropagation(); onSelect(idx) }}
             title={clip ? clipLabel(clip) : 'Clip removed from bin'}
             style={{
-              position: 'absolute', left, width, top: 5, bottom: 5,
-              borderRadius: 7, overflow: 'hidden', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', padding: '0 8px', zIndex: isSel ? 5 : 1,
-              background: isDub ? 'rgba(61,181,100,0.14)' : 'rgba(201,100,66,0.14)',
-              border: `1.5px solid ${isSel ? 'var(--accent)' : isDub ? 'rgba(61,181,100,0.55)' : 'rgba(201,100,66,0.55)'}`,
+              position: 'absolute', left, width, top: 4, bottom: 4,
+              borderRadius: 7, overflow: 'hidden', cursor: 'pointer', zIndex: isSel ? 5 : 1,
+              background: lt,
+              border: `1.5px solid ${isSel ? 'var(--accent)' : col + '88'}`,
               boxShadow: isSel ? '0 0 0 2px var(--accent-mid)' : 'none',
             }}
           >
-            <span style={{
-              fontSize: 11, fontWeight: 600, color: 'var(--text-1)',
-              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            {/* Header chip — colored label bar, like the reference clip's title strip */}
+            <div style={{
+              height: 20, background: col + '22', borderBottom: `1px solid ${col}33`,
+              display: 'flex', alignItems: 'center', padding: '0 7px', gap: 4,
             }}>
-              {clip ? clipLabel(clip) : 'Removed clip'}
-            </span>
+              <span style={{
+                fontSize: 10.5, fontWeight: 600, color: col,
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1,
+              }}>
+                {clip ? clipLabel(clip) : 'Removed clip'}
+              </span>
+              <span style={{ fontSize: 9, color: col + 'aa', fontFamily: 'var(--mono)', flexShrink: 0 }}>{fmt(Math.floor(dur))}</span>
+            </div>
+            {/* Waveform-style bars */}
+            <div style={{ position: 'absolute', bottom: 5, left: 6, right: 6, display: 'flex', alignItems: 'flex-end', gap: 1.5, height: 26, overflow: 'hidden' }}>
+              {peaks.map((p, j) => (
+                <div key={j} style={{ width: 3, borderRadius: 2, flexShrink: 0, height: Math.max(2, Math.round(p * 22)) + 'px', background: col + '99' }} />
+              ))}
+            </div>
           </div>
         )
       })}
@@ -401,12 +546,20 @@ function StudioView({
   const [downloading, setDownloading] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
 
+  // ── Drag-and-drop: OS files → bin upload, bin card → timeline ──────
+  const [binDragOver, setBinDragOver] = useState(false)
+  const [timelineDragOver, setTimelineDragOver] = useState(false)
+  const CLIP_DND_TYPE = 'application/x-vs-clip-id'
+
   // ── File-browser (bin) filter + search ─────────────────────────────
   const [binFilter, setBinFilter] = useState<'all' | 'source' | 'dubbed'>('all')
   const [binQuery, setBinQuery] = useState('')
 
   // ── Composition-track zoom (px/sec) ─────────────────────────────────
   const [zoom, setZoom] = useState(40)
+  const [scrubPos, setScrubPos] = useState(0)
+  const timelineScrollRef = useRef<HTMLDivElement>(null)
+  const [viewport, setViewport] = useState({ start: 0, ratio: 1 })
 
   // ── Custom transport bar (native controls hidden, like the reference
   // studio's own play/stop/mute row) ──────────────────────────────────
@@ -526,19 +679,26 @@ function StudioView({
     else setName(project.name)
   }
 
-  // ── Upload ───────────────────────────────────────────────────────
-  async function pickAndUpload(file: File | null) {
-    if (!file) return
+  // ── Upload — accepts multiple files (picker or drag-drop), uploads
+  // sequentially so progress/errors stay attributable to one file at a
+  // time rather than firing every request in parallel against the
+  // 200MB/mimetype-checked addClip endpoint at once. ──────────────────
+  async function pickAndUpload(files: FileList | File[] | null) {
+    const list = files ? Array.from(files) : []
+    if (list.length === 0) return
     setUploading(true)
-    try {
-      await vp.uploadClip(project.id, file)
-      toast.ok('Clip added to the bin.')
-    } catch (e) {
-      toast.err(e instanceof ApiError ? e.message : 'Upload failed.')
-    } finally {
-      setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
+    let okCount = 0
+    for (const file of list) {
+      try {
+        await vp.uploadClip(project.id, file)
+        okCount++
+      } catch (e) {
+        toast.err(e instanceof ApiError ? `${file.name}: ${e.message}` : `${file.name}: upload failed.`)
+      }
     }
+    setUploading(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    if (okCount > 0) toast.ok(okCount === 1 ? 'Clip added to the bin.' : `${okCount} clips added to the bin.`)
   }
 
   // ── Dub ─────────────────────────────────────────────────────────
@@ -619,14 +779,17 @@ function StudioView({
     saveTimerRef.current = setTimeout(() => { vp.saveTimeline(project.id, next) }, 600)
   }
 
-  function addToTimeline(clip: VideoProjectClip) {
+  function addToTimeline(clip: VideoProjectClip, atIndex?: number) {
     const entry: TimelineEntry = {
       clipId: clip.id,
       trimIn: 0,
       trimOut: clip.durationSeconds ?? 0,
       variant: clip.kind,
     }
-    scheduleSave([...timeline, entry])
+    const next = [...timeline]
+    const insertAt = atIndex == null ? next.length : Math.max(0, Math.min(atIndex, next.length))
+    next.splice(insertAt, 0, entry)
+    scheduleSave(next)
   }
 
   function moveEntry(idx: number, dir: -1 | 1) {
@@ -649,6 +812,87 @@ function StudioView({
   }
 
   const totalDuration = timeline.reduce((sum, e) => sum + Math.max(0, e.trimOut - e.trimIn), 0)
+
+  // ── Overview viewport indicator — recompute the visible slice of the
+  // zoomed-in track (in ratio-of-total-duration terms) whenever the
+  // track scrolls or zoom/duration changes. ──────────────────────────
+  const updateViewport = useCallback(() => {
+    const el = timelineScrollRef.current
+    const totalPx = Math.max(totalDuration * zoom + 40, 200)
+    if (!el || totalPx <= 0) { setViewport({ start: 0, ratio: 1 }); return }
+    setViewport({
+      start: Math.max(0, Math.min(1, el.scrollLeft / totalPx)),
+      ratio: Math.max(0, Math.min(1, el.clientWidth / totalPx)),
+    })
+  }, [totalDuration, zoom])
+  useEffect(() => { updateViewport() }, [updateViewport, timeline.length])
+  const clampedScrubPos = Math.min(scrubPos, totalDuration)
+
+  // ── Drag-and-drop handlers ──────────────────────────────────────────
+  function handleBinDragOver(e: React.DragEvent) {
+    if (!e.dataTransfer.types.includes('Files')) return // ignore an internal clip-card drag re-entering the bin
+    e.preventDefault()
+    setBinDragOver(true)
+  }
+  function handleBinDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setBinDragOver(false)
+    if (e.dataTransfer.files?.length) pickAndUpload(e.dataTransfer.files)
+  }
+
+  // Nearest insertion index for a drop at a given x offset (px) within
+  // the composition track, using each entry's on-screen midpoint —
+  // matches how most timeline editors decide "before" vs "after".
+  function indexForDropX(offsetX: number): number {
+    const dropSec = Math.max(0, offsetX / zoom)
+    let cumulative = 0
+    for (let i = 0; i < timeline.length; i++) {
+      const dur = Math.max(0, timeline[i].trimOut - timeline[i].trimIn)
+      if (dropSec < cumulative + dur / 2) return i
+      cumulative += dur
+    }
+    return timeline.length
+  }
+
+  function handleTimelineDragOver(e: React.DragEvent) {
+    e.preventDefault()
+    setTimelineDragOver(true)
+  }
+  async function handleTimelineDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setTimelineDragOver(false)
+    const rect = e.currentTarget.getBoundingClientRect()
+    const offsetX = e.clientX - rect.left + (e.currentTarget as HTMLElement).scrollLeft
+    const insertAt = indexForDropX(offsetX)
+
+    const clipId = e.dataTransfer.getData(CLIP_DND_TYPE)
+    if (clipId) {
+      const clip = clipsById.get(clipId)
+      if (clip && clip.status === 'ready') addToTimeline(clip, insertAt)
+      return
+    }
+    if (e.dataTransfer.files?.length) {
+      const files = Array.from(e.dataTransfer.files)
+      setUploading(true)
+      let offset = 0
+      for (const file of files) {
+        try {
+          const clip = await vp.uploadClip(project.id, file)
+          if (clip) addToTimeline(clip, insertAt + offset++)
+        } catch (err) {
+          toast.err(err instanceof ApiError ? `${file.name}: ${err.message}` : `${file.name}: upload failed.`)
+        }
+      }
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      if (offset > 0) toast.ok(offset === 1 ? 'Clip added to the timeline.' : `${offset} clips added to the timeline.`)
+    }
+  }
+
+  function handleBinCardDragStart(e: React.DragEvent, clip: VideoProjectClip) {
+    e.dataTransfer.setData(CLIP_DND_TYPE, clip.id)
+    e.dataTransfer.effectAllowed = 'copy'
+  }
 
   // ── Review-timeline hand-off (Phase 2 → Phase 3 wiring) ────────────
   if (reviewJobId) {
@@ -730,7 +974,12 @@ function StudioView({
 
       <div className="vs-body">
         {/* Media bin — file-browser sidebar */}
-        <div className="vs-bin">
+        <div
+          className={`vs-bin${binDragOver ? ' vs-bin--dragover' : ''}`}
+          onDragOver={handleBinDragOver}
+          onDragLeave={() => setBinDragOver(false)}
+          onDrop={handleBinDrop}
+        >
           <div className="vs-bin__head">
             <span className="vs-bin__title">My files</span>
             <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{fmtDur(totalDuration)} on timeline</span>
@@ -740,8 +989,8 @@ function StudioView({
             {uploading ? <span className="spinner" style={{ width: 13, height: 13 }} /> : <span style={{ display: 'flex', width: 14, height: 14 }}>{icons.plus}</span>}
             Add files
           </button>
-          <input ref={fileInputRef} type="file" accept="video/mp4,video/quicktime,video/x-matroska,video/webm" style={{ display: 'none' }}
-            onChange={e => pickAndUpload(e.target.files?.[0] ?? null)} />
+          <input ref={fileInputRef} type="file" multiple accept="video/mp4,video/quicktime,video/x-matroska,video/webm" style={{ display: 'none' }}
+            onChange={e => pickAndUpload(e.target.files)} />
 
           <div className="vs-bin__tabs">
             {(['all', 'source', 'dubbed'] as const).map(f => (
@@ -757,7 +1006,10 @@ function StudioView({
           </div>
 
           {project.clips.length === 0 ? (
-            <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '10px 2px' }}>No clips yet — add one to get started.</div>
+            <div className="vs-bin__dropzone-hint">
+              <span style={{ display: 'flex', width: 20, height: 20, color: 'var(--text-3)' }}>{icons.plus}</span>
+              Drag video files here, or use Add files
+            </div>
           ) : binClips.length === 0 ? (
             <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '10px 2px' }}>No clips match this filter.</div>
           ) : (
@@ -774,10 +1026,12 @@ function StudioView({
                   onAddToTimeline={() => addToTimeline(clip)}
                   onOpenReview={() => clip.dubbingJobId && setReviewJobId(clip.dubbingJobId)}
                   deleting={deletingClipId === clip.id}
+                  onDragStart={e => handleBinCardDragStart(e, clip)}
                 />
               ))}
             </div>
           )}
+          {binDragOver && <div className="vs-bin__dropzone-overlay">Drop to add to bin</div>}
         </div>
 
         {/* Preview + timeline */}
@@ -856,21 +1110,51 @@ function StudioView({
           <div>
             <div className="vs-section-label">Video timeline</div>
             {timeline.length === 0 ? (
-              <div className="vs-timeline-empty">
-                Nothing on the timeline yet — use the + on a bin clip to add it here.
+              <div
+                className={`vs-timeline-empty${timelineDragOver ? ' vs-timeline-empty--dragover' : ''}`}
+                onDragOver={handleTimelineDragOver}
+                onDragLeave={() => setTimelineDragOver(false)}
+                onDrop={handleTimelineDrop}
+              >
+                Nothing on the timeline yet — drag a clip here from the bin, or use its + button.
               </div>
             ) : (
               <div className="vs-timeline-body">
-                <div className="vs-timeline-scroll" onClick={() => setSelectedEntryIdx(null)}>
-                  <div style={{ position: 'relative', width: Math.max(totalDuration * zoom + 40, 200) }}>
-                    <TimelineRuler totalDuration={totalDuration} zoom={zoom} />
-                    <CompositionTrack
-                      timeline={timeline}
-                      clipsById={clipsById}
-                      zoom={zoom}
-                      selectedIdx={selectedEntryIdx}
-                      onSelect={idx => { setSelectedEntryIdx(idx); loadPreview(project.id, timeline[idx].clipId) }}
-                    />
+                <div className="vs-track">
+                  <TimelineOverview
+                    timeline={timeline}
+                    clipsById={clipsById}
+                    totalDuration={totalDuration}
+                    scrubPos={clampedScrubPos}
+                    onScrub={setScrubPos}
+                    viewportStart={viewport.start}
+                    viewportRatio={viewport.ratio}
+                  />
+                  <div className="vs-track__label">
+                    <span>Track 1 · Timeline</span>
+                    <span className="vs-track__count">{timeline.length} clip{timeline.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div
+                    ref={timelineScrollRef}
+                    className={`vs-timeline-scroll${timelineDragOver ? ' vs-timeline-scroll--dragover' : ''}`}
+                    onClick={() => setSelectedEntryIdx(null)}
+                    onScroll={updateViewport}
+                    onDragOver={handleTimelineDragOver}
+                    onDragLeave={() => setTimelineDragOver(false)}
+                    onDrop={handleTimelineDrop}
+                  >
+                    <div style={{ position: 'relative', width: Math.max(totalDuration * zoom + 40, 200) }}>
+                      <TimelineRuler totalDuration={totalDuration} zoom={zoom} scrubPos={clampedScrubPos} onScrub={setScrubPos} />
+                      <CompositionTrack
+                        timeline={timeline}
+                        clipsById={clipsById}
+                        zoom={zoom}
+                        selectedIdx={selectedEntryIdx}
+                        onSelect={idx => { setSelectedEntryIdx(idx); loadPreview(project.id, timeline[idx].clipId) }}
+                      />
+                      {/* Playhead line continues down through the clip track */}
+                      <div style={{ position: 'absolute', left: clampedScrubPos * zoom, top: 20, bottom: 0, width: 2, background: 'var(--accent)', opacity: 0.55, pointerEvents: 'none', zIndex: 15 }} />
+                    </div>
                   </div>
                 </div>
 
