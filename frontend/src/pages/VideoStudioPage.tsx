@@ -569,24 +569,38 @@ function StudioView({
   const [curDuration, setCurDuration] = useState(0)
   const [muted, setMuted] = useState(false)
 
+  // A scrub can land on a clip that isn't currently loaded in the preview
+  // player — loadPreview() is async, so the seek has to wait until the
+  // new source's metadata is actually ready rather than being applied
+  // immediately against the old (or not-yet-loaded) video element.
+  const pendingSeekRef = useRef<number | null>(null)
+
   useEffect(() => {
     const v = videoElRef.current
     if (!v) return
     const onTime = () => setCurTime(v.currentTime)
     const onPlay = () => setPlaying(true)
     const onPause = () => setPlaying(false)
-    const onDur = () => setCurDuration(v.duration || 0)
+    const onLoadedMeta = () => {
+      setCurDuration(v.duration || 0)
+      if (pendingSeekRef.current != null) {
+        v.currentTime = pendingSeekRef.current
+        setCurTime(pendingSeekRef.current)
+        pendingSeekRef.current = null
+      }
+    }
+    const onDurChange = () => setCurDuration(v.duration || 0)
     v.addEventListener('timeupdate', onTime)
     v.addEventListener('play', onPlay)
     v.addEventListener('pause', onPause)
-    v.addEventListener('loadedmetadata', onDur)
-    v.addEventListener('durationchange', onDur)
+    v.addEventListener('loadedmetadata', onLoadedMeta)
+    v.addEventListener('durationchange', onDurChange)
     return () => {
       v.removeEventListener('timeupdate', onTime)
       v.removeEventListener('play', onPlay)
       v.removeEventListener('pause', onPause)
-      v.removeEventListener('loadedmetadata', onDur)
-      v.removeEventListener('durationchange', onDur)
+      v.removeEventListener('loadedmetadata', onLoadedMeta)
+      v.removeEventListener('durationchange', onDurChange)
     }
   }, [previewUrl])
 
@@ -812,6 +826,52 @@ function StudioView({
   }
 
   const totalDuration = timeline.reduce((sum, e) => sum + Math.max(0, e.trimOut - e.trimIn), 0)
+
+  // Cumulative start offset (in composed-timeline seconds) of each entry —
+  // shared by the composition track's block positions and by scrub-to-clip
+  // mapping below, so both agree on where each clip "lives" on the ruler.
+  const entryOffsets = useMemo(() => {
+    const offsets: number[] = []
+    timeline.reduce((acc, e) => { offsets.push(acc); return acc + Math.max(0, e.trimOut - e.trimIn) }, 0)
+    return offsets
+  }, [timeline])
+
+  function findEntryAtTime(sec: number): { idx: number; localTime: number } | null {
+    if (timeline.length === 0) return null
+    for (let i = 0; i < timeline.length; i++) {
+      const dur = Math.max(0, timeline[i].trimOut - timeline[i].trimIn)
+      const start = entryOffsets[i]
+      if (sec < start + dur || i === timeline.length - 1) {
+        const localTime = timeline[i].trimIn + Math.max(0, Math.min(dur, sec - start))
+        return { idx: i, localTime }
+      }
+    }
+    return null
+  }
+
+  // ── Scrub the playhead — jumps the actual preview player to whichever
+  // clip sits under the new position, seeking within it. If the target
+  // clip isn't the one currently loaded, this queues the seek and swaps
+  // the preview source; the loadedmetadata handler above applies it once
+  // the new source is ready. ──────────────────────────────────────────
+  function handleScrub(sec: number) {
+    setScrubPos(sec)
+    const hit = findEntryAtTime(sec)
+    if (!hit) return
+    const entry = timeline[hit.idx]
+    setSelectedEntryIdx(hit.idx)
+    if (previewClipId === entry.clipId) {
+      const v = videoElRef.current
+      if (v) {
+        if (playing) v.pause()
+        v.currentTime = hit.localTime
+        setCurTime(hit.localTime)
+      }
+    } else {
+      pendingSeekRef.current = hit.localTime
+      loadPreview(project.id, entry.clipId)
+    }
+  }
 
   // ── Overview viewport indicator — recompute the visible slice of the
   // zoomed-in track (in ratio-of-total-duration terms) whenever the
@@ -1126,7 +1186,7 @@ function StudioView({
                     clipsById={clipsById}
                     totalDuration={totalDuration}
                     scrubPos={clampedScrubPos}
-                    onScrub={setScrubPos}
+                    onScrub={handleScrub}
                     viewportStart={viewport.start}
                     viewportRatio={viewport.ratio}
                   />
@@ -1144,13 +1204,13 @@ function StudioView({
                     onDrop={handleTimelineDrop}
                   >
                     <div style={{ position: 'relative', width: Math.max(totalDuration * zoom + 40, 200) }}>
-                      <TimelineRuler totalDuration={totalDuration} zoom={zoom} scrubPos={clampedScrubPos} onScrub={setScrubPos} />
+                      <TimelineRuler totalDuration={totalDuration} zoom={zoom} scrubPos={clampedScrubPos} onScrub={handleScrub} />
                       <CompositionTrack
                         timeline={timeline}
                         clipsById={clipsById}
                         zoom={zoom}
                         selectedIdx={selectedEntryIdx}
-                        onSelect={idx => { setSelectedEntryIdx(idx); loadPreview(project.id, timeline[idx].clipId) }}
+                        onSelect={idx => { setSelectedEntryIdx(idx); setScrubPos(entryOffsets[idx]); loadPreview(project.id, timeline[idx].clipId) }}
                       />
                       {/* Playhead line continues down through the clip track */}
                       <div style={{ position: 'absolute', left: clampedScrubPos * zoom, top: 20, bottom: 0, width: 2, background: 'var(--accent)', opacity: 0.55, pointerEvents: 'none', zIndex: 15 }} />
