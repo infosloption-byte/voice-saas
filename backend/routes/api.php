@@ -29,7 +29,6 @@ use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\SynthesisUsageController;
 use App\Http\Controllers\TranslationUsageController;
 use App\Http\Controllers\VideoDubbingController;
-use App\Http\Controllers\VideoProjectController;
 use App\Http\Controllers\VoiceProfileController;
 
 // ── Public auth routes ────────────────────────────────────────────────
@@ -63,18 +62,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Projects
     Route::apiResource('projects', ProjectController::class);
-
-    // Video Projects (task #6a, Video Studio — media bin / timeline
-    // editor). Parallel to Projects above; read/write/delete are cheap
-    // so they share the default auth:sanctum throttle — only the file
-    // upload endpoint below gets its own tighter group, same reasoning
-    // as /dubbing/submit.
-    Route::get(   'video-projects',        [VideoProjectController::class, 'index']);
-    Route::post(  'video-projects',        [VideoProjectController::class, 'store']);
-    Route::get(   'video-projects/{id}',   [VideoProjectController::class, 'show']);
-    Route::match(['put', 'patch'], 'video-projects/{id}', [VideoProjectController::class, 'update']);
-    Route::delete('video-projects/{id}',   [VideoProjectController::class, 'destroy']);
-    Route::delete('video-projects/{id}/clips/{clipId}', [VideoProjectController::class, 'destroyClip']);
 
     Route::post('scripts/{script}/audio', [ScriptController::class, 'saveAudio']);
     Route::get( 'scripts/{script}/audio', [ScriptController::class, 'serveAudio']);
@@ -180,38 +167,6 @@ Route::middleware(['auth:sanctum', 'throttle:10,1'])->group(function () {
 // than bulk-queue (5/min vs 10/min) since a video job is much heavier per
 // request; status/result/source/index use the same jobId format constraint
 // as the engine's own job endpoints to block path traversal.
-// Video Studio media-bin upload — same weight/throttle reasoning as
-// /dubbing/submit just below (real video file, real disk I/O).
-Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
-    Route::post('/video-projects/{id}/clips', [VideoProjectController::class, 'addClip']);
-});
-
-// Video Studio "Dub this clip" (task #6a Phase 2) — creates a DubbingJob
-// + copies a file + dispatches PrepareDubbingJob, same weight as
-// /dubbing/submit and /dubbing/{jobId}/retry just below, same throttle tier.
-Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
-    Route::post('/video-projects/{id}/clips/{clipId}/dub', [VideoProjectController::class, 'dubClip']);
-});
-
-// Video Studio clip file streaming (task #6a Phase 3) — media-bin preview
-// + timeline playback both hit this per clip, so it gets the same 60/min
-// read tier as /dubbing/source and /dubbing/result rather than the
-// action-tier groups above.
-Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
-    Route::get('/video-projects/{id}/clips/{clipId}/file', [VideoProjectController::class, 'clipFile']);
-    // Rendered project output (task #6a Phase 4) — same read tier as
-    // clipFile() just above; polled while a render is in flight, then
-    // fetched once to download, so it's a read endpoint, not an action.
-    Route::get('/video-projects/{id}/file', [VideoProjectController::class, 'outputFile']);
-});
-
-// Video Studio render/export (task #6a Phase 4) — kicks off
-// RenderVideoProjectJob, same action-tier throttle as dubClip()/addClip()
-// just above (a heavy queued job, not a cheap read).
-Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
-    Route::post('/video-projects/{id}/render', [VideoProjectController::class, 'render']);
-});
-
 Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
     Route::post('/dubbing/submit', [VideoDubbingController::class, 'submit']);
     Route::post('/dubbing/{jobId}/retry', [VideoDubbingController::class, 'retry'])

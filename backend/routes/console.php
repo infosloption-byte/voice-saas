@@ -14,6 +14,16 @@ Schedule::command('audio:prune', ['--days' => (int) env('AUDIO_PRUNE_DAYS', 90)]
     ->withoutOverlapping()
     ->runInBackground();
 
+// Delete source/result video files for finished dubbing jobs not updated in
+// 90 days (configurable via VIDEO_PRUNE_DAYS). Video is pruned separately
+// from — and later in the hour than — audio since these are much larger
+// files on a separate disk; staggering avoids both prune jobs doing heavy
+// disk I/O in the same minute on a single-box deploy.
+Schedule::command('video:prune', ['--days' => (int) env('VIDEO_PRUNE_DAYS', 90)])
+    ->dailyAt('01:30')
+    ->withoutOverlapping()
+    ->runInBackground();
+
 // Check that a database backup exists from the last 25 hours.
 Schedule::command('backup:check')
     ->daily()

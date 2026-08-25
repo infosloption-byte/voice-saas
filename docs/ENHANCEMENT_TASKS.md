@@ -414,6 +414,26 @@ Picked this up by reading every backend/frontend file involved end to end (not j
 - No touch/pointer fallback for drag-and-drop reorder — native HTML5 DnD doesn't work on touch devices; reordering is desktop-only for now. Worth revisiting with a pointer-events-based implementation (or a small library) if mobile card management turns out to matter.
 - Reorder is local to one browser — a `localStorage`-persisted order doesn't follow the user across devices, same limitation as the earlier "Favorite" marker.
 
+**Follow-up (Aug 25, 2026) — storage lifecycle for dubbed videos + video_projects backend cleanup:**
+
+Picked up the two gaps this doc had explicitly flagged and left open: task #6's "no prune/expiry job yet" note, and 6b's "video_projects backend cleanup is explicitly out of scope for this pass" note.
+
+1. **Storage lifecycle for dubbed videos:**
+   - New `video:prune {--days=90}` artisan command (`app/Console/Commands/PruneVideo.php`), mirroring `audio:prune`'s shape but adapted for two real differences: only *terminal* jobs (`done`/`failed`) are eligible — a `ready_for_review` job is mid-workflow waiting on the user, not idle storage, so pruning its source video would break an in-progress review/finalize rather than just clear stale disk usage; and unlike `PruneAudio`, this does **not** null the DB path columns after deleting — every existing read path (`VideoDubbingController::result()`/`source()`'s 410 "missing or has expired", `thumbnails()`/`thumbnailSprite()`, `index()`'s `has_source`/`has_result`) already calls `Storage::disk('video')->exists($path)` before trusting a path, so a stale-but-present path on an intact row already surfaces as a clean "expired" state with zero schema change needed.
+   - Deletes the source video, the result video, and the cached thumbnail sprite (same key pattern as `VideoDubbingController::thumbnailSpritePath()`) for each eligible job.
+   - `routes/console.php` — scheduled `video:prune` daily at 01:30 (staggered 90 minutes after `audio:prune`'s midnight run so two large-file disk-I/O jobs don't land in the same minute on a single-box deploy), configurable via a new `VIDEO_PRUNE_DAYS` env var (defaults to 90, same as audio).
+   - `.env.example` — documented `VIDEO_PRUNE_DAYS` next to the existing `VIDEO_DISK`/`VIDEO_BUCKET` block.
+   - **Not done:** no PHP linter available in this sandbox — verified via manual brace/paren balance checks only, same caveat every backend change in this doc has carried since task #4. Run `php artisan video:prune --days=0` against a dev DB with a couple of finished dubbing jobs to confirm it actually deletes the right files before trusting it in production.
+
+2. **`video_projects` backend cleanup (task 6a, retired by 6b):** removed everything 6b's note flagged as left in place —
+   - Deleted `database/migrations/2026_08_23_100001_create_video_projects_table.php` and `..._100002_create_video_project_clips_table.php` outright (not down-migrated) — 6a's own retirement note already confirmed "the migration was never run," so there's no live table to drop safely; the files were schema-as-code that never touched a real database.
+   - Deleted `app/Models/VideoProject.php`, `app/Models/VideoProjectClip.php`, `app/Http/Controllers/VideoProjectController.php`, `app/Jobs/RenderVideoProjectJob.php`.
+   - `app/Models/User.php` — removed the now-dangling `videoProjects()` relation.
+   - `routes/api.php` — removed all `video-projects*` route registrations (the `projects`-group CRUD block, the `addClip`/`dubClip`/`clipFile`/`outputFile`/`render` blocks) and the now-unused `VideoProjectController` import. The `/dubbing/*` routes just below (task #6, still live) were untouched.
+   - Full-repo grep for `VideoProject`/`video-projects`/`video_projects`/`RenderVideoProjectJob` across `backend/` (PHP), plus config/env/YAML files, came back clean after the change.
+   - **Deliberately left alone:** `dubbing_segments` table + `DubbingSegment` model — a *different* orphan (from the original Tier 1 pass, predates the review-timeline rebuild), already flagged separately in task #6's "Not yet done" notes above. Conflating the two would have been scope creep on this specific "video_projects" cleanup ask.
+   - **Not done:** frontend still has a dead `frontend/src/hooks/useVideoProjects.ts` (and a few now-unreachable `fetchVideoProject*`/`*VideoProject*` helpers in `frontend/src/lib/api.ts`) left over from the same retirement — task 6b's note only scoped the *backend* cleanup, so the frontend hook wasn't touched here either. Worth a quick follow-up pass, but calling it out explicitly rather than silently expanding this task's scope.
+
 ---
 
 
