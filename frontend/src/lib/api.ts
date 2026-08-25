@@ -27,7 +27,6 @@ const LARAVEL_PATHS = [
   '/email', '/subscription', '/guest-limits',
   '/plan-limits', '/admin', '/synthesis', '/translation',
   '/engine', '/activity-logs', '/notifications', '/dubbing',
-  '/video-projects',
 ]
 
 function isLaravelPath(path: string): boolean {
@@ -388,20 +387,6 @@ class ApiClient {
     return this.post(`/dubbing/${jobId}/segments/merge`, { first_id: firstId, second_id: secondId }) as Promise<{ message: string; segments: unknown[] }>
   }
 
-  // ── Video Studio (task #6a) ───────────────────────────────────────
-  /** Streams a media-bin clip's own video file (source or dubbed variant), as a Blob — Phase 3. */
-  async fetchVideoProjectClipFile(projectId: string, clipId: string): Promise<Blob> {
-    const result = await this.get(`/video-projects/${projectId}/clips/${clipId}/file`)
-    if (result instanceof Blob) return result
-    throw new ApiError('Expected video response from server', 502)
-  }
-
-  /** Streams a project's own rendered output, as a Blob — Phase 4. Only valid once status is 'done'. */
-  async fetchVideoProjectOutputFile(projectId: string): Promise<Blob> {
-    const result = await this.get(`/video-projects/${projectId}/file`)
-    if (result instanceof Blob) return result
-    throw new ApiError('Expected video response from server', 502)
-  }
 }
 
 export const api = new ApiClient()
