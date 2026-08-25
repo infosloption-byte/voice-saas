@@ -467,7 +467,7 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps }: { voiceProfiles
             {ClapperIcon}
           </button>
           <div className="ds-topbar__crumb">
-            <span className="ds-topbar__crumb-dim">Projects /</span>
+            <span className="ds-topbar__crumb-dim">Video Projects /</span>
             <span className="ds-topbar__crumb-name">{job ? (job.original_filename ?? 'Untitled') : 'No project'}</span>
           </div>
           {job && (

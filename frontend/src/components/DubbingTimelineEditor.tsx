@@ -322,7 +322,12 @@ export function DubbingTimelineEditor({
 
   const S = {
     wrap: { display: 'flex', flexDirection: 'column' as const, gap: 12 },
-    videoBox: { width: '100%', maxHeight: 380, background: '#000', borderRadius: 'var(--radius)', overflow: 'hidden', display: 'flex', justifyContent: 'center' },
+    // Video + segment-editor sit side by side; align-items: stretch (the flex
+    // default) makes segPanel's height automatically match videoBox's
+    // rendered height — no fixed pixel value needed on either side.
+    topRow: { display: 'flex', gap: 12, alignItems: 'stretch' as const, flexWrap: 'wrap' as const },
+    videoBox: { flex: '3 1 260px', minWidth: 260, maxHeight: 380, background: '#000', borderRadius: 'var(--radius)', overflow: 'hidden', display: 'flex', justifyContent: 'center' },
+    segPanel: { flex: '1 1 260px', minWidth: 260, border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 14, background: 'var(--surface)', display: 'flex', flexDirection: 'column' as const, overflowY: 'auto' as const },
     toolbar: { display: 'flex', alignItems: 'center', gap: 10, padding: '6px 2px' },
     tBtn: (extra: React.CSSProperties = {}) => ({
       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
@@ -343,8 +348,43 @@ export function DubbingTimelineEditor({
   return (
     <div style={S.wrap}>
       {videoUrl && (
-        <div style={S.videoBox}>
-          <video ref={videoRef} src={videoUrl} style={{ maxWidth: '100%', maxHeight: 380 }} />
+        <div style={S.topRow}>
+          <div style={S.videoBox}>
+            <video ref={videoRef} src={videoUrl} style={{ maxWidth: '100%', maxHeight: 380 }} />
+          </div>
+
+          {/* Segment editor — lives next to the video now (was previously
+              below the timeline), and its height always tracks the video
+              box's height via flexbox stretch (see S.topRow). */}
+          <div style={S.segPanel}>
+            {selected ? (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-3)' }}>
+                    Segment · {fmt(Math.floor(selected.start))}–{fmt(Math.floor(selected.end))} ({(selected.end - selected.start).toFixed(1)}s)
+                  </span>
+                </div>
+                {!editable && <span className="tag" style={{ fontSize: 10, alignSelf: 'flex-start', marginBottom: 8 }}>Read-only — job already finalized</span>}
+                {selected.original && (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginBottom: 3 }}>Original</div>
+                    <div style={{ fontSize: 12.5, color: 'var(--text-2)', fontStyle: 'italic' }}>{selected.original}</div>
+                  </div>
+                )}
+                <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginBottom: 3 }}>Translated ({targetLanguage.toUpperCase()})</div>
+                <textarea
+                  value={selected.text}
+                  onChange={e => updateSelectedText(e.target.value)}
+                  disabled={!editable}
+                  style={{ flex: 1, minHeight: 60, width: '100%', resize: 'vertical', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border-2)', background: 'var(--bg-2)', color: 'var(--text-1)', fontSize: 13, fontFamily: 'var(--font)' }}
+                />
+              </>
+            ) : (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: 'var(--text-3)', fontSize: 12.5, padding: '0 6px' }}>
+                Select a segment on the timeline below to view and edit its translated text.
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -470,32 +510,6 @@ export function DubbingTimelineEditor({
           <div style={{ position: 'absolute', left: playhead * zoom, top: 0, bottom: 0, width: 2, background: 'var(--accent)', pointerEvents: 'none', zIndex: 30 }} />
         </div>
       </div>
-
-      {/* Selected segment editor */}
-      {selected && (
-        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 14, background: 'var(--surface)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-3)' }}>
-              Segment · {fmt(Math.floor(selected.start))}–{fmt(Math.floor(selected.end))} ({(selected.end - selected.start).toFixed(1)}s)
-            </span>
-            {!editable && <span className="tag" style={{ fontSize: 10 }}>Read-only — job already finalized</span>}
-          </div>
-          {selected.original && (
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginBottom: 3 }}>Original</div>
-              <div style={{ fontSize: 12.5, color: 'var(--text-2)', fontStyle: 'italic' }}>{selected.original}</div>
-            </div>
-          )}
-          <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginBottom: 3 }}>Translated ({targetLanguage.toUpperCase()})</div>
-          <textarea
-            value={selected.text}
-            onChange={e => updateSelectedText(e.target.value)}
-            disabled={!editable}
-            rows={2}
-            style={{ width: '100%', resize: 'vertical', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border-2)', background: 'var(--bg-2)', color: 'var(--text-1)', fontSize: 13, fontFamily: 'var(--font)' }}
-          />
-        </div>
-      )}
 
       {/* Action bar */}
       {editable && (

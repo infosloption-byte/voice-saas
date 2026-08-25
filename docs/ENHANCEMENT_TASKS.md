@@ -23,6 +23,7 @@
 | 12 | Design-tool integrations | P3 | Not started |
 | 13 | Voice marketplace | P3 | Not started |
 | 14 | Native mobile app | P3 | Not started |
+| 15 | Video Studio — dubbing becomes one feature of a full multi-asset video editor (media bin w/ video+image+audio, real multi-lane timeline, extract-audio→transcribe→clone-resynthesize, render) | P1 | 🔧 Phase 0 (rename + UI polish) done Aug 26, 2026 · Phases 1-6 planned below, not started |
 
 ---
 
@@ -489,7 +490,71 @@ Picked up the two gaps this doc had explicitly flagged and left open: task #6's 
 
 ---
 
-## Suggested execution order (combining priority + difficulty)
+### 15. Video Studio — dubbing becomes one feature of a full multi-asset video editor
+
+- **What:** A real successor to the retired task #6a, planned properly this time before any code is written. Today's "Dubbing Studio" (task #6b) is a flat, un-scoped list of dubbing jobs — one video in, one dubbed video out, no grouping. This task turns it into **Video Studio**: a project owns a media bin of multiple assets (video, image, **and** audio — not just video), any video asset can be dubbed in place (reusing the existing, working dub pipeline), a new standalone capability lets a user extract audio from any video, transcribe it, and resynthesize it in a cloned voice to produce a new usable audio asset, and a real multi-lane timeline composes chosen assets (video/image/audio, positioned independently, not just a flat ordered sequence) into one render.
+- **Why now:** The person building this flagged three concrete problems with the current single-page Dubbing Studio (media library cards too large, the segment editor loading in the wrong place) — both fixed today, see Phase 0 below — and, more importantly, flagged that dubbing shouldn't be the *whole* product surface; it should be one operation inside a broader project-based video editor, matching how CapCut/Premiere-style tools actually work.
+- **Why this needs a real plan before coding (lesson from 6a):** task #6a attempted almost this same thing and was retired Aug 25, 2026 specifically because it was built five phases deep **without ever being live-tested and without the migration ever being run**, and — more fundamentally — its timeline was a flat ordered sequence with trim-in/out per entry, not real independently-positioned multi-lane tracks. Building the same shape again would hit the same ceiling. This plan is deliberately scoped so each phase either **reuses something already proven** (the dub pipeline, `DubbingPipelineHelpers`, `DubbingTimelineEditor`, Assembly's multi-lane `TimelineClip` model) or is called out explicitly as **genuinely new work** that needs its own careful build+test pass, rather than assuming everything is equally low-risk.
+
+**What already exists and gets reused, not rebuilt:**
+- `DubbingJob` model, `PrepareDubbingJob`/`FinalizeDubbingJob`, `VideoDubbingController`, and `DubbingTimelineEditor.tsx` (the segment review/split/merge/undo-redo/thumbnail-filmstrip editor) — untouched. Dubbing-as-a-bin-operation hands off into this exact component, same as 6a Phase 2 already designed (that specific piece of 6a's design was sound; only the surrounding project/timeline model was unfinished).
+- `App\Jobs\Concerns\DubbingPipelineHelpers` trait — `runFfmpeg` (with hang-timeout), `probeDuration`, `transcribeSegments`, `translateSegment`, `synthesizeSegment`, `spliceWavs`, `generateSilenceWav` are all reusable as-is for the new extract→transcribe→resynthesize feature (Phase 4) — none of that is new AI-engine work, just new orchestration around existing endpoints (`/transcribe/segments`, `/translate`, the synthesis engine proxy).
+- `EngineSwitcher.tsx` / `useTTSEngine` / `LANGUAGES` / voice-profile picker UI — reusable wherever the new UI needs an engine/voice/language selector (dub dialog, resynthesize dialog).
+- Assembly's `TimelineClip`/`timelineReducer` model (`lib/audio.ts`, `lib/types.ts`) — the closest in-app precedent for a **real multi-lane** timeline (lane index, independent start time, trim). The new video timeline is modeled on this, not on 6a's flat ordered-sequence `timeline_json`, which is why the schema below is a clean rebuild rather than a restore of the deleted migration.
+
+**What's genuinely new (no prior art in this codebase):**
+- A project owning **mixed-type** assets (video + image + audio, not just video) — 6a only ever handled video clips.
+- The extract-audio → transcribe → clone-resynthesize pipeline (Phase 4) — this specific chain has never been built; it's new orchestration.
+- A true multi-lane, independently-positioned timeline for **video** content — 6a's timeline was single-lane/ordered; Assembly's multi-lane model exists but only for audio-only composition, never adapted to video/image.
+- A multi-lane **render** step (Phase 6) — 6a's `RenderVideoProjectJob` only did a same-spec concat of sequential clips (one video track, nothing overlaid). Real lanes need `ffmpeg filter_complex` (image→video, audio-mix-onto-video, video compositing), which is new ffmpeg work, not a reuse of anything that exists today.
+
+**Phase 0 — rename + UI polish (✅ done Aug 26, 2026, ahead of the rest of this plan):**
+- `DubbingTimelineEditor.tsx` — segment editor panel moved from below the timeline to sit directly beside the video preview (was full-width, stacked below); its height now tracks the video box's height automatically via flexbox `align-items: stretch` (no fixed pixel value hardcoded either side), with a `flex-wrap` fallback so it drops back below the video on narrow/mobile widths exactly like before. Added an explicit empty state ("Select a segment…") so the layout doesn't jump when nothing is selected yet.
+- `dubbing-studio.css` — media library grid changed from 2 columns to 3, with proportionally smaller thumbnails/fonts/badges throughout `.ds-card` — cards are noticeably smaller/denser now, as asked.
+- **Label-only rename**, everything else on the page left exactly as it is (per the explicit instruction to keep Dubbing Studio's current internals as-is): nav item "Dubbing Studio" → "Video Studio", topbar title, guest-mode fallback heading, and the page's own (still-decorative, not yet a real link) breadcrumb now say "Video Studio"/"Video Projects" respectively. The internal page key (`'dubbing-studio'`), component filename (`DubbingStudioPage.tsx`), and all current behavior are **unchanged** — this was a display-text-only pass so nothing about the real restructuring below had to be guessed at or built twice.
+- Verified: `tsc -b` and `vite build` both clean; `eslint` on touched files shows only the one pre-existing `set-state-in-effect` finding this doc has already noted and deliberately left alone (data-fetching effect, standard pattern).
+
+**Phase 1 — data model + Video Projects list page:**
+- New `video_projects` table (fresh design, not a restore of the deleted 6a migration): `id` (uuid), `user_id`, `name`, `timeline_json` (nullable longtext/array-cast — see Phase 5 for the actual shape), `status` (`draft`/`rendering`/`done`/`failed`), `error` (nullable), `duration_seconds` (nullable, set on render), timestamps.
+- New `video_project_assets` table (deliberately renamed from 6a's `video_project_clips` — assets aren't only clips anymore): `id`, `video_project_id`, `kind` (`video`/`image`/`audio`), `source` (`upload`/`dubbed`/`extracted_audio`/`synthesized_audio`), `parent_asset_id` (nullable, self-referencing — a dubbed video's parent is its source video; a synthesized audio clip's parent is the extracted-audio asset it was resynthesized from), `dubbing_job_id` (nullable FK into the existing `video_dubbing_jobs`, unchanged), `original_filename`, `storage_path`, `duration_seconds` (nullable for images), `status` (`processing`/`ready`/`failed`), timestamps.
+- `VideoProjectController`: `index`/`store`/`show`/`update`/`destroy`, plus `addAsset` (multipart upload; kind auto-detected from mimetype; video/audio get `ffprobe` duration via `DubbingPipelineHelpers::probeDuration`, images don't).
+- Frontend: new `VideoProjectsPage.tsx` — project-card grid (matches the app's existing `.project-card`/`.project-grid` convention, per 6a's own note on this), "+ New project" flow. **This is what the "Video Studio" nav item now loads** (today it jumps straight into the flat job list — that changes here). Clicking a card navigates into `DubbingStudioPage` scoped to that project id.
+- `DubbingStudioPage`'s media library switches from "all of the user's dubbing jobs" to "this project's `video_project_assets`" — the one real behavior change to the page in this phase; the editor UI itself (Phase 0's layout) doesn't change again.
+- **Explicit lesson applied from 6a:** run the migration against a real dev DB and confirm `video_projects`/`video_project_assets` actually exist before Phase 2 starts — 6a's biggest concrete failure was five phases built on a migration nobody ever ran.
+
+**Phase 2 — media bin: multi-type upload:**
+- Extend `addAsset` to genuinely accept image/audio, not just video (6a only ever built the video path).
+- Media library card rendering grows an icon/placeholder per kind (image: real thumbnail same as today's video frame capture; audio: waveform/mic icon, no thumbnail).
+- Assets uploaded but not yet placed on the timeline sit in the bin, same interaction as today's job cards.
+
+**Phase 3 — "Dub this clip" as a bin operation:**
+- `VideoProjectController::dubClip()` — adapt 6a Phase 2's design (copy the bin asset's file into a project-scoped `DubbingJob`, dispatch the existing unmodified `PrepareDubbingJob`, create a `dubbed`-kind pending asset, poll-on-read status sync via `show()`). The *design* here was already sound in 6a's code (confirmed by re-reading it before it was deleted); it just never got a live test. Carrying the shape forward, not the code (deleted), since a clean rebuild against the new schema is simpler than trying to resurrect deleted files.
+- "Review" hands off into the existing, unchanged `DubbingTimelineEditor` — same reasoning 6b already established: don't re-derive split/merge/thumbnail logic a second time.
+
+**Phase 4 — extract audio → transcribe → clone-resynthesize (genuinely new feature):**
+- `ExtractAudioAssetJob` — ffmpeg-extracts the audio track from a video bin asset (reusing `runFfmpeg`/`probeDuration`), creates an `audio`/`extracted_audio` asset.
+- Transcription: reuse `/transcribe/segments` (already exists, built for task #6) to produce an editable segment transcript for that audio asset — surfaced in a lightweight review UI (much simpler than `DubbingTimelineEditor` since there's no video/timing-fit problem here, just text).
+- Resynthesis: user picks a voice profile + engine (reusing `EngineSwitcher`) and optionally edits the transcript first; `SynthesizeAudioAssetJob` reuses `synthesizeSegment`/`spliceWavs` to produce a new `audio`/`synthesized_audio` asset, `parent_asset_id` pointing at the extracted-audio asset it came from. The result lands in the bin like any other asset and can be dragged onto an audio lane in Phase 5's timeline.
+- Flagged as the **highest-uncertainty phase of new backend work** in this whole plan — it's the one piece with no directly-equivalent prior art in the codebase to lean on (dubbing's pipeline is timing-constrained per-segment; this is a simpler "one clip in, one clip out" shape, but still new).
+
+**Phase 5 — real multi-lane timeline editor:**
+- New `timeline_json` shape: an array of `{ id, asset_id, lane, start_time, trim_in, trim_out, kind }` — genuinely independent lanes and start times (unlike 6a's flat ordered sequence), modeled on Assembly's `TimelineClip` (`lib/types.ts`/`lib/audio.ts`) rather than reinventing lane/drag/resize math from scratch.
+- New `VideoTimelineEditor.tsx` — multi-lane drag/resize/position, reusing the interaction math already proven in both Assembly's timeline and `DubbingTimelineEditor`'s drag/resize clamping (retimeSegment/resizeSegment-style helpers, adapted for cross-lane placement instead of single-lane chronological ordering). This directly replaces the ordered-list-with-up/down-buttons UI 6a shipped in its Phase 3 — the person building this has been explicit that a real lanes view, not a flat list, is the actual goal.
+
+**Phase 6 — render/export:**
+- New `RenderVideoProjectJob`, built from scratch with `ffmpeg filter_complex` (image→video with a set duration, audio-lane mixed onto the video track, multi-lane compositing) — 6a's old version only concatenated same-spec sequential clips end-to-end, which can't express overlapping/independently-timed lanes at all. This is real, non-trivial ffmpeg work and the highest-risk phase to get right; plan for it to need its own dedicated testing pass with real mixed-asset projects before considering it done.
+- `VideoProjectController::render()`/`outputFile()` — same shape as 6a's (validate timeline non-empty + every referenced asset `ready`, refuse concurrent renders, stream the result once done) — that part of 6a's design holds up fine and isn't being changed.
+
+**Open questions to resolve before Phase 1 starts (flagging rather than guessing):**
+- Fixed render output spec (resolution/framerate) — 6a defaulted to 1080p30 with no UI to change it; is that still an acceptable default, or does this need to be configurable per project from day one this time?
+- Quota/plan-limit gating on project count, asset uploads, and renders — 6a explicitly deferred this ("a new quota key is a seed/migration + product decision, not something to invent a number for in a controller"); same is true here, and now spans three new gate points (project creation, asset upload, render) instead of one.
+- Whether "extracted/synthesized audio" assets should count against the existing synthesis/translation quota the same way a dubbing job does, or need their own quota bucket — the resynthesis step in Phase 4 uses the same underlying engine capacity as regular synthesis, so it's a real question, not a formality.
+
+**Not started** — this is a planning entry only; Phases 1-6 have no code yet. Next step per the person's own instruction: review this plan, then implement one phase at a time (each phase should get its own live-test pass before the next starts — see the 6a lesson above).
+
+---
+
+
 
 1. Fix pricing/Terms mismatch *(P0, trivial — do this today)* ✅
 2. Add self-hosted infrastructure messaging to marketing *(P1, easy)* ✅
@@ -498,6 +563,7 @@ Picked up the two gaps this doc had explicitly flagged and left open: task #6's 
 5. Public API tier *(P1, medium)*
 6. System-health public status page *(P2, easy — can slot in anytime as a quick win)*
 7. Video dubbing MVP *(P1, medium–large)* — backend done, frontend pending
+7a. Video Studio expansion *(P1, large, phased — see task #15)* — Phase 0 (rename + UI polish) done; Phases 1-6 planned, not started
 8. No-signup "try your voice" widget *(P2, medium)*
 9. SFX lane *(P2, medium)*
 10. Base model quality tier (proxy option first) *(P1, large but high-leverage)*

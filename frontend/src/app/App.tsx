@@ -636,7 +636,14 @@ export default function App() {
     // DubbingJob API (task #6b). This is now the only dubbing surface —
     // the older Video Dubbing (DubbingPage.tsx) and Video Studio
     // (VideoStudioPage.tsx, task #6a) pages were retired in the same pass.
-    ...(guestMode ? [] : [{ key: 'dubbing-studio' as Page, label: 'Dubbing Studio', icon: icons.template }]),
+    // Display label renamed "Dubbing Studio" → "Video Studio" (planning
+    // pass, Aug 26 2026 — see docs/ENHANCEMENT_TASKS.md task #15): dubbing
+    // is becoming one feature of a broader Video Studio, not the whole
+    // page. The internal page key ('dubbing-studio'), component
+    // (DubbingStudioPage.tsx), and all current behavior are UNCHANGED here
+    // — this is a label-only rename ahead of the real restructuring
+    // (Video Projects list → per-project studio) planned in task #15.
+    ...(guestMode ? [] : [{ key: 'dubbing-studio' as Page, label: 'Video Studio', icon: icons.template }]),
   ]
 
   // ── Engine pill label ─────────────────────────────────────────────
@@ -853,7 +860,7 @@ export default function App() {
               {page === 'dashboard'  ? 'Dashboard'
                 : page === 'projects'  ? 'Projects'
                 : page === 'profiles'  ? 'Voice Profiles'
-                : page === 'dubbing-studio' ? 'Dubbing Studio'
+                : page === 'dubbing-studio' ? 'Video Studio'
                 : page === 'settings'  ? 'Settings'
                 : ''}
             </span>
@@ -1062,7 +1069,7 @@ export default function App() {
               // guests, but a stale saved page state (e.g. from
               // localStorage on reload) could still land here directly.
               <div style={{ maxWidth: 480, margin: '60px auto', textAlign: 'center' }}>
-                <h2>Dubbing Studio needs an account</h2>
+                <h2>Video Studio needs an account</h2>
                 <p style={{ color: 'var(--text-3)', fontSize: 13.5, marginBottom: 16 }}>
                   Sign up to dub videos into other languages with your cloned voice.
                 </p>
