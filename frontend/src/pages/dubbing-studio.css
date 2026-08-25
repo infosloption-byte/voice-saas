@@ -1,13 +1,14 @@
 /* Dubbing Studio — CapCut-style editor built on the app's existing
-   cream / terracotta tokens (see app/App.css :root). Renders as a
-   full-window fixed overlay so it doesn't need any change to the
-   surrounding app chrome. */
+   cream / terracotta tokens (see app/App.css :root). Renders in normal
+   document flow inside .page, next to the real (fixed, z-index:100)
+   app sidebar and below the real .topbar — same pattern as .workspace
+   — so the sidebar's own collapse/expand and mobile drawer keep
+   working exactly as on every other page, with no overlay or gap. */
 
 .dubstudio {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
   display: flex;
+  height: calc(100svh - var(--topbar-h));
+  overflow: hidden;
   background: var(--bg);
   color: var(--text-1);
   font-family: var(--font);
@@ -36,29 +37,6 @@
 .ds-icon-btn--danger:hover:not(:disabled) { color: var(--err); border-color: rgba(192,57,43,0.4); }
 .ds-icon-btn--play { width: 38px; height: 38px; background: var(--accent); border-color: var(--accent); color: #fff; border-radius: 999px; }
 .ds-icon-btn--play:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
-
-/* ── App rail ─────────────────────────────────────────────── */
-.ds-rail {
-  width: 76px; flex: none; background: var(--surface-2); border-right: 1px solid var(--border-3);
-  display: flex; flex-direction: column; align-items: center; padding: 14px 0;
-}
-.ds-rail__brand { background: none; border: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 0 0 16px; width: 100%; }
-.ds-rail__mark { width: 32px; height: 32px; border-radius: 9px; background: var(--accent); color: #fff; font-family: var(--serif); font-size: 18px; display: flex; align-items: center; justify-content: center; }
-.ds-rail__brandtext { display: flex; flex-direction: column; align-items: center; line-height: 1.2; }
-.ds-rail__name { font-size: 11px; font-weight: 600; color: var(--text-1); }
-.ds-rail__tag { font-size: 8.5px; letter-spacing: 0.08em; color: var(--text-3); }
-.ds-rail__nav { display: flex; flex-direction: column; gap: 6px; flex: 1; width: 100%; align-items: center; padding-top: 8px; border-top: 1px solid var(--border-3); }
-.ds-rail__item {
-  width: 52px; height: 46px; border-radius: var(--radius-sm); border: none; background: none;
-  color: var(--text-3); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-}
-.ds-rail__item svg { width: 16px; height: 16px; }
-.ds-rail__item span { font-size: 8.5px; }
-.ds-rail__item:hover { color: var(--text-2); background: var(--bg-3); }
-.ds-rail__item--active { color: var(--accent); background: var(--accent-lt); }
-.ds-rail__item--active:hover { color: var(--accent); background: var(--accent-lt); }
-.ds-rail__footer { display: flex; align-items: center; gap: 5px; font-size: 8px; color: var(--text-3); writing-mode: vertical-rl; text-orientation: mixed; padding-top: 10px; }
-.ds-rail__dot { width: 6px; height: 6px; border-radius: 999px; background: var(--ok); flex: none; }
 
 /* ── Stage ────────────────────────────────────────────────── */
 .ds-stage { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -218,7 +196,6 @@
 
 /* ── Mobile (< 960px) ─────────────────────────────────────── */
 @media (max-width: 960px) {
-  .ds-rail { display: none; }
   .ds-topbar__clap { display: inline-flex; }
   .ds-inspector { display: none; }
   .ds-mobstrip { display: flex; align-items: center; gap: 8px; grid-area: unset; padding: 8px 12px; border-top: 1px solid var(--border-3); background: var(--surface); }

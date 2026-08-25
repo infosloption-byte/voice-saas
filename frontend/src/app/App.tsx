@@ -941,7 +941,7 @@ export default function App() {
         })()}
 
         {/* Page content */}
-        <div className={page === 'workspace' ? '' : 'content'}>
+        <div className={page === 'workspace' || page === 'dubbing-studio' ? '' : 'content'}>
           {page === 'dashboard' && (
             <DashboardPage
               user={user}
@@ -1109,7 +1109,7 @@ export default function App() {
                 <button className="btn btn--primary" onClick={() => setPage('signup')}>Sign up</button>
               </div>
             ) : (
-              <DubbingStudioPage onExit={() => setPage('dashboard')} />
+              <DubbingStudioPage />
             )
           )}
 

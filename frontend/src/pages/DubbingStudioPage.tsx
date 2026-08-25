@@ -192,7 +192,7 @@ const ClapperIcon = (
 
 // ── Component ────────────────────────────────────────────────────
 
-export function DubbingStudioPage({ onExit }: { onExit?: () => void }) {
+export function DubbingStudioPage() {
   const [jobs, setJobs] = useState<Job[]>(INITIAL_JOBS)
   const [selectedJobId, setSelectedJobId] = useState(INITIAL_JOBS[0].id)
   const [selectedSegId, setSelectedSegId] = useState<string | null>(INITIAL_JOBS[0].segments[0]?.id ?? null)
@@ -405,28 +405,6 @@ export function DubbingStudioPage({ onExit }: { onExit?: () => void }) {
 
   return (
     <div className="dubstudio">
-      {/* ── App rail ─────────────────────────────────────────── */}
-      <aside className="ds-rail">
-        <button className="ds-rail__brand" onClick={onExit} title="Exit studio">
-          <span className="ds-rail__mark">V</span>
-          <div className="ds-rail__brandtext">
-            <span className="ds-rail__name">Voxora</span>
-            <span className="ds-rail__tag">DUBBING</span>
-          </div>
-        </button>
-        <nav className="ds-rail__nav">
-          <button className="ds-rail__item" onClick={onExit}>{icons.dashboard}<span>Dashboard</span></button>
-          <button className="ds-rail__item" onClick={onExit}>{icons.projects}<span>Projects</span></button>
-          <button className="ds-rail__item" onClick={onExit}>{icons.profiles}<span>Voice Profiles</span></button>
-          <button className="ds-rail__item ds-rail__item--active">{icons.video}<span>Video Dubbing</span></button>
-          <button className="ds-rail__item" onClick={onExit}>{icons.dark}<span>Settings</span></button>
-        </nav>
-        <div className="ds-rail__footer">
-          <span className="ds-rail__dot" />
-          <span>XTTS v2 online</span>
-        </div>
-      </aside>
-
       {/* ── Stage ────────────────────────────────────────────── */}
       <div className="ds-stage">
         <header className="ds-topbar">
