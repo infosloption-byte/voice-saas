@@ -395,10 +395,24 @@ Picked this up by reading every backend/frontend file involved end to end (not j
 - **`frontend/src/pages/dubbing-studio.css`** — `.ds-workspace`'s grid went from 3 rows (`lib/monitor/transport/timeline`) to 2 (`lib/monitor/transport`), since the fake bottom timeline lane is gone; added `.ds-review-panel` (spans both rows in the right column, full-height host for `DubbingTimelineEditor`) and `.ds-scrubber` (styled `<input type=range>` for the done/failed real-video transport).
 - Verified: `tsc -b` clean, `vite build` clean, grepped the full frontend tree for any remaining `DubbingPage`/`VideoStudioPage` reference — none outside comments/docblocks.
 
-**Not yet done:**
+**Not yet done (as of the initial pass):**
 - **Still not live-tested** — verified by typecheck/build only, same caveat every dubbing-related task above has carried since Aug 21. Submit a real video through the Studio, walk it through `ready_for_review` → Finalize, and confirm a real download before considering this fully closed.
 - No `eslint` pass run specifically for this change (prior tasks' baseline was 117 pre-existing problems repo-wide; not re-checked here).
 - `video_projects` backend cleanup (see above) is explicitly out of scope for this pass.
+
+**Continuation (Aug 25, 2026) — real card thumbnails + drag-to-reorder:**
+
+- **Real thumbnails on library cards** — the "client-captured frame only" gap noted above is now backfilled for jobs from *before* the current page load too. Reuses the same `GET /dubbing/{id}/thumbnails` + `.../thumbnails/sprite.jpg` endpoints `DubbingTimelineEditor`'s filmstrip already relies on (confirmed via the controller: it only requires the source video to still exist on disk, no `ready_for_review`/`done` status restriction — the sprite is generated and cached server-side on first call regardless of job status). Rather than repeat the filmstrip's CSS `background-position`/`background-size` tiling trick on every card just to show one frame, a new `fetchRealThumbnail()` helper crops out only the first tile (column 0, row 0) with a canvas and caches the result as a small data URL, so it can share the exact same rendering path the client-captured `posterImages` already used.
+  - New effect in `DubbingStudioPage.tsx` lazily backfills thumbnails for any job that has a source video but no `posterImages` entry yet, capped at 3 concurrent fetches (a big library shouldn't slam the endpoint the moment the list loads — cheap after the first call per job since the server caches the sprite, but the *first* call per job is still a real ffmpeg extraction) and tracked in a `thumbFetchState` ref so polling every 6s doesn't re-trigger it for jobs already fetched or in flight.
+  - Priority order on the card: client-captured frame (instant, this-session uploads only) → real server thumbnail → color-gradient placeholder while neither is ready.
+- **Drag-and-drop card reorder** — the library grid's cards are now draggable (native HTML5 DnD, no library added) and can be dropped onto another card to reorder. Since a standalone dubbing job has no natural sequence (unlike `video_projects`' now-retired composition track), this is purely a personal-organization aid: a `cardOrder: string[]` array of job ids, persisted to `localStorage` (`vo_dubstudio_card_order`), drives sort order via `Array.sort()` against a rank map. Any job id *not* yet in that array (i.e. the user has never touched its position) sorts ahead of everything that IS explicitly ordered — so a brand-new job shows up at the top of the grid immediately rather than getting buried at the end of an old manual arrangement.
+- `dubbing-studio.css` — `.ds-card` gets `cursor: grab`; added `.ds-card--dragging` (dimmed while being dragged) and `.ds-card--dragover` (accent outline on the drop target).
+- Verified: `tsc -b` clean, `vite build` clean.
+
+**Not yet done (as of this continuation):**
+- Still not live-tested (same caveat, now doubly true for the thumbnail endpoint specifically — never confirmed against a real generated sprite in this sandbox, only traced against the controller's source).
+- No touch/pointer fallback for drag-and-drop reorder — native HTML5 DnD doesn't work on touch devices; reordering is desktop-only for now. Worth revisiting with a pointer-events-based implementation (or a small library) if mobile card management turns out to matter.
+- Reorder is local to one browser — a `localStorage`-persisted order doesn't follow the user across devices, same limitation as the earlier "Favorite" marker.
 
 ---
 

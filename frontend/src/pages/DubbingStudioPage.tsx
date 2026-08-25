@@ -122,6 +122,63 @@ function saveFavorites(s: Set<string>) {
   try { localStorage.setItem(FAVORITES_KEY, JSON.stringify([...s])) } catch { /* ignore */ }
 }
 
+const CARD_ORDER_KEY = 'vo_dubstudio_card_order'
+
+function loadCardOrder(): string[] {
+  try {
+    const raw = localStorage.getItem(CARD_ORDER_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function saveCardOrder(order: string[]) {
+  try { localStorage.setItem(CARD_ORDER_KEY, JSON.stringify(order)) } catch { /* ignore */ }
+}
+
+/**
+ * Fetches a job's real thumbnail — the same server-generated filmstrip
+ * sprite DubbingTimelineEditor uses for its review-timeline frames
+ * (GET /dubbing/{jobId}/thumbnails + .../sprite.jpg), except here we only
+ * need one frame (the first), so rather than repeat the filmstrip's
+ * CSS background-position/background-size tiling approach on every card,
+ * we crop just that one tile out with a canvas once and cache the result
+ * as a small data URL — same shape as the client-captured posterImage,
+ * so both can share one rendering path on the card.
+ */
+async function fetchRealThumbnail(jobId: string): Promise<string | null> {
+  try {
+    const [meta, spriteBlob] = await Promise.all([
+      api.fetchDubbingThumbnailMeta(jobId),
+      api.fetchDubbingThumbnailSprite(jobId),
+    ])
+    const spriteUrl = URL.createObjectURL(spriteBlob)
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image()
+        el.onload = () => resolve(el)
+        el.onerror = reject
+        el.src = spriteUrl
+      })
+      const canvas = document.createElement('canvas')
+      canvas.width = meta.thumb_width
+      canvas.height = meta.thumb_height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return null
+      // Frame 0 lives at column 0, row 0 of the sprite — no offset needed.
+      ctx.drawImage(img, 0, 0, meta.thumb_width, meta.thumb_height, 0, 0, meta.thumb_width, meta.thumb_height)
+      return canvas.toDataURL('image/jpeg', 0.75)
+    } finally {
+      URL.revokeObjectURL(spriteUrl)
+    }
+  } catch {
+    // Source video may have been pruned, job may still be queued with no
+    // frames extractable yet, etc. — card falls back to the gradient.
+    return null
+  }
+}
+
 // ── Small local icon (not in the shared set) ────────────────────
 
 const ClapperIcon = (
@@ -159,6 +216,39 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps }: { voiceProfiles
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [refreshList])
 
+  // Lazily backfill real thumbnails for any job that doesn't already have
+  // a client-captured poster (i.e. everything from before this page load).
+  // Capped to 3 concurrent requests so a big library doesn't slam the
+  // thumbnails endpoint the moment the list loads — it's cheap after the
+  // first call per job (server caches the sprite), but the *first* call
+  // per job still does a real ffmpeg extraction.
+  useEffect(() => {
+    const pending = jobs.filter(j =>
+      j.has_source &&
+      !posterImages[j.job_id] &&
+      !realThumbnails[j.job_id] &&
+      !thumbFetchState.current.has(j.job_id)
+    )
+    if (pending.length === 0) return
+
+    let cancelled = false
+    const CONCURRENCY = 3
+    let cursor = 0
+
+    async function worker() {
+      while (!cancelled) {
+        const j = pending[cursor++]
+        if (!j) return
+        thumbFetchState.current.add(j.job_id)
+        const url = await fetchRealThumbnail(j.job_id)
+        if (!cancelled && url) setRealThumbnails(prev => ({ ...prev, [j.job_id]: url }))
+      }
+    }
+    for (let i = 0; i < CONCURRENCY; i++) worker()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobs])
+
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
   const [previewMode, setPreviewMode] = useState<PreviewMode>('src')
   const [playing, setPlaying] = useState(false)
@@ -176,6 +266,18 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps }: { voiceProfiles
   const [previewLoading, setPreviewLoading] = useState(false)
   // Client-side captured poster frames — only known for videos uploaded this session.
   const [posterImages, setPosterImages] = useState<Record<string, string>>({})
+  // Real server-side thumbnails (fetched lazily, see effect below) — fills
+  // in for jobs posterImages doesn't cover, i.e. anything loaded from a
+  // fresh page load rather than uploaded this session.
+  const [realThumbnails, setRealThumbnails] = useState<Record<string, string>>({})
+  const thumbFetchState = useRef<Set<string>>(new Set())   // job_ids already fetched or in flight, this session
+
+  // Manual card order (drag-and-drop) — client-only, persisted locally.
+  // Backend has no "display order" concept for dubbing jobs; this is purely
+  // an organizational aid layered on top of the real job list.
+  const [cardOrder, setCardOrder] = useState<string[]>(() => loadCardOrder())
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
 
   const monitorVideoRef = useRef<HTMLVideoElement | null>(null)
 
@@ -277,6 +379,24 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps }: { voiceProfiles
     })
   }
 
+  function reorderCards(draggedId: string, targetId: string) {
+    if (draggedId === targetId) return
+    setCardOrder(prev => {
+      // Base ordering: whatever's already explicit, then every job the
+      // user hasn't touched yet, newest-first (jobs' own list order).
+      const known = new Set(prev)
+      const base = [...prev, ...jobs.map(j => j.job_id).filter(id => !known.has(id))]
+      const from = base.indexOf(draggedId)
+      const to = base.indexOf(targetId)
+      if (from === -1 || to === -1) return prev
+      const next = [...base]
+      next.splice(from, 1)
+      next.splice(to, 0, draggedId)
+      saveCardOrder(next)
+      return next
+    })
+  }
+
   function requestDelete(id: string) { setDeleteConfirmId(id) }
 
   async function confirmDelete(id: string) {
@@ -316,11 +436,27 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps }: { voiceProfiles
     }
   }
 
-  const filteredJobs = useMemo(() => jobs.filter(j => {
-    if (libFilter === 'favorites' && !favorites.has(j.job_id)) return false
-    if (search.trim() && !(j.original_filename ?? '').toLowerCase().includes(search.trim().toLowerCase())) return false
-    return true
-  }), [jobs, libFilter, search, favorites])
+  const filteredJobs = useMemo(() => {
+    const filtered = jobs.filter(j => {
+      if (libFilter === 'favorites' && !favorites.has(j.job_id)) return false
+      if (search.trim() && !(j.original_filename ?? '').toLowerCase().includes(search.trim().toLowerCase())) return false
+      return true
+    })
+    // Manual drag order wins where the user has set one; anything not yet
+    // touched keeps the API's own (newest-first) relative order, and sorts
+    // ahead of anything the user HAS manually ordered — a brand new job
+    // shouldn't get buried by an old manual arrangement.
+    if (cardOrder.length === 0) return filtered
+    const rank = new Map(cardOrder.map((id, i) => [id, i]))
+    return [...filtered].sort((a, b) => {
+      const ra = rank.get(a.job_id)
+      const rb = rank.get(b.job_id)
+      if (ra === undefined && rb === undefined) return 0
+      if (ra === undefined) return -1
+      if (rb === undefined) return 1
+      return ra - rb
+    })
+  }, [jobs, libFilter, search, favorites, cardOrder])
 
   return (
     <div className="dubstudio">
@@ -397,9 +533,22 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps }: { voiceProfiles
               {filteredJobs.map((j, i) => {
                 const running = isJobRunning(j)
                 const stageLabel = STAGE_META[j.status]?.label ?? j.status
-                const poster = posterImages[j.job_id]
+                // Prefer a client-captured frame (instant, this-session
+                // uploads only) over the real server thumbnail, then fall
+                // back to the color placeholder while neither is ready yet.
+                const poster = posterImages[j.job_id] ?? realThumbnails[j.job_id]
                 return (
-                  <button key={j.job_id} className={`ds-card ${j.job_id === selectedJobId ? 'ds-card--active' : ''}`} onClick={() => selectJob(j.job_id)}>
+                  <button
+                    key={j.job_id}
+                    className={`ds-card ${j.job_id === selectedJobId ? 'ds-card--active' : ''} ${draggingId === j.job_id ? 'ds-card--dragging' : ''} ${dragOverId === j.job_id ? 'ds-card--dragover' : ''}`}
+                    onClick={() => selectJob(j.job_id)}
+                    draggable
+                    onDragStart={e => { setDraggingId(j.job_id); e.dataTransfer.effectAllowed = 'move' }}
+                    onDragEnd={() => { setDraggingId(null); setDragOverId(null) }}
+                    onDragOver={e => { e.preventDefault(); if (draggingId && draggingId !== j.job_id) setDragOverId(j.job_id) }}
+                    onDragLeave={() => setDragOverId(prev => (prev === j.job_id ? null : prev))}
+                    onDrop={e => { e.preventDefault(); if (draggingId) reorderCards(draggingId, j.job_id); setDraggingId(null); setDragOverId(null) }}
+                  >
                     <div
                       className="ds-card__thumb"
                       style={poster ? { background: `center/cover no-repeat url(${poster})` } : { background: POSTER_GRADIENTS[i % POSTER_GRADIENTS.length] }}
