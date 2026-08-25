@@ -5,7 +5,7 @@ export type Plan = 'free' | 'starter' | 'creator' | 'pro'
 export type Page =
   | 'landing' | 'signin' | 'signup'
   | 'forgot-password' | 'reset-password'
-  | 'dashboard' | 'projects' | 'workspace' | 'profiles' | 'dubbing' | 'video-studio' | 'dubbing-studio' | 'settings' | 'admin'
+  | 'dashboard' | 'projects' | 'workspace' | 'profiles' | 'dubbing-studio' | 'settings' | 'admin'
   | 'pricing' | 'privacy' | 'terms' | 'refund' | 'acceptable-use'
   | 'email-verified'
   | 'feature-studio' | 'feature-voices' | 'feature-translation'

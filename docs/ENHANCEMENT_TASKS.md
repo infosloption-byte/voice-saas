@@ -12,8 +12,9 @@
 | 4 | Add Chatterbox as a third TTS engine option | P1 | ✅ Done — Aug 15, 2026 |
 | 4a | Multi-engine admin control (separate from AI Engine host-swap) | P1 | ✅ Done — Aug 19, 2026 |
 | 5 | Public API tier | P1 | Not started |
-| 6 | Video dubbing MVP | P1 | ✅ Done — Aug 21, 2026 · quality fixes (engine selection, translation context, sample rate/loudness, drift recovery) Aug 22, 2026 · fixed event-loop-blocking bug in chatterbox-engine (found on first live test) Aug 22, 2026 · rebuilt as a two-phase review-timeline workflow (drag/resize/retime, undo/redo) Aug 22, 2026 · thumbnail filmstrip + split/merge built, two regressions found & fixed (ffmpeg hang timeout, empty-segment crash on Mute), Vite/Rolldown pin re-applied, clamp math numerically verified Aug 23, 2026 — **still not live-tested** |
-| 6a | Video Studio — Video Projects (media bin, dubbing-as-operation, multi-lane timeline, render) | P1 | 🔶 Phase 1 pushed to main Aug 23, 2026 · Phase 2 (dub-a-clip wiring) built Aug 23, 2026 · Phase 3 (studio UI) built Aug 23, 2026 · Phase 4 (render/export) built Aug 23, 2026 · Phase 5 (studio UI overhaul — file-browser bin, positioned composition track, clip inspector panel) built Aug 24, 2026 — **all five phases still not live-tested, migration not yet run** |
+| 6 | Video dubbing MVP | P1 | ✅ Done — Aug 21, 2026 · quality fixes (engine selection, translation context, sample rate/loudness, drift recovery) Aug 22, 2026 · fixed event-loop-blocking bug in chatterbox-engine (found on first live test) Aug 22, 2026 · rebuilt as a two-phase review-timeline workflow (drag/resize/retime, undo/redo) Aug 22, 2026 · thumbnail filmstrip + split/merge built, two regressions found & fixed (ffmpeg hang timeout, empty-segment crash on Mute), Vite/Rolldown pin re-applied, clamp math numerically verified Aug 23, 2026 · superseded/removed Aug 25, 2026 — see 6b |
+| 6a | Video Studio — Video Projects (media bin, dubbing-as-operation, multi-lane timeline, render) | P1 | 🗑️ Retired Aug 25, 2026 (see 6b) — five phases had been built through Aug 24 but never live-tested and the migration was never run; removed rather than carried forward once Dubbing Studio became the single dubbing surface |
+| 6b | Dubbing Studio — wire the CapCut-style editor to the real backend, retire Video Dubbing + Video Studio | P1 | ✅ Done — Aug 25, 2026 — **still not live-tested** |
 | 7 | Base model quality tier | P1 | Not started |
 | 8 | Public system-health status page | P2 | Not started |
 | 9 | No-signup "try your voice" widget | P2 | Not started |
@@ -368,7 +369,39 @@ Picked this up by reading every backend/frontend file involved end to end (not j
 
 ---
 
-## P2 — Should Have
+### 6b. Dubbing Studio — wire the CapCut-style editor to the real backend, retire Video Dubbing + Video Studio ✅ DONE (Aug 25, 2026)
+
+- **What:** `DubbingStudioPage.tsx` (the CapCut-style editor built alongside, but never connected to, the real dubbing pipeline) was running entirely on local mock state — a fake `Job`/`Segment` model seeded by `submitDialog`, a `setInterval` timer standing in for real progress, and a captured video frame standing in for server thumbnails. Everything it needed already existed and was already working in `DubbingPage.tsx` (task 6) and `DubbingTimelineEditor.tsx` — this task swapped the mock functions for those real `lib/api.ts` calls, and retired the two older pages the Studio was superseding.
+- **Why:** running two live dubbing UIs (the plain `DubbingPage` list view and the unwired Studio mock) long-term serves no one — confusing to maintain, confusing to demo. Once the Studio's mock state was proven to map ~1:1 onto the real `DubbingJob` API, there was no reason to keep either the old page or the mock going.
+- **Design decision made:** whether the Studio should pause at `ready_for_review` (like `DubbingPage` does — review/edit lines, then Finalize) or auto-continue straight through to `done`. Chose **pause and hand off to the existing `DubbingTimelineEditor`** component in full, rather than reimplementing segment editing/split/merge/thumbnails a second time in the Studio's own UI shell. That component had two real regressions found and fixed on Aug 23 (an ffmpeg hang timeout, an empty-segment crash on Mute) — re-deriving the same logic in a different shell would reopen that same bug surface for zero benefit. When a job is `ready_for_review`, the Studio's own monitor/inspector/transport are hidden and `<DubbingTimelineEditor jobId targetLanguage onFinalized={refreshList} />` renders full-width in their place instead.
+
+**What was actually done, frontend-only — no backend/schema changes:**
+- **`frontend/src/pages/DubbingStudioPage.tsx`** — rewritten in full (~795 lines):
+  - Jobs list: `api.listDubbingJobs()` polled every 6s (same `LIST_POLL_MS` as `DubbingPage`, well under the endpoint's 60/min throttle), replacing the seeded `INITIAL_JOBS` mock array.
+  - New Dub / Retry dialog: `api.postWithProgress('/dubbing/submit', fd, onProgress)` for new jobs and `api.retryDubbingJob(jobId, payload)` for retries, replacing the locally-fabricated `Job` object the mock used to build. Voice selection now uses the real `voiceProfiles` prop (previously three hardcoded fake voices); engine selection now uses the shared `<EngineSwitcher>` + `useTTSEngine` hook and the real `engineCaps` prop (previously a hardcoded button row with `f5` permanently disabled); source/target language dropdowns now use the full real `LANGUAGES` constant (previously an 11-language local list).
+  - Monitor: real `api.fetchDubbingSource()` / `api.fetchDubbingResult()` blobs → object URLs (mirrors `DubbingPage`'s `loadPreviewMedia`), replacing the mock's local-`File` object URL. Both source and result are fetched eagerly on selection so switching Original/Dubbed is instant, and every created object URL is tracked and revoked (on job delete and on unmount) to avoid leaking blob URLs.
+  - Export/download: `api.fetchDubbingResult()` real blob download, replacing a fake manifest-download stand-in.
+  - Delete: `api.deleteDubbingJob()`, replacing a local array splice.
+  - Ready-for-review jobs: full hand-off to `<DubbingTimelineEditor>` as described above — this is also where the "Filmstrip" and "Inspector edits / Apply changes" and "Split/merge" rows from the audit resolve, by reuse rather than reimplementation.
+- **Capabilities intentionally dropped, because the real backend doesn't support them (not because they were skipped):**
+  - Per-segment **"Resynthesize"** — there's no single-line resynthesis endpoint. Editing happens during `ready_for_review` (Save changes) and (re)synthesis happens for the whole job at once (Generate dubbed video / Retry).
+  - Segment/waveform view once a job is **`done`** — the backend only exposes a segment breakdown while `ready_for_review` (same limit `DubbingPage` already had). `done`/`failed` jobs now show a plain real-video scrubber instead of the old fake multi-lane clip timeline.
+  - **Thumbnails** on library cards are a real captured frame only for videos uploaded in the current browser session (captured client-side before upload, same `captureFrame()` approach the mock used) — jobs loaded from a fresh page load fall back to a color placeholder, since the backend doesn't store or serve a poster image. Same honest gap Phase 5 of task 6a already noted for its own bin cards.
+  - **"Favorite"** is a client-only, `localStorage`-backed marker (`vo_dubstudio_favorites`) — there's no backend field for it.
+- **Retired `frontend/src/pages/DubbingPage.tsx`** (task 6's original page) and **`frontend/src/pages/VideoStudioPage.tsx`** (task 6a, all five phases) — deleted outright rather than left dead in the tree. `DubbingTimelineEditor.tsx`, `EngineSwitcher.tsx`, `useTTSEngine.ts`, and every backend/AI-engine file either page touched are untouched — only the two frontend page components and their routing went away.
+  - `lib/types.ts` — `Page` union dropped `'dubbing'` and `'video-studio'`, keeping `'dubbing-studio'` as the only dubbing page key.
+  - `app/App.tsx` — removed the now-dead `DubbingPage`/`VideoStudioPage` imports, nav entries, and header-title cases; removed both pages' route blocks (each had its own guest-mode defensive fallback — that pattern was kept, just consolidated onto the one remaining `'dubbing-studio'` block); `DubbingStudioPage` now receives `voiceProfiles`/`engineCaps` props like the pages it replaces did (it previously rendered with no props at all, which is why it could only ever run on mock data).
+  - `video_projects` backend/schema from task 6a (migration, models, controllers, `RenderVideoProjectJob`) was **left in place, untouched** — this task only removed the frontend page that exposed it. If that epic isn't being picked back up, cleaning up the backend side is a separate, deliberate follow-up, not a byproduct of this one.
+- **`frontend/src/pages/dubbing-studio.css`** — `.ds-workspace`'s grid went from 3 rows (`lib/monitor/transport/timeline`) to 2 (`lib/monitor/transport`), since the fake bottom timeline lane is gone; added `.ds-review-panel` (spans both rows in the right column, full-height host for `DubbingTimelineEditor`) and `.ds-scrubber` (styled `<input type=range>` for the done/failed real-video transport).
+- Verified: `tsc -b` clean, `vite build` clean, grepped the full frontend tree for any remaining `DubbingPage`/`VideoStudioPage` reference — none outside comments/docblocks.
+
+**Not yet done:**
+- **Still not live-tested** — verified by typecheck/build only, same caveat every dubbing-related task above has carried since Aug 21. Submit a real video through the Studio, walk it through `ready_for_review` → Finalize, and confirm a real download before considering this fully closed.
+- No `eslint` pass run specifically for this change (prior tasks' baseline was 117 pre-existing problems repo-wide; not re-checked here).
+- `video_projects` backend cleanup (see above) is explicitly out of scope for this pass.
+
+---
+
 
 *Ordered easy → hard.*
 

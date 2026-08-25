@@ -27,8 +27,6 @@ import {
 } from '../pages/AppPages'
 import { WorkspacePage } from '../pages/WorkspacePage'
 import { AssemblyPage } from '../pages/AssemblyPage'
-import { DubbingPage } from '../pages/DubbingPage'
-import { VideoStudioPage } from '../pages/VideoStudioPage'
 import { DubbingStudioPage } from '../pages/DubbingStudioPage'
 import type { Page, WorkspaceTab, VoiceProfile, EngineStatus, EngineCaps } from '../lib/types'
 
@@ -634,13 +632,10 @@ export default function App() {
     // No guest tier for dubbing (see VideoDubbingController) — a dubbing
     // job needs a real account's quota/ownership checks throughout, unlike
     // Projects/Profiles which have a parallel guest-local implementation.
-    ...(guestMode ? [] : [{ key: 'dubbing' as Page, label: 'Video Dubbing', icon: icons.video }]),
-    // Video Studio (task #6a) — same no-guest-tier reasoning as Dubbing
-    // above: "Dub this clip" rides the same DubbingJob quota/ownership
-    // path, so a guest-local parallel implementation doesn't make sense here either.
-    ...(guestMode ? [] : [{ key: 'video-studio' as Page, label: 'Video Studio', icon: icons.layers }]),
-    // Dubbing Studio — new CapCut-style dubbing editor UI, built from
-    // scratch alongside (not replacing) DubbingPage/VideoStudioPage above.
+    // Dubbing Studio — CapCut-style dubbing editor UI, wired to the real
+    // DubbingJob API (task #6b). This is now the only dubbing surface —
+    // the older Video Dubbing (DubbingPage.tsx) and Video Studio
+    // (VideoStudioPage.tsx, task #6a) pages were retired in the same pass.
     ...(guestMode ? [] : [{ key: 'dubbing-studio' as Page, label: 'Dubbing Studio', icon: icons.template }]),
   ]
 
@@ -858,8 +853,6 @@ export default function App() {
               {page === 'dashboard'  ? 'Dashboard'
                 : page === 'projects'  ? 'Projects'
                 : page === 'profiles'  ? 'Voice Profiles'
-                : page === 'dubbing'   ? 'Video Dubbing'
-                : page === 'video-studio' ? 'Video Studio'
                 : page === 'dubbing-studio' ? 'Dubbing Studio'
                 : page === 'settings'  ? 'Settings'
                 : ''}
@@ -1063,53 +1056,20 @@ export default function App() {
             />
           )}
 
-          {page === 'dubbing' && (
+          {page === 'dubbing-studio' && (
             guestMode ? (
               // Defensive fallback — the nav item is already hidden for
               // guests, but a stale saved page state (e.g. from
               // localStorage on reload) could still land here directly.
               <div style={{ maxWidth: 480, margin: '60px auto', textAlign: 'center' }}>
-                <h2>Video Dubbing needs an account</h2>
+                <h2>Dubbing Studio needs an account</h2>
                 <p style={{ color: 'var(--text-3)', fontSize: 13.5, marginBottom: 16 }}>
                   Sign up to dub videos into other languages with your cloned voice.
                 </p>
                 <button className="btn btn--primary" onClick={() => setPage('signup')}>Sign up</button>
               </div>
             ) : (
-              <DubbingPage voiceProfiles={voiceProfiles} engineCaps={engineCaps} />
-            )
-          )}
-
-          {page === 'video-studio' && (
-            guestMode ? (
-              // Same defensive fallback as the 'dubbing' block above, same
-              // reason: the nav item is hidden for guests, but a stale
-              // saved page state could still land here directly.
-              <div style={{ maxWidth: 480, margin: '60px auto', textAlign: 'center' }}>
-                <h2>Video Studio needs an account</h2>
-                <p style={{ color: 'var(--text-3)', fontSize: 13.5, marginBottom: 16 }}>
-                  Sign up to build a video project with a media bin, dubbing, and a timeline.
-                </p>
-                <button className="btn btn--primary" onClick={() => setPage('signup')}>Sign up</button>
-              </div>
-            ) : (
-              <VideoStudioPage voiceProfiles={voiceProfiles} engineCaps={engineCaps} />
-            )
-          )}
-
-          {page === 'dubbing-studio' && (
-            guestMode ? (
-              // Same defensive fallback as the 'dubbing' / 'video-studio'
-              // blocks above, same reason.
-              <div style={{ maxWidth: 480, margin: '60px auto', textAlign: 'center' }}>
-                <h2>Dubbing Studio needs an account</h2>
-                <p style={{ color: 'var(--text-3)', fontSize: 13.5, marginBottom: 16 }}>
-                  Sign up to use the full dubbing editor.
-                </p>
-                <button className="btn btn--primary" onClick={() => setPage('signup')}>Sign up</button>
-              </div>
-            ) : (
-              <DubbingStudioPage />
+              <DubbingStudioPage voiceProfiles={voiceProfiles} engineCaps={engineCaps} />
             )
           )}
 
