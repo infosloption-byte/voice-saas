@@ -46,6 +46,8 @@ interface Job {
   filename: string
   duration: number
   poster: string
+  posterImage: string | null
+  videoUrl: string | null
   isUpload: boolean
   sourceLang: LangCode
   targetLang: LangCode
@@ -166,7 +168,7 @@ function buildPlaceholderSegments(duration: number, target: LangCode): Segment[]
 
 function makeDemoJob(filename: string, favorite: boolean, posterIdx: number): Job {
   return {
-    id: uid(), filename, duration: 18, poster: POSTER_GRADIENTS[posterIdx], isUpload: false,
+    id: uid(), filename, duration: 18, poster: POSTER_GRADIENTS[posterIdx], posterImage: null, videoUrl: null, isUpload: false,
     sourceLang: 'en', targetLang: 'es', voiceId: 'claribel', engine: 'xtts',
     status: 'done', progress: 100, error: null,
     segments: buildDemoSegments('es'), hasResult: true, favorite,
@@ -210,6 +212,13 @@ export function DubbingStudioPage() {
   const [draft, setDraft] = useState('')
 
   const timelineRef = useRef<HTMLDivElement | null>(null)
+  const monitorVideoRef = useRef<HTMLVideoElement | null>(null)
+  const jobsRef = useRef<Job[]>(jobs)
+  useEffect(() => { jobsRef.current = jobs }, [jobs])
+  // Revoke every still-live blob URL when the studio unmounts.
+  useEffect(() => () => {
+    jobsRef.current.forEach(j => { if (j.videoUrl) URL.revokeObjectURL(j.videoUrl) })
+  }, [])
 
   const job = jobs.find(j => j.id === selectedJobId) ?? null
   const segment = job?.segments.find(s => s.id === selectedSegId) ?? null
@@ -217,9 +226,10 @@ export function DubbingStudioPage() {
 
   useEffect(() => { setDraft(segment?.translated ?? '') }, [segment?.id])
 
-  // Playhead animation
+  // Playhead animation — only for jobs with no real file (simulated demo/placeholder clips).
+  // Real uploads are driven by the <video> element's own timeupdate event instead (see effects below).
   useEffect(() => {
-    if (!playing || !job) return
+    if (!playing || !job || job.videoUrl) return
     let raf = 0
     let last = performance.now()
     const tick = (now: number) => {
@@ -234,7 +244,24 @@ export function DubbingStudioPage() {
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [playing, job?.id, job?.duration])
+  }, [playing, job?.id, job?.duration, job?.videoUrl])
+
+  // Real video playback — keep the <video> element's play/pause state in sync.
+  useEffect(() => {
+    const v = monitorVideoRef.current
+    if (!v || !job?.videoUrl) return
+    if (playing) v.play().catch(() => {})
+    else v.pause()
+  }, [playing, job?.id, job?.videoUrl])
+
+  // Real video playback — seek the element when `time` changes for a reason other than
+  // its own playback (clicking the timeline, selecting a segment, skip-back, etc). The
+  // threshold lets normal timeupdate ticks pass through without fighting themselves.
+  useEffect(() => {
+    const v = monitorVideoRef.current
+    if (!v || !job?.videoUrl) return
+    if (Math.abs(v.currentTime - time) > 0.35) v.currentTime = time
+  }, [time, job?.id, job?.videoUrl])
 
   // Keyboard shortcuts (ignored while typing)
   useEffect(() => {
@@ -331,6 +358,8 @@ export function DubbingStudioPage() {
 
   function confirmDelete(id: string) {
     setJobs(js => {
+      const target = js.find(j => j.id === id)
+      if (target?.videoUrl) URL.revokeObjectURL(target.videoUrl)
       const next = js.filter(j => j.id !== id)
       if (selectedJobId === id) {
         const n = next[0]
@@ -360,7 +389,7 @@ export function DubbingStudioPage() {
     toast.ok(`Exported dubbed_${job.filename}`)
   }
 
-  function submitDialog(form: { voiceId: VoiceId; engine: EngineId; sourceLang: 'auto' | LangCode; targetLang: LangCode; file: File | null; uploadDuration: number | null }) {
+  function submitDialog(form: { voiceId: VoiceId; engine: EngineId; sourceLang: 'auto' | LangCode; targetLang: LangCode; file: File | null; uploadDuration: number | null; videoUrl: string | null; posterImage: string | null }) {
     if (!dialog) return
     if (dialog.mode === 'new') {
       const filename = form.file?.name ?? `upload-${Date.now()}.mp4`
@@ -368,7 +397,8 @@ export function DubbingStudioPage() {
       const duration = form.uploadDuration ?? 18
       const segments = isUpload ? buildPlaceholderSegments(duration, form.targetLang) : buildDemoSegments(form.targetLang)
       const newJob: Job = {
-        id: uid(), filename, duration, poster: POSTER_GRADIENTS[jobs.length % POSTER_GRADIENTS.length], isUpload,
+        id: uid(), filename, duration, poster: POSTER_GRADIENTS[jobs.length % POSTER_GRADIENTS.length],
+        posterImage: form.posterImage, videoUrl: form.videoUrl, isUpload,
         sourceLang: form.sourceLang === 'auto' ? 'en' : form.sourceLang, targetLang: form.targetLang,
         voiceId: form.voiceId, engine: form.engine, status: 'queued', progress: 0, error: null,
         segments, hasResult: false, favorite: false,
@@ -477,7 +507,10 @@ export function DubbingStudioPage() {
                 const stageLabel = PIPELINE_STAGES.find(s => s.status === j.status)?.label ?? j.status
                 return (
                   <button key={j.id} className={`ds-card ${j.id === selectedJobId ? 'ds-card--active' : ''}`} onClick={() => selectJob(j.id)}>
-                    <div className="ds-card__thumb" style={{ background: j.poster }}>
+                    <div
+                      className="ds-card__thumb"
+                      style={j.posterImage ? { background: `center/cover no-repeat url(${j.posterImage})` } : { background: j.poster }}
+                    >
                       <span className="ds-card__dur">{fmt(Math.round(j.duration))}</span>
                       {running && <span className="ds-card__stage">{stageLabel}</span>}
                       <button
@@ -504,9 +537,23 @@ export function DubbingStudioPage() {
             <div className="ds-monitor" onClick={() => job && setPlaying(p => !p)}>
               {job ? (
                 <>
-                  <div className="ds-monitor__frame" style={{ background: job.poster }}>
-                    <div className="ds-monitor__glow" style={{ opacity: playing ? 0.85 : 0.55 }} />
-                  </div>
+                  {job.videoUrl ? (
+                    <video
+                      key={job.id}
+                      ref={monitorVideoRef}
+                      className="ds-monitor__video"
+                      src={job.videoUrl}
+                      poster={job.posterImage ?? undefined}
+                      muted
+                      playsInline
+                      onTimeUpdate={e => setTime(e.currentTarget.currentTime)}
+                      onEnded={() => setPlaying(false)}
+                    />
+                  ) : (
+                    <div className="ds-monitor__frame" style={{ background: job.poster }}>
+                      <div className="ds-monitor__glow" style={{ opacity: playing ? 0.85 : 0.55 }} />
+                    </div>
+                  )}
                   <span className="ds-monitor__tc">{fmtTC(time)} · {previewMode === 'src' ? 'SRC' : 'DUB'}</span>
                   {activeCaption && (
                     <span className="ds-monitor__caption">
@@ -690,7 +737,13 @@ export function DubbingStudioPage() {
 
                 <div className="ds-lane ds-lane--video" onMouseDown={e => seekTimeline(e.clientX)}>
                   {Array.from({ length: FILMSTRIP_FRAMES }).map((_, i) => (
-                    <div key={i} className="ds-frame" style={{ filter: `brightness(${0.55 + (i % 5) * 0.09})` }} />
+                    <div
+                      key={i}
+                      className="ds-frame"
+                      style={job.posterImage
+                        ? { background: `center/cover no-repeat url(${job.posterImage})`, filter: `brightness(${0.65 + (i % 5) * 0.07})` }
+                        : { filter: `brightness(${0.55 + (i % 5) * 0.09})` }}
+                    />
                   ))}
                 </div>
 
@@ -717,73 +770,137 @@ export function DubbingStudioPage() {
 
 // ── New Dub / Retry modal ──────────────────────────────────────
 
+function captureFrame(video: HTMLVideoElement): string | null {
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth || 320
+    canvas.height = video.videoHeight || 180
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/jpeg', 0.72)
+  } catch {
+    return null
+  }
+}
+
 function NewDubDialog({
   mode, retryJob, onClose, onSubmit,
 }: {
   mode: 'new' | 'retry'
   retryJob: Job | null
   onClose: () => void
-  onSubmit: (form: { voiceId: VoiceId; engine: EngineId; sourceLang: 'auto' | LangCode; targetLang: LangCode; file: File | null; uploadDuration: number | null }) => void
+  onSubmit: (form: { voiceId: VoiceId; engine: EngineId; sourceLang: 'auto' | LangCode; targetLang: LangCode; file: File | null; uploadDuration: number | null; videoUrl: string | null; posterImage: string | null }) => void
 }) {
   const [file, setFile] = useState<File | null>(null)
+  const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [uploadDuration, setUploadDuration] = useState<number | null>(null)
+  const [posterImage, setPosterImage] = useState<string | null>(null)
   const [voiceId, setVoiceId] = useState<VoiceId>(retryJob?.voiceId ?? 'claribel')
   const [engine, setEngine] = useState<EngineId>(retryJob?.engine ?? 'xtts')
   const [sourceLang, setSourceLang] = useState<'auto' | LangCode>(retryJob?.sourceLang ?? 'auto')
   const [targetLang, setTargetLang] = useState<LangCode>(retryJob?.targetLang ?? 'es')
   const [dragOver, setDragOver] = useState(false)
-  const videoProbeRef = useRef<HTMLVideoElement | null>(null)
+  const previewRef = useRef<HTMLVideoElement | null>(null)
+  const submittedRef = useRef(false)
+  const urlRef = useRef<string | null>(null)
 
-  function readFile(f: File) {
-    setFile(f)
-    setUploadDuration(null)
+  // Revoke the blob URL on unmount unless it was handed off to a real job via Start dubbing.
+  useEffect(() => () => {
+    if (!submittedRef.current && urlRef.current) URL.revokeObjectURL(urlRef.current)
+  }, [])
+
+  function pickFile(f: File) {
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current)
     const url = URL.createObjectURL(f)
-    const v = videoProbeRef.current
-    if (!v) return
-    const onMeta = () => {
-      setUploadDuration(v.duration && isFinite(v.duration) ? v.duration : 18)
-      URL.revokeObjectURL(url)
-      v.removeEventListener('loadedmetadata', onMeta)
-    }
-    v.addEventListener('loadedmetadata', onMeta)
-    v.src = url
+    urlRef.current = url
+    setFile(f)
+    setVideoUrl(url)
+    setUploadDuration(null)
+    setPosterImage(null)
+  }
+
+  function clearFile() {
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current)
+    urlRef.current = null
+    setFile(null); setVideoUrl(null); setUploadDuration(null); setPosterImage(null)
   }
 
   function onFilePick(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
-    if (f) readFile(f)
+    if (f) pickFile(f)
   }
 
   function onDrop(e: React.DragEvent) {
     e.preventDefault()
     setDragOver(false)
     const f = e.dataTransfer.files?.[0]
-    if (f) readFile(f)
+    if (f) pickFile(f)
+  }
+
+  function onPreviewLoadedMeta() {
+    const v = previewRef.current
+    if (!v) return
+    const d = v.duration && isFinite(v.duration) ? v.duration : 18
+    setUploadDuration(d)
+    // Nudge to a representative frame so the captured poster isn't a black first frame.
+    v.currentTime = Math.min(d / 3, 3)
+  }
+
+  function onPreviewSeeked() {
+    const v = previewRef.current
+    if (!v) return
+    const frame = captureFrame(v)
+    if (frame) setPosterImage(frame)
   }
 
   const canStart = mode === 'retry' || !!file
 
+  function start() {
+    submittedRef.current = true
+    onSubmit({ voiceId, engine, sourceLang, targetLang, file, uploadDuration, videoUrl, posterImage })
+  }
+
   return (
     <div className="ds-modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="ds-modal">
-        <video ref={videoProbeRef} style={{ display: 'none' }} muted />
         <div className="ds-modal__head">
           <h3>{mode === 'new' ? 'New dub' : 'Dub again'}</h3>
           <button className="ds-icon-btn" onClick={onClose}>{icons.close}</button>
         </div>
 
         {mode === 'new' ? (
-          <label
-            className={`ds-dropzone ${dragOver ? 'ds-dropzone--over' : ''}`}
-            onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={onDrop}
-          >
-            <input type="file" accept="video/mp4,video/quicktime,video/webm,video/x-matroska" hidden onChange={onFilePick} />
-            {icons.upload}
-            <span>{file ? file.name : 'Drop or pick a video'}</span>
-            <span className="ds-dropzone__hint">MP4, MOV, WebM, MKV · max 200 MB{uploadDuration ? ` · ${fmtTC(uploadDuration)}` : ''}</span>
-          </label>
+          file ? (
+            <div className="ds-preview">
+              <video
+                ref={previewRef}
+                className="ds-preview__video"
+                src={videoUrl ?? undefined}
+                controls
+                muted
+                playsInline
+                onLoadedMetadata={onPreviewLoadedMeta}
+                onSeeked={onPreviewSeeked}
+              />
+              <div className="ds-preview__meta">
+                <span className="ds-preview__name">{file.name}</span>
+                <span className="ds-preview__dur">{uploadDuration ? fmtTC(uploadDuration) : 'Reading…'}</span>
+                <button type="button" className="btn btn--ghost" onClick={clearFile}>Change file</button>
+              </div>
+            </div>
+          ) : (
+            <label
+              className={`ds-dropzone ${dragOver ? 'ds-dropzone--over' : ''}`}
+              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={onDrop}
+            >
+              <input type="file" accept="video/mp4,video/quicktime,video/webm,video/x-matroska" hidden onChange={onFilePick} />
+              {icons.upload}
+              <span>Drop or pick a video</span>
+              <span className="ds-dropzone__hint">MP4, MOV, WebM, MKV · max 200 MB</span>
+            </label>
+          )
         ) : (
           <div className="ds-retrynote">
             <strong>{retryJob?.filename}</strong> will be reused — no re-upload needed.
@@ -832,11 +949,7 @@ function NewDubDialog({
           </label>
         </div>
 
-        <button
-          className="btn btn--primary ds-modal__start"
-          disabled={!canStart}
-          onClick={() => onSubmit({ voiceId, engine, sourceLang, targetLang, file, uploadDuration })}
-        >
+        <button className="btn btn--primary ds-modal__start" disabled={!canStart} onClick={start}>
           Start dubbing
         </button>
       </div>
