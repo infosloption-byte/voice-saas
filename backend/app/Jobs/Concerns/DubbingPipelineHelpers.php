@@ -66,6 +66,36 @@ trait DubbingPipelineHelpers
         return $resp->json('segments') ?? [];
     }
 
+    /**
+     * Same call as transcribeSegments(), but also surfaces the response's
+     * top-level `language` field (Whisper's own detected source language)
+     * instead of discarding it. Added for ExtractAudioAssetJob (task #15
+     * Phase 4), which — unlike PrepareDubbingJob — has somewhere to
+     * actually persist it (VideoProjectAsset::detected_language). Kept as
+     * a separate method rather than changing transcribeSegments()'s
+     * return shape, so PrepareDubbingJob's existing `$this->
+     * transcribeSegments($engineUrl, $audioPath)` call (which expects a
+     * plain segments array) doesn't have to change.
+     *
+     * @return array{segments: array, language: ?string}
+     */
+    private function transcribeSegmentsWithLanguage(string $engineUrl, string $audioPath): array
+    {
+        $resp = Http::withHeaders($this->engineHeaders())
+            ->timeout(180)
+            ->attach('file', file_get_contents($audioPath), 'audio.wav')
+            ->post($engineUrl . '/transcribe/segments');
+
+        if (! $resp->successful()) {
+            throw new \RuntimeException("Transcription failed ({$resp->status()}): {$resp->body()}");
+        }
+
+        return [
+            'segments' => $resp->json('segments') ?? [],
+            'language' => $resp->json('language'),
+        ];
+    }
+
     private function translateSegment(
         string $engineUrl, string $text, string $sourceLang, string $targetLang,
         string $contextBefore = '', string $contextAfter = ''
