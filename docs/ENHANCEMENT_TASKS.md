@@ -23,7 +23,7 @@
 | 12 | Design-tool integrations | P3 | Not started |
 | 13 | Voice marketplace | P3 | Not started |
 | 14 | Native mobile app | P3 | Not started |
-| 15 | Video Studio — dubbing becomes one feature of a full multi-asset video editor (media bin w/ video+image+audio, real multi-lane timeline, extract-audio→transcribe→clone-resynthesize, render) | P1 | 🔧 Phases 0-1 done Aug 26, 2026 (rename/UI polish + project data model/list page) · Phases 2-6 planned below, not started |
+| 15 | Video Studio — dubbing becomes one feature of a full multi-asset video editor (media bin w/ video+image+audio, real multi-lane timeline, extract-audio→transcribe→clone-resynthesize, render) | P1 | 🔧 Phases 0-2 done Aug 26, 2026 (rename/UI polish + project data model/list page + multi-type bin upload) · Phases 3-6 planned below, not started |
 
 ---
 
@@ -521,10 +521,16 @@ Picked up the two gaps this doc had explicitly flagged and left open: task #6's 
 - **Verification, honestly stated:** every backend file passed a real `php -l` syntax check (PHP CLI was installed into this sandbox specifically to do this, rather than relying on manual brace-counting like earlier passes in this doc had to). What did **not** happen: actually running the migrations or booting Laravel — `composer install` needs `packagist.org`, which this sandbox's network allowlist blocks (`403 host_not_allowed`, confirmed directly). So the backend is syntax-verified only, not run-verified — the same category of gap task #6a's own retirement note called out, just caught and flagged this time instead of discovered five phases later. The frontend, by contrast, got a real `tsc -b` + `vite build` + `eslint` pass, since Node tooling doesn't hit the same network restriction.
 - **Next, before Phase 2 starts:** run `php artisan migrate` against a real dev DB and confirm both tables actually exist, then submit one real dub from inside a project end-to-end (create project → submit → confirm the bin asset row appears → confirm the media library shows only that project's job) — the exact live-test task #6a skipped.
 
-**Phase 2 — media bin: multi-type upload:**
-- Add `VideoProjectController::addAsset()` — Phase 1 shipped no general upload endpoint; it only wired `VideoDubbingController::submit()` to create a bin asset as a side effect of starting a dub. Phase 2's `addAsset()` is the first way to add a video/image/audio file to a project's bin *without* immediately dubbing it, which is what "dub this clip later" (Phase 3) actually requires existing for.
-- Media library card rendering grows an icon/placeholder per kind (image: real thumbnail same as today's video frame capture; audio: waveform/mic icon, no thumbnail).
-- Assets uploaded but not yet placed on the timeline sit in the bin, same interaction as today's job cards.
+**Phase 2 — media bin: multi-type upload (✅ done Aug 26, 2026):**
+- `VideoProjectController::addAsset()` — Phase 1 shipped no general upload endpoint; it only wired `VideoDubbingController::submit()` to create a bin asset as a side effect of starting a dub. Phase 2's `addAsset()` is the first way to add a video/image/audio file to a project's bin *without* immediately dubbing it — one file per request (see the method's own docblock for why not a batch endpoint), mimetype-sniffed into `kind`, `ffprobe`-duration'd for video/audio via the same disk-agnostic tmp-file pattern `PrepareDubbingJob` uses (reads back through `Storage::readStream()` rather than assuming a local disk path, since `VIDEO_DISK` can be `s3`).
+- `VideoProjectController::assetFile()` (read) and `deleteAsset()` (remove) — new. `assetFile()` only serves plain-upload assets (a `dubbed` asset's file is read through its `dubbing_job_id` via the existing `VideoDubbingController::result()`/`source()` instead — see the method's docblock); `deleteAsset()` only touches storage for a non-job-backed asset, same "don't reach into another feature's storage lifecycle" boundary `destroy()` already established.
+- Routes: `addAsset` shares `/dubbing/submit`'s action-tier throttle (real upload + ffprobe work), `assetFile` shares the 60/min read tier, `deleteAsset` shares the destructive-tier group.
+- Frontend: `DubbingStudioPage`'s media library now fetches and renders the project's plain (not-yet-dubbed) bin assets alongside its existing job cards — images show a real thumbnail, video/audio show a kind icon, each with a delete action. The **"+ Add files" button and the library's drop-zone were rewired away from the dub dialog** to this new uploader (multi-file native picker + real HTML5 drag-drop onto the drop-zone) — see the two immediate fixes below for why this was urgent enough to do inside Phase 2 rather than wait.
+- **Verification:** real `php -l` on the backend changes (still not run-verified — same `packagist.org` network-block caveat as Phase 1); real `tsc -b` + `vite build` + `eslint` on the frontend, all clean.
+
+**Two things fixed alongside Phase 2, flagged by the person building this from an actual screenshot:**
+1. **"+ Add files" was opening the dub-submission dialog, not a file uploader.** Confirmed via screenshot — clicking it in project context popped the "New dub" modal (voice/engine/language pickers), which is for starting a dub, not for adding a plain file to the bin. Rewired both "+ Add files" and the drop-zone to the new `addAsset()`-backed uploader (any mix of video/audio/image, multiple files, sequential upload since `addAsset` is throttled 5/min server-side). **The "New dub" dialog itself was NOT removed or changed** — per explicit instruction, it's still there, still fully wired, and is exactly what Phase 3's "Dub this clip" bin operation will trigger later. It only remains reachable via the transport bar's own "+ New dub" button now, and via the legacy (no-project) "+ Add files" fallback for any stale pre-Phase-1 session.
+2. **Creating a new video project silently named it "Untitled project" with no prompt.** `VideoProjectsPage.tsx` now opens a small name-entry modal (autofocus, Enter-to-submit) before calling `createVideoProject()` and navigating in — an empty name still falls back to "Untitled project" server-side (unchanged default), so leaving the field blank and hitting Enter still works the same as before, it's just no longer the *only* path.
 
 **Phase 3 — "Dub this clip" as a bin operation:**
 - `VideoProjectController::dubClip()` — adapt 6a Phase 2's design (copy the bin asset's file into a project-scoped `DubbingJob`, dispatch the existing unmodified `PrepareDubbingJob`, create a `dubbed`-kind pending asset, poll-on-read status sync via `show()`). The *design* here was already sound in 6a's code (confirmed by re-reading it before it was deleted); it just never got a live test. Carrying the shape forward, not the code (deleted), since a clean rebuild against the new schema is simpler than trying to resurrect deleted files.
@@ -562,7 +568,7 @@ Picked up the two gaps this doc had explicitly flagged and left open: task #6's 
 5. Public API tier *(P1, medium)*
 6. System-health public status page *(P2, easy — can slot in anytime as a quick win)*
 7. Video dubbing MVP *(P1, medium–large)* — backend done, frontend pending
-7a. Video Studio expansion *(P1, large, phased — see task #15)* — Phases 0-1 (rename/UI polish + project data model/list page) done; Phases 2-6 planned, not started
+7a. Video Studio expansion *(P1, large, phased — see task #15)* — Phases 0-2 (rename/UI polish + project data model/list page + multi-type bin upload) done; Phases 3-6 planned, not started
 8. No-signup "try your voice" widget *(P2, medium)*
 9. SFX lane *(P2, medium)*
 10. Base model quality tier (proxy option first) *(P1, large but high-leverage)*

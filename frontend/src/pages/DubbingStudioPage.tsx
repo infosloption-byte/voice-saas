@@ -7,7 +7,7 @@ import { useTTSEngine } from '../hooks/useTTSEngine'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { EngineSwitcher } from '../components/EngineSwitcher'
 import { DubbingTimelineEditor } from '../components/DubbingTimelineEditor'
-import type { VoiceProfile, EngineCaps } from '../lib/types'
+import type { VoiceProfile, EngineCaps, VideoProjectAsset } from '../lib/types'
 import './dubbing-studio.css'
 
 /**
@@ -222,6 +222,72 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
     pollRef.current = setInterval(refreshList, LIST_POLL_MS)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [refreshList])
+
+  // ── Bin assets — task #15 Phase 2. Plain (not-yet-dubbed) uploads live
+  // in video_project_assets, separate from the DubbingJob-backed cards
+  // above. Only meaningful with a project open (assets are inherently
+  // project-scoped — see the migration); no polling here, unlike jobs,
+  // since Phase 2's addAsset() is synchronous (no background processing
+  // status to watch) — a plain refetch after each upload/delete is enough.
+  const [assets, setAssets] = useState<VideoProjectAsset[]>([])
+
+  const refreshAssets = useCallback(async () => {
+    if (!videoProjectId) { setAssets([]); return }
+    try {
+      const res = await api.fetchVideoProject(videoProjectId) as { assets?: VideoProjectAsset[] }
+      setAssets(res.assets ?? [])
+    } catch {
+      // Transient network hiccup — next explicit upload/delete will retry via its own call.
+    }
+  }, [videoProjectId])
+
+  useEffect(() => { refreshAssets() }, [refreshAssets])
+
+  // Assets not already represented by a job card above (a dubbed/dubbing
+  // asset shows through its DubbingJob card instead — see the jobs list;
+  // rendering both would duplicate the same clip twice in the library).
+  const plainAssets = useMemo(() => assets.filter(a => !a.dubbing_job_id), [assets])
+
+  const [uploadingCount, setUploadingCount] = useState(0)
+  const bulkFileInputRef = useRef<HTMLInputElement | null>(null)
+
+  async function uploadFiles(files: FileList | File[]) {
+    if (!videoProjectId) return
+    const list = Array.from(files)
+    if (list.length === 0) return
+    setUploadingCount(c => c + list.length)
+    // Sequential, not Promise.all: addAsset() is throttled 5/min server-side
+    // (see routes/api.php) — firing many uploads in parallel would just
+    // trip that limit for large multi-file drops instead of uploading faster.
+    for (const file of list) {
+      try {
+        await api.addVideoProjectAsset(videoProjectId, file)
+      } catch (e) {
+        toast.err(e instanceof ApiError ? `${file.name}: ${e.message}` : `${file.name}: upload failed.`)
+      } finally {
+        setUploadingCount(c => Math.max(0, c - 1))
+      }
+    }
+    refreshAssets()
+  }
+
+  function triggerFilePicker() {
+    bulkFileInputRef.current?.click()
+  }
+
+  const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null)
+  async function deleteAsset(assetId: string) {
+    if (!videoProjectId) return
+    setDeletingAssetId(assetId)
+    try {
+      await api.deleteVideoProjectAsset(videoProjectId, assetId)
+      setAssets(prev => prev.filter(a => a.id !== assetId))
+    } catch (e) {
+      toast.err(e instanceof ApiError ? e.message : 'Failed to delete file.')
+    } finally {
+      setDeletingAssetId(null)
+    }
+  }
 
   // Lazily backfill real thumbnails for any job that doesn't already have
   // a client-captured poster (i.e. everything from before this page load).
@@ -525,9 +591,26 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
           {/* ── Media library ─────────────────────────────────── */}
           <aside className={`ds-library ${mobileLibOpen ? 'ds-library--open' : ''}`}>
             <div className="ds-library__head">
-              <button className="btn btn--primary ds-library__add" onClick={() => setDialog({ mode: 'new' })}>
+              <button
+                className="btn btn--primary ds-library__add"
+                onClick={() => (videoProjectId ? triggerFilePicker() : setDialog({ mode: 'new' }))}
+                title={videoProjectId ? 'Upload video, audio, or image files to this project' : undefined}
+              >
                 {icons.plus}<span>Add files</span>
               </button>
+              {/* Hidden picker backing the button above and the drop zone
+                  below — task #15 Phase 2. Only used in project context;
+                  see the button's onClick for the legacy (no project)
+                  fallback to the dub dialog, kept for any pre-Phase-1
+                  restored session (see DubbingStudioPage's own props docblock). */}
+              <input
+                ref={bulkFileInputRef}
+                type="file"
+                multiple
+                accept="video/*,audio/*,image/*"
+                style={{ display: 'none' }}
+                onChange={e => { if (e.target.files) uploadFiles(e.target.files); e.target.value = '' }}
+              />
             </div>
             <div className="ds-library__chips">
               {(['all', 'favorites'] as LibFilter[]).map(f => (
@@ -542,7 +625,9 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
             </div>
             <div className="ds-library__grid">
               {!listLoaded && <div className="ds-library__empty">Loading…</div>}
-              {listLoaded && filteredJobs.length === 0 && <div className="ds-library__empty">No files match.</div>}
+              {listLoaded && filteredJobs.length === 0 && plainAssets.length === 0 && uploadingCount === 0 && (
+                <div className="ds-library__empty">No files match.</div>
+              )}
               {filteredJobs.map((j, i) => {
                 const running = isJobRunning(j)
                 const stageLabel = STAGE_META[j.status]?.label ?? j.status
@@ -583,8 +668,58 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
                   </button>
                 )
               })}
+
+              {/* Task #15 Phase 2 — plain bin assets (not yet dubbed):
+                  images, audio, and videos uploaded via "Add files" that
+                  haven't had "Dub this clip" run on them. No selection/
+                  preview interaction wired yet — that's Phase 3 (dubClip())
+                  and Phase 5 (timeline); Phase 2 is upload+list+delete only. */}
+              {plainAssets.map(a => (
+                <div key={a.id} className="ds-card ds-card--asset">
+                  <div className="ds-card__thumb" style={{ background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>
+                    {a.kind === 'image' ? (
+                      <img src={api.videoProjectAssetFileUrl(videoProjectId!, a.id)} alt={a.original_filename ?? ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <span>{a.kind === 'audio' ? '🎵' : '🎞️'}</span>
+                    )}
+                    {a.duration_seconds != null && <span className="ds-card__dur">{fmtDuration(a.duration_seconds)}</span>}
+                    <button
+                      className="ds-card__fav"
+                      onClick={e => { e.stopPropagation(); deleteAsset(a.id) }}
+                      title="Delete file"
+                      disabled={deletingAssetId === a.id}
+                    >
+                      {deletingAssetId === a.id ? <span className="spinner" style={{ width: 9, height: 9 }} /> : icons.trash}
+                    </button>
+                  </div>
+                  <div className="ds-card__meta">
+                    <span className="ds-card__name">{a.original_filename ?? 'Untitled'}</span>
+                    <span className="ds-card__langs">Not dubbed</span>
+                  </div>
+                </div>
+              ))}
+
+              {uploadingCount > 0 && (
+                <div className="ds-card ds-card--asset" style={{ opacity: 0.6 }}>
+                  <div className="ds-card__thumb" style={{ background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span className="spinner" />
+                  </div>
+                  <div className="ds-card__meta">
+                    <span className="ds-card__name">Uploading {uploadingCount} file{uploadingCount !== 1 ? 's' : ''}…</span>
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="ds-library__drop" onClick={() => setDialog({ mode: 'new' })}>
+            <div
+              className="ds-library__drop"
+              onClick={() => (videoProjectId ? triggerFilePicker() : setDialog({ mode: 'new' }))}
+              onDragOver={e => { if (videoProjectId) e.preventDefault() }}
+              onDrop={e => {
+                if (!videoProjectId) return
+                e.preventDefault()
+                if (e.dataTransfer.files?.length) uploadFiles(e.dataTransfer.files)
+              }}
+            >
               Drop files here or click to upload
             </div>
           </aside>

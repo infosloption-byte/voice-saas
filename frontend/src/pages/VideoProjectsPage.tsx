@@ -30,6 +30,12 @@ export function VideoProjectsPage({ onOpen }: { onOpen: (id: string) => void }) 
   const confirmProject = projects.find(p => p.id === confirmId)
   useEscapeKey(() => setConfirmId(null), confirmId !== null && !deleting)
 
+  // New-project name prompt — asks for a name before creating/navigating,
+  // instead of silently creating "Untitled project" on click.
+  const [namePromptOpen, setNamePromptOpen] = useState(false)
+  const [newName, setNewName] = useState('')
+  useEscapeKey(() => { if (!creating) setNamePromptOpen(false) }, namePromptOpen)
+
   async function load() {
     setLoading(true)
     setLoadError(null)
@@ -45,11 +51,17 @@ export function VideoProjectsPage({ onOpen }: { onOpen: (id: string) => void }) 
 
   useEffect(() => { load() }, [])
 
+  function openNamePrompt() {
+    setNewName('')
+    setNamePromptOpen(true)
+  }
+
   async function createProject() {
     setCreating(true)
     try {
-      const project = await api.createVideoProject() as VideoProject
+      const project = await api.createVideoProject(newName.trim() || undefined) as VideoProject
       toast.ok('Video project created.')
+      setNamePromptOpen(false)
       onOpen(project.id)
     } catch (e) {
       toast.err(e instanceof ApiError ? e.message : 'Failed to create video project.')
@@ -102,9 +114,9 @@ export function VideoProjectsPage({ onOpen }: { onOpen: (id: string) => void }) 
       </div>
 
       <div className="project-grid">
-        <button className="project-card project-card--new" onClick={createProject} disabled={creating}>
+        <button className="project-card project-card--new" onClick={openNamePrompt} disabled={creating}>
           <div className="project-card--new__inner">
-            {creating ? <span className="spinner" /> : <div className="project-card--new__icon">{icons.plus}</div>}
+            <div className="project-card--new__icon">{icons.plus}</div>
             <span className="project-card--new__label">New video project</span>
             <span className="project-card--new__hint">Upload a video, image, or audio clip to start</span>
           </div>
@@ -155,6 +167,31 @@ export function VideoProjectsPage({ onOpen }: { onOpen: (id: string) => void }) 
           </div>
         ))}
       </div>
+
+      {namePromptOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Name your video project" onClick={() => !creating && setNamePromptOpen(false)}>
+          <div className="modal" style={{ maxWidth: 380 }} onClick={e => e.stopPropagation()}>
+            <div className="modal__title">Name your video project</div>
+            <div className="modal__body">
+              <input
+                autoFocus
+                className="full-input"
+                placeholder="Untitled project"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !creating) createProject() }}
+                maxLength={255}
+              />
+            </div>
+            <div className="modal__actions">
+              <button className="btn btn--ghost" onClick={() => setNamePromptOpen(false)} disabled={creating}>Cancel</button>
+              <button className="btn btn--primary" onClick={createProject} disabled={creating}>
+                {creating ? <span className="spinner" /> : 'Create project'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmId && confirmProject && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete video project" onClick={() => !deleting && setConfirmId(null)}>

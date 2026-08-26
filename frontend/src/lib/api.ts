@@ -417,6 +417,27 @@ class ApiClient {
     return this.delete(`/video-projects/${id}`)
   }
 
+  /**
+   * Task #15 Phase 2 — uploads one video/audio/image file straight into a
+   * project's bin (no dubbing started). One call per file — see
+   * VideoProjectController::addAsset()'s docblock for why this isn't a
+   * multi-file batch endpoint.
+   */
+  addVideoProjectAsset(projectId: string, file: File, onProgress?: (pct: number) => void): Promise<unknown> {
+    const fd = new FormData()
+    fd.append('file', file)
+    return this.postWithProgress(`/video-projects/${projectId}/assets`, fd, onProgress)
+  }
+
+  deleteVideoProjectAsset(projectId: string, assetId: string): Promise<unknown> {
+    return this.delete(`/video-projects/${projectId}/assets/${assetId}`)
+  }
+
+  /** Direct URL for a plain-upload bin asset's own file (video/audio/image) — for <video>/<audio>/<img> src, not a fetch() call. NOT valid for a 'dubbed' asset; use the job's own source()/result() URL instead (see VideoProjectController::assetFile()'s docblock). */
+  videoProjectAssetFileUrl(projectId: string, assetId: string): string {
+    return `${LARAVEL_API}/video-projects/${projectId}/assets/${assetId}/file`
+  }
+
 }
 
 export const api = new ApiClient()

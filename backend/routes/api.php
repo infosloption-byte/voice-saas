@@ -181,6 +181,29 @@ Route::middleware(['auth:sanctum', 'throttle:15,1'])->group(function () {
         ->where('id', '[A-Za-z0-9\-]{1,64}');
 });
 
+// Task #15 Phase 2 — media bin asset upload. Same weight/throttle
+// reasoning as /dubbing/submit just below (real file upload, real disk
+// I/O, ffprobe on video/audio) rather than the cheap-CRUD tier above.
+Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
+    Route::post('/video-projects/{id}/assets', [VideoProjectController::class, 'addAsset'])
+        ->where('id', '[A-Za-z0-9\-]{1,64}');
+});
+
+// Asset file read — same 60/min read tier as /dubbing/source and
+// /dubbing/result, since the media library's thumbnails/previews poll
+// this per asset the same way those poll per job.
+Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
+    Route::get('/video-projects/{id}/assets/{assetId}/file', [VideoProjectController::class, 'assetFile'])
+        ->where(['id' => '[A-Za-z0-9\-]{1,64}', 'assetId' => '[A-Za-z0-9\-]{1,64}']);
+});
+
+// Asset delete — same destructive-tier reasoning as the project delete
+// group just above.
+Route::middleware(['auth:sanctum', 'throttle:15,1'])->group(function () {
+    Route::delete('/video-projects/{id}/assets/{assetId}', [VideoProjectController::class, 'deleteAsset'])
+        ->where(['id' => '[A-Za-z0-9\-]{1,64}', 'assetId' => '[A-Za-z0-9\-]{1,64}']);
+});
+
 // ── Video dubbing (task #6, authenticated, queued job) ─────────────────
 // No guest tier: unlike clone-voice/translate, a dubbing job consumes both
 // translation AND synthesis quota plus real ffmpeg/GPU time per video, so
