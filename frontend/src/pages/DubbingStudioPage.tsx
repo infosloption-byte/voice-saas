@@ -462,8 +462,9 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
   // Keyboard shortcuts (ignored while typing)
   useEscapeKey(() => {
     if (dialog) setDialog(null)
+    else if (transcriptAssetId) setTranscriptAssetId(null)
     else if (deleteConfirmId) setDeleteConfirmId(null)
-  }, !!dialog || !!deleteConfirmId)
+  }, !!dialog || !!transcriptAssetId || !!deleteConfirmId)
 
   useEffect(() => {
     function isTyping(el: EventTarget | null) {
@@ -471,12 +472,12 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
       return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable
     }
     function onKey(e: KeyboardEvent) {
-      if (isTyping(e.target) || dialog) return
+      if (isTyping(e.target) || dialog || transcriptAssetId) return
       if (e.code === 'Space' && job && activeSrc) { e.preventDefault(); setPlaying(p => !p) }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [job, activeSrc, dialog])
+  }, [job, activeSrc, dialog, transcriptAssetId])
 
   function toggleFavorite(id: string) {
     setFavorites(prev => {
@@ -951,6 +952,30 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
           }}
         />
       )}
+
+      {/* Task #15 Phase 4, review step — matched by looking the asset up
+          in `assets` (not `plainAssets`): an extracted_audio asset never
+          has a dubbing_job_id, so it's always in plainAssets too, but
+          going through the same source list the cards render from keeps
+          this in sync with the poll effect without a second lookup path. */}
+      {transcriptAssetId && (() => {
+        const transcriptAsset = assets.find(a => a.id === transcriptAssetId)
+        return transcriptAsset ? (
+          <TranscriptReviewDialog
+            asset={transcriptAsset}
+            voiceProfiles={voiceProfiles}
+            engine={engine}
+            setEngine={setEngine}
+            engineCaps={caps}
+            videoProjectId={videoProjectId!}
+            onClose={() => setTranscriptAssetId(null)}
+            onResynthesized={() => {
+              setTranscriptAssetId(null)
+              refreshAssets()
+            }}
+          />
+        ) : null
+      })()}
     </div>
   )
 }
@@ -1208,6 +1233,150 @@ function NewDubDialog({
             ? (mode === 'new' && uploadProgress !== null ? `Uploading… ${uploadProgress}%` : 'Starting…')
             : 'Start dubbing'}
         </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Transcript review / resynthesize modal ──────────────────────
+//
+// Task #15 Phase 4, review + step 2. Opened from the "Review & clone
+// voice" button on a 'ready' extracted_audio card. Lets the user fix
+// transcription mistakes (PATCH .../transcript) before spending
+// synthesis quota, then pick a voice/engine/language and kick off
+// resynthesize() — same "save edits, then submit" two-call shape as
+// DubbingTimelineEditor's own review step, just without that
+// component's segment-timing/split/merge machinery: there's no target
+// video window here for a segment to fit, so all this needs is
+// editable text per segment plus the same voice/engine/language picker
+// NewDubDialog already uses for dubbing.
+
+function TranscriptReviewDialog({
+  asset, voiceProfiles, engine, setEngine, engineCaps, videoProjectId, onClose, onResynthesized,
+}: {
+  /** The 'extracted_audio' asset being reviewed — always 'ready' with a non-empty transcript_json by the time this dialog can be opened (see the card's own status gating). */
+  asset: VideoProjectAsset
+  voiceProfiles: VoiceProfile[]
+  engine: EngineId
+  setEngine: (e: EngineId) => void
+  engineCaps: EngineCaps
+  videoProjectId: string
+  onClose: () => void
+  /** Called once resynthesize() has been queued — parent closes the dialog and refetches the bin so the new synthesized_audio card shows up. */
+  onResynthesized: () => void
+}) {
+  const [segments, setSegments] = useState<VideoProjectAssetTranscriptSegment[]>(asset.transcript_json ?? [])
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [profileId, setProfileId] = useState(voiceProfiles[0]?.profile_id ?? '')
+  const [targetLang, setTargetLang] = useState('en')
+  const [submitting, setSubmitting] = useState(false)
+
+  function editSegment(id: string, text: string) {
+    setSegments(prev => prev.map(s => (s.id === id ? { ...s, text } : s)))
+    setDirty(true)
+  }
+
+  /** Saves any edited segment text. Returns false (and toasts) on failure so callers can bail out of a follow-on action (e.g. resynthesize). */
+  async function saveTranscript(): Promise<boolean> {
+    if (!dirty) return true
+    setSaving(true)
+    try {
+      const res = await api.updateVideoProjectAssetTranscript(
+        videoProjectId, asset.id,
+        segments.map(s => ({ id: s.id, text: s.text }))
+      )
+      setSegments(res.segments)
+      setDirty(false)
+      return true
+    } catch (e) {
+      toast.err(e instanceof ApiError ? e.message : 'Failed to save transcript changes.')
+      return false
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const effectiveProfileId = profileId || voiceProfiles[0]?.profile_id || ''
+  const canSubmit = !!effectiveProfileId && !!targetLang && !submitting && !saving && segments.length > 0
+
+  async function cloneVoice() {
+    if (!effectiveProfileId) { toast.err('Choose a voice to clone.'); return }
+    if (dirty && !(await saveTranscript())) return
+
+    setSubmitting(true)
+    try {
+      await api.resynthesizeVideoProjectAsset(videoProjectId, asset.id, {
+        voice_profile_id: effectiveProfileId,
+        engine,
+        language: targetLang,
+      })
+      toast.ok('Cloning voice…')
+      onResynthesized()
+    } catch (e) {
+      toast.err(e instanceof ApiError ? e.message : 'Failed to start voice cloning.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="ds-modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !submitting && !saving) onClose() }}>
+      <div className="ds-modal ds-modal--wide">
+        <div className="ds-modal__head">
+          <h3>Review transcript</h3>
+          <button className="ds-icon-btn" onClick={onClose} disabled={submitting || saving}>{icons.close}</button>
+        </div>
+
+        <audio className="ds-transcript__audio" src={api.videoProjectAssetFileUrl(videoProjectId, asset.id)} controls />
+
+        <div className="ds-transcript__list">
+          {segments.length === 0 ? (
+            <div className="ds-inspector__hint">No transcript segments to review.</div>
+          ) : segments.map(seg => (
+            <div key={seg.id} className="ds-transcript__row">
+              <span className="ds-transcript__time">{fmtDuration(seg.start)}</span>
+              <textarea
+                rows={2}
+                value={seg.text}
+                onChange={e => editSegment(seg.id, e.target.value)}
+                disabled={submitting || saving}
+              />
+            </div>
+          ))}
+        </div>
+
+        <label className="ds-field">
+          <span>Voice</span>
+          {voiceProfiles.length === 0 ? (
+            <div className="ds-inspector__hint">No saved voice profiles yet — record one in Voice Profiles first.</div>
+          ) : (
+            <select value={effectiveProfileId} onChange={e => setProfileId(e.target.value)}>
+              {voiceProfiles.map(v => <option key={v.profile_id} value={v.profile_id}>{v.name}</option>)}
+            </select>
+          )}
+        </label>
+
+        <div className="ds-field">
+          <span>Engine</span>
+          <EngineSwitcher engine={engine} setEngine={setEngine} engineCaps={engineCaps} />
+        </div>
+
+        <label className="ds-field">
+          <span>Language</span>
+          <select value={targetLang} onChange={e => setTargetLang(e.target.value)}>
+            {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+          </select>
+        </label>
+
+        <div className="ds-transcript__actions">
+          <button className="btn btn--ghost" disabled={!dirty || saving || submitting} onClick={saveTranscript}>
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
+          <button className="btn btn--primary ds-modal__start" disabled={!canSubmit} onClick={cloneVoice}>
+            {submitting ? 'Starting…' : 'Clone voice'}
+          </button>
+        </div>
       </div>
     </div>
   )

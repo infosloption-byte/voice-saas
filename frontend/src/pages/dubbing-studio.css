@@ -117,6 +117,8 @@
 .ds-card__langs { font-size: 8px; color: var(--text-3); }
 /* Task #15 Phase 3 — "Dub this clip" button on a plain video bin card. Sized to fit the same small-card meta row as .ds-card__langs rather than a full-size .btn. */
 .ds-card__dubbtn { font-size: 8px; padding: 2px 6px; height: auto; min-height: 0; line-height: 1.4; align-self: flex-start; }
+/* Task #15 Phase 4 — a plain video card gets two bin actions ("Dub this clip" + "Clone voice") side by side instead of the single Phase 3 button. */
+.ds-card__btnrow { display: flex; gap: 4px; flex-wrap: wrap; }
 .ds-library__drop { margin: 10px 12px 12px; padding: 12px; border: 1.5px dashed var(--border-2); border-radius: var(--radius-sm); text-align: center; font-size: 11px; color: var(--text-3); }
 .ds-library__drop:hover { border-color: var(--accent-mid); color: var(--accent); cursor: pointer; }
 
@@ -218,6 +220,20 @@
 .ds-engine-opt:disabled { opacity: 0.5; cursor: not-allowed; }
 .ds-modal__langs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .ds-modal__start { justify-content: center; margin-top: 10px; padding: 10px; font-size: 13px; }
+
+/* Task #15 Phase 4 — TranscriptReviewDialog needs more room than the
+   plain 420px .ds-modal (a scrollable segment list, plus the same
+   voice/engine/language fields NewDubDialog uses below it). */
+.ds-modal--wide { width: 560px; }
+.ds-transcript__audio { width: 100%; margin-bottom: 12px; }
+.ds-transcript__list { display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; margin-bottom: 14px; padding-right: 2px; }
+.ds-transcript__row { display: flex; gap: 8px; align-items: flex-start; }
+.ds-transcript__time { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); padding-top: 8px; flex: none; width: 38px; }
+.ds-transcript__row textarea { flex: 1; font-family: var(--font); font-size: 12.5px; border: 1px solid var(--border-2); border-radius: var(--radius-sm); padding: 7px 9px; background: var(--surface); color: var(--text-1); resize: vertical; }
+.ds-transcript__row textarea:disabled { background: var(--bg-3); color: var(--text-3); }
+.ds-transcript__actions { display: flex; gap: 8px; margin-top: 4px; }
+.ds-transcript__actions .btn--ghost { flex: none; }
+.ds-transcript__actions .ds-modal__start { flex: 1; margin-top: 0; }
 
 /* ── Mobile (< 960px) ─────────────────────────────────────── */
 @media (max-width: 960px) {
