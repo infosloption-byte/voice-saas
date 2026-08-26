@@ -433,9 +433,26 @@ class ApiClient {
     return this.delete(`/video-projects/${projectId}/assets/${assetId}`)
   }
 
-  /** Direct URL for a plain-upload bin asset's own file (video/audio/image) — for <video>/<audio>/<img> src, not a fetch() call. NOT valid for a 'dubbed' asset; use the job's own source()/result() URL instead (see VideoProjectController::assetFile()'s docblock). */
+  /** Direct URL for a bin asset's own file (video/audio/image) — for <video>/<audio>/<img> src, not a fetch() call. Only resolves once the asset is 'ready' (a plain upload always is; a 'dubbed' asset only once its job finishes — see VideoProjectController::assetFile()'s docblock). For an in-progress dubbed asset, use the job's own source()/result() URL via its dubbing_job_id instead. */
   videoProjectAssetFileUrl(projectId: string, assetId: string): string {
     return `${LARAVEL_API}/video-projects/${projectId}/assets/${assetId}/file`
+  }
+
+  /**
+   * Task #15 Phase 3 — "Dub this clip". Starts a real dubbing job for a
+   * plain video bin asset and returns the new job id plus the placeholder
+   * 'dubbed' asset id that now tracks it. The new asset stops showing up
+   * in the caller's plainAssets list (it has a dubbing_job_id now) and
+   * instead surfaces through the job-card list — see
+   * DubbingStudioPage.tsx's plainAssets filter and refreshList().
+   */
+  dubVideoProjectAsset(projectId: string, assetId: string, payload: {
+    target_language: string
+    source_language?: string
+    voice_profile_id: string
+    engine?: string
+  }): Promise<{ job_id: string; asset_id: string; status: string }> {
+    return this.post(`/video-projects/${projectId}/assets/${assetId}/dub`, payload) as Promise<{ job_id: string; asset_id: string; status: string }>
   }
 
 }

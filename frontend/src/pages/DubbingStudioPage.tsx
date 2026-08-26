@@ -329,7 +329,7 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
   const [libFilter, setLibFilter] = useState<LibFilter>('all')
   const [search, setSearch] = useState('')
   const [mobileLibOpen, setMobileLibOpen] = useState(false)
-  const [dialog, setDialog] = useState<{ mode: 'new' | 'retry'; retryJobId?: string } | null>(null)
+  const [dialog, setDialog] = useState<{ mode: 'new' | 'retry' | 'dub'; retryJobId?: string; dubAssetId?: string } | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [favorites, setFavorites] = useState<Set<string>>(() => loadFavorites())
@@ -694,7 +694,21 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
                   </div>
                   <div className="ds-card__meta">
                     <span className="ds-card__name">{a.original_filename ?? 'Untitled'}</span>
-                    <span className="ds-card__langs">Not dubbed</span>
+                    {/* Task #15 Phase 3 — "Dub this clip" only makes sense for
+                        a video asset; audio/image bin assets stay "Not dubbed"
+                        text-only until Phase 4 (resynthesize) / Phase 5
+                        (timeline) give them their own bin actions. */}
+                    {a.kind === 'video' ? (
+                      <button
+                        type="button"
+                        className="btn btn--ghost ds-card__dubbtn"
+                        onClick={e => { e.stopPropagation(); setDialog({ mode: 'dub', dubAssetId: a.id }) }}
+                      >
+                        Dub this clip
+                      </button>
+                    ) : (
+                      <span className="ds-card__langs">Not dubbed</span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -846,6 +860,7 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
         <NewDubDialog
           mode={dialog.mode}
           retryJob={dialog.retryJobId ? jobs.find(j => j.job_id === dialog.retryJobId) ?? null : null}
+          dubAsset={dialog.dubAssetId ? plainAssets.find(a => a.id === dialog.dubAssetId) ?? null : null}
           voiceProfiles={voiceProfiles}
           engine={engine}
           setEngine={setEngine}
@@ -856,6 +871,10 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
             if (poster) setPosterImages(p => ({ ...p, [jobId]: poster }))
             setDialog(null)
             refreshList()
+            // Task #15 Phase 3 — the source asset's new dubbed sibling
+            // needs to disappear from plainAssets right away (it now has
+            // a dubbing_job_id), not wait for the next unrelated refetch.
+            refreshAssets()
           }}
         />
       )}
@@ -880,15 +899,17 @@ function captureFrame(video: HTMLVideoElement): string | null {
 }
 
 function NewDubDialog({
-  mode, retryJob, voiceProfiles, engine, setEngine, engineCaps, videoProjectId, onClose, onSubmitted,
+  mode, retryJob, dubAsset, voiceProfiles, engine, setEngine, engineCaps, videoProjectId, onClose, onSubmitted,
 }: {
-  mode: 'new' | 'retry'
+  mode: 'new' | 'retry' | 'dub'
   retryJob: JobRow | null
+  /** Task #15 Phase 3 — the plain bin asset being dubbed, when mode === 'dub'. */
+  dubAsset: VideoProjectAsset | null
   voiceProfiles: VoiceProfile[]
   engine: EngineId
   setEngine: (e: EngineId) => void
   engineCaps: EngineCaps
-  /** Task #15 (Video Studio) Phase 1 — tags a new upload with the current project (retries don't need this passed through; VideoDubbingController::retry() already carries the source job's project association forward server-side). */
+  /** Task #15 (Video Studio) Phase 1 — tags a new upload with the current project (retries don't need this passed through; VideoDubbingController::retry() already carries the source job's project association forward server-side). Required (not just tagging) when mode === 'dub' — dubVideoProjectAsset() is itself a project-scoped endpoint. */
   videoProjectId?: string | null
   onClose: () => void
   onSubmitted: (jobId: string, poster: string | null) => void
@@ -957,7 +978,7 @@ function NewDubDialog({
   }
 
   const effectiveProfileId = profileId || voiceProfiles[0]?.profile_id || ''
-  const canStart = (mode === 'retry' || !!file) && !!effectiveProfileId && !!targetLang && !submitting
+  const canStart = (mode === 'retry' || mode === 'dub' || !!file) && !!effectiveProfileId && !!targetLang && !submitting
 
   async function start() {
     if (!effectiveProfileId) { toast.err('Choose a voice to dub with.'); return }
@@ -974,6 +995,26 @@ function NewDubDialog({
         }) as { job_id?: string }
         toast.ok('Dubbing job queued.')
         onSubmitted(res?.job_id ?? retryJob.job_id, null)
+      } catch (e) {
+        toast.err(e instanceof ApiError ? e.message : 'Failed to start dubbing.')
+      } finally {
+        setSubmitting(false)
+      }
+      return
+    }
+
+    if (mode === 'dub') {
+      if (!dubAsset || !videoProjectId) { toast.err('This clip is no longer available.'); return }
+      setSubmitting(true)
+      try {
+        const res = await api.dubVideoProjectAsset(videoProjectId, dubAsset.id, {
+          target_language: targetLang,
+          source_language: sourceLang || undefined,
+          voice_profile_id: effectiveProfileId,
+          engine,
+        })
+        toast.ok('Dubbing job queued.')
+        onSubmitted(res.job_id, null)
       } catch (e) {
         toast.err(e instanceof ApiError ? e.message : 'Failed to start dubbing.')
       } finally {
@@ -1010,11 +1051,15 @@ function NewDubDialog({
     <div className="ds-modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !submitting) onClose() }}>
       <div className="ds-modal">
         <div className="ds-modal__head">
-          <h3>{mode === 'new' ? 'New dub' : 'Dub again'}</h3>
+          <h3>{mode === 'new' ? 'New dub' : mode === 'dub' ? 'Dub this clip' : 'Dub again'}</h3>
           <button className="ds-icon-btn" onClick={onClose} disabled={submitting}>{icons.close}</button>
         </div>
 
-        {mode === 'new' ? (
+        {mode === 'dub' ? (
+          <div className="ds-retrynote">
+            <strong>{dubAsset?.original_filename ?? 'This clip'}</strong> will be dubbed from your project's media bin — no re-upload needed.
+          </div>
+        ) : mode === 'new' ? (
           file ? (
             <div className="ds-preview">
               <video

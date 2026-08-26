@@ -204,6 +204,15 @@ Route::middleware(['auth:sanctum', 'throttle:15,1'])->group(function () {
         ->where(['id' => '[A-Za-z0-9\-]{1,64}', 'assetId' => '[A-Za-z0-9\-]{1,64}']);
 });
 
+// Task #15 Phase 3 — "Dub this clip". Same throttle tier as addAsset:
+// this dispatches a real queued job (PrepareDubbingJob), not just a DB
+// row, so it belongs with the heavier action tier rather than the cheap
+// project-CRUD tier above.
+Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
+    Route::post('/video-projects/{id}/assets/{assetId}/dub', [VideoProjectController::class, 'dubClip'])
+        ->where(['id' => '[A-Za-z0-9\-]{1,64}', 'assetId' => '[A-Za-z0-9\-]{1,64}']);
+});
+
 // ── Video dubbing (task #6, authenticated, queued job) ─────────────────
 // No guest tier: unlike clone-voice/translate, a dubbing job consumes both
 // translation AND synthesis quota plus real ffmpeg/GPU time per video, so
