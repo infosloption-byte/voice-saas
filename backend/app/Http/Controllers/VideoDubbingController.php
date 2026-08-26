@@ -6,6 +6,7 @@ use App\Jobs\PrepareDubbingJob;
 use App\Jobs\FinalizeDubbingJob;
 use App\Models\ActivityLog;
 use App\Models\DubbingJob;
+use App\Models\VideoProjectAsset;
 use App\Models\VoiceProfile;
 use App\Services\EngineResolver;
 use Illuminate\Http\Request;
@@ -37,6 +38,17 @@ class VideoDubbingController extends Controller
     /**
      * POST /api/dubbing/submit
      * multipart: video (file), target_language, voice_profile_id, source_language? (optional)
+     *
+     * video_project_id (optional, task #15 Phase 1): when the Video Studio
+     * page submits a dub from inside a project, this attaches the new job
+     * to that project's media bin as a 'video'/'upload' asset (see
+     * VideoProjectAsset). Omitted entirely for any caller outside project
+     * context (e.g. an older client, or a direct API caller) — the job
+     * behaves exactly as it always has, just with no bin entry pointing at
+     * it. This intentionally keeps submit() the single upload+dub action it
+     * has always been rather than splitting it into a separate "add to
+     * bin" + "dub" call — that split is what Phase 3's dubClip() is for,
+     * once a video can sit in the bin undubbed.
      */
     public function submit(Request $request)
     {
@@ -51,6 +63,8 @@ class VideoDubbingController extends Controller
             // (see useTTSEngine.ts) — nullable so FinalizeDubbingJob can
             // fall back to a sane default if an older client omits it.
             'engine'            => ['nullable', 'string', EngineResolver::engineValidationRule()],
+            // Task #15 Phase 1 — see docblock above.
+            'video_project_id'  => ['nullable', 'uuid'],
         ]);
 
         // Ownership check for real (non-builtin) voice profiles, same pattern
@@ -62,6 +76,18 @@ class VideoDubbingController extends Controller
                 ->exists();
             if (! $owned) {
                 return response()->json(['message' => 'Voice profile not found on your account.'], 422);
+            }
+        }
+
+        // Task #15 Phase 1 — fail fast (before any upload/storage work) if
+        // a project id was passed but doesn't belong to this user, same
+        // ownership-check-before-side-effects order as the voice profile
+        // check just above.
+        $project = null;
+        if (! empty($validated['video_project_id'])) {
+            $project = $user->videoProjects()->find($validated['video_project_id']);
+            if (! $project) {
+                return response()->json(['message' => 'Video project not found.'], 404);
             }
         }
 
@@ -98,6 +124,24 @@ class VideoDubbingController extends Controller
         ]);
 
         PrepareDubbingJob::dispatch($job->id);
+
+        // Task #15 Phase 1 — attach this upload to the project's bin. Not
+        // wrapped in the same transaction as the DubbingJob insert above:
+        // if this insert fails, the job itself is still valid and running
+        // (it just won't show up in the project's bin) rather than losing
+        // an already-uploaded, already-queued job over a secondary write.
+        if ($project) {
+            VideoProjectAsset::create([
+                'video_project_id'  => $project->id,
+                'kind'              => 'video',
+                'source'            => 'upload',
+                'dubbing_job_id'    => $job->id,
+                'original_filename' => $validated['video']->getClientOriginalName(),
+                'storage_path'      => $storedPath,
+                'status'            => 'ready',
+            ]);
+            $project->touch();
+        }
 
         return response()->json([
             'job_id'          => $job->id,
@@ -170,6 +214,22 @@ class VideoDubbingController extends Controller
         ]);
 
         PrepareDubbingJob::dispatch($job->id);
+
+        // Task #15 Phase 1 — if the job being retried was itself a
+        // project's bin asset, the retry is still conceptually "the same
+        // clip", so point the project at the new job id rather than
+        // leaving the bin referencing the old (failed/superseded) one.
+        // No asset is created here if none already existed — a job with
+        // no project association stays that way on retry, same as submit().
+        $sourceAsset = VideoProjectAsset::where('dubbing_job_id', $source->id)->first();
+        if ($sourceAsset) {
+            $sourceAsset->update([
+                'dubbing_job_id' => $job->id,
+                'storage_path'   => $storedPath,
+                'status'         => 'ready',
+            ]);
+            $sourceAsset->project?->touch();
+        }
 
         return response()->json([
             'job_id'          => $job->id,
@@ -624,10 +684,35 @@ class VideoDubbingController extends Controller
      * polls this single endpoint (not per-job /status calls) whenever any
      * job is still in flight, so N running jobs cost one request, not N.
      */
+    /**
+     * GET /api/dubbing — the workspace's job list.
+     *
+     * ?video_project_id= (optional, task #15 Phase 1): scopes the list to
+     * only the jobs attached to that project's bin (via VideoProjectAsset).
+     * Omitted entirely, this returns every job the user has ever
+     * submitted, exactly as it always has — kept as the default so nothing
+     * calling this endpoint without project context breaks.
+     */
     public function index(Request $request)
     {
-        $jobs = DubbingJob::where('user_id', $request->user()->id)
-            ->orderByDesc('created_at')
+        $request->validate([
+            'video_project_id' => ['nullable', 'uuid'],
+        ]);
+
+        $query = DubbingJob::where('user_id', $request->user()->id);
+
+        if ($projectId = $request->query('video_project_id')) {
+            $owned = $request->user()->videoProjects()->where('id', $projectId)->exists();
+            if (! $owned) {
+                return response()->json(['message' => 'Video project not found.'], 404);
+            }
+            $jobIds = VideoProjectAsset::where('video_project_id', $projectId)
+                ->whereNotNull('dubbing_job_id')
+                ->pluck('dubbing_job_id');
+            $query->whereIn('id', $jobIds);
+        }
+
+        $jobs = $query->orderByDesc('created_at')
             ->limit(self::LIST_LIMIT)
             ->get();
 
@@ -752,6 +837,17 @@ class VideoDubbingController extends Controller
             }
         }
 
+        // Task #15 Phase 1 — known gap, not fixed here: video_project_assets
+        // .dubbing_job_id is nullOnDelete (see migration), so deleting a job
+        // this way (from the dubbing workspace, independent of any project)
+        // leaves its bin asset row behind with dubbing_job_id nulled out and
+        // a storage_path pointing at the file just deleted above — an
+        // orphaned, effectively-broken bin entry rather than a cleanly
+        // removed one. Deliberately not solving this in Phase 1: it needs
+        // deciding whether a job can even be deleted independently of its
+        // project once Phase 3 makes "dub this bin clip" the normal flow,
+        // which is a product question for that phase, not a one-line fix
+        // to bolt on here.
         $job->delete();
 
         return response()->json(['message' => 'Deleted.']);

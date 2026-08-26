@@ -28,6 +28,7 @@ import {
 import { WorkspacePage } from '../pages/WorkspacePage'
 import { AssemblyPage } from '../pages/AssemblyPage'
 import { DubbingStudioPage } from '../pages/DubbingStudioPage'
+import { VideoProjectsPage } from '../pages/VideoProjectsPage'
 import type { Page, WorkspaceTab, VoiceProfile, EngineStatus, EngineCaps } from '../lib/types'
 
 // ── Cookie consent ────────────────────────────────────────────────
@@ -150,6 +151,12 @@ export default function App() {
     return v === null ? null : v === 'true'
   })
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
+  // Task #15 (Video Studio) Phase 1 — which video project DubbingStudioPage
+  // is currently scoped to, when entered via VideoProjectsPage. Null means
+  // DubbingStudioPage is showing its unscoped flat job list (still
+  // possible via a direct/legacy 'dubbing-studio' page state — see
+  // openVideoProject()'s docblock).
+  const [activeVideoProjectId, setActiveVideoProjectId] = useState<string | null>(null)
   const [activeScriptId, setActiveScriptId] = useState<string | null>(null)
   const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfile[]>([])
   const [showNewProject, setShowNewProject] = useState(false)
@@ -218,14 +225,20 @@ export default function App() {
   }, [page])
 
   // ── Page state persistence ────────────────────────────────────────
-  const RESTORABLE_PAGES: Page[] = ['dashboard', 'projects', 'profiles', 'settings', 'workspace']
+  // Task #15 Phase 1 added 'video-projects' and 'dubbing-studio' — the
+  // latter was already implicitly reachable before this task (it just had
+  // no activeVideoProjectId to restore), so a session saved before this
+  // change simply restores with activeVideoProjectId still null, which
+  // DubbingStudioPage already tolerates (see openVideoProject()'s docblock
+  // above).
+  const RESTORABLE_PAGES: Page[] = ['dashboard', 'projects', 'profiles', 'settings', 'workspace', 'video-projects', 'dubbing-studio']
 
   // Save nav state whenever it changes (authenticated users only)
   useEffect(() => {
     if (!user) return
     if (!RESTORABLE_PAGES.includes(page)) return
-    sessionStorage.setItem('vx_nav', JSON.stringify({ page, activeProjectId, activeScriptId, workspaceTab }))
-  }, [page, activeProjectId, activeScriptId, workspaceTab, user]) // eslint-disable-line react-hooks/exhaustive-deps
+    sessionStorage.setItem('vx_nav', JSON.stringify({ page, activeProjectId, activeScriptId, workspaceTab, activeVideoProjectId }))
+  }, [page, activeProjectId, activeScriptId, workspaceTab, activeVideoProjectId, user]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Bootstrap ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -242,6 +255,9 @@ export default function App() {
               setActiveProjectId(saved.activeProjectId)
               if (saved.activeScriptId) setActiveScriptId(saved.activeScriptId)
               if (saved.workspaceTab) setWorkspaceTab(saved.workspaceTab as WorkspaceTab)
+            }
+            if (saved.page === 'dubbing-studio' && saved.activeVideoProjectId) {
+              setActiveVideoProjectId(saved.activeVideoProjectId)
             }
             setPage(saved.page)
             return
@@ -479,6 +495,19 @@ export default function App() {
     setPage('workspace')
   }
 
+  /**
+   * Task #15 (Video Studio) Phase 1 — opens DubbingStudioPage scoped to
+   * one video project. This is the only way in normally (from
+   * VideoProjectsPage); DubbingStudioPage itself still tolerates
+   * activeVideoProjectId being null (its pre-Phase-1 flat-list behavior),
+   * which only happens now via a stale restored session (see
+   * RESTORABLE_PAGES below) from before this project scoping existed.
+   */
+  function openVideoProject(id: string) {
+    setActiveVideoProjectId(id)
+    setPage('dubbing-studio')
+  }
+
   async function signOut() {
     await authSignOut()
     sessionStorage.removeItem('vx_nav')
@@ -643,7 +672,12 @@ export default function App() {
     // (DubbingStudioPage.tsx), and all current behavior are UNCHANGED here
     // — this is a label-only rename ahead of the real restructuring
     // (Video Projects list → per-project studio) planned in task #15.
-    ...(guestMode ? [] : [{ key: 'dubbing-studio' as Page, label: 'Video Studio', icon: icons.template }]),
+    // Nav key changed from 'dubbing-studio' to 'video-projects' (task #15
+    // Phase 1): clicking "Video Studio" now lands on the project list
+    // first, not straight into a flat job list — see VideoProjectsPage.
+    // The nav item's active-highlight logic below also lights up while on
+    // 'dubbing-studio' (a project actually open), not just this list.
+    ...(guestMode ? [] : [{ key: 'video-projects' as Page, label: 'Video Studio', icon: icons.template }]),
   ]
 
   // ── Engine pill label ─────────────────────────────────────────────
@@ -685,7 +719,7 @@ export default function App() {
             {navItems.map(({ key, label, icon }) => (
               <button
                 key={key}
-                className={`nav-item ${page === key ? 'nav-item--active' : ''}`}
+                className={`nav-item ${page === key || (key === 'video-projects' && page === 'dubbing-studio') ? 'nav-item--active' : ''}`}
                 onClick={() => setPage(key)}
                 title={label}
               >
@@ -860,6 +894,7 @@ export default function App() {
               {page === 'dashboard'  ? 'Dashboard'
                 : page === 'projects'  ? 'Projects'
                 : page === 'profiles'  ? 'Voice Profiles'
+                : page === 'video-projects' ? 'Video Studio'
                 : page === 'dubbing-studio' ? 'Video Studio'
                 : page === 'settings'  ? 'Settings'
                 : ''}
@@ -1063,6 +1098,10 @@ export default function App() {
             />
           )}
 
+          {page === 'video-projects' && !guestMode && (
+            <VideoProjectsPage onOpen={openVideoProject} />
+          )}
+
           {page === 'dubbing-studio' && (
             guestMode ? (
               // Defensive fallback — the nav item is already hidden for
@@ -1076,7 +1115,12 @@ export default function App() {
                 <button className="btn btn--primary" onClick={() => setPage('signup')}>Sign up</button>
               </div>
             ) : (
-              <DubbingStudioPage voiceProfiles={voiceProfiles} engineCaps={engineCaps} />
+              <DubbingStudioPage
+                voiceProfiles={voiceProfiles}
+                engineCaps={engineCaps}
+                videoProjectId={activeVideoProjectId}
+                onBackToProjects={() => setPage('video-projects')}
+              />
             )
           )}
 

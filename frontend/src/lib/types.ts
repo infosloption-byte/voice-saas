@@ -5,7 +5,7 @@ export type Plan = 'free' | 'starter' | 'creator' | 'pro'
 export type Page =
   | 'landing' | 'signin' | 'signup'
   | 'forgot-password' | 'reset-password'
-  | 'dashboard' | 'projects' | 'workspace' | 'profiles' | 'dubbing-studio' | 'settings' | 'admin'
+  | 'dashboard' | 'projects' | 'workspace' | 'profiles' | 'video-projects' | 'dubbing-studio' | 'settings' | 'admin'
   | 'pricing' | 'privacy' | 'terms' | 'refund' | 'acceptable-use'
   | 'email-verified'
   | 'feature-studio' | 'feature-voices' | 'feature-translation'
@@ -130,6 +130,38 @@ export interface DubSegmentHistory {
   past: DubSegment[][]
   present: DubSegment[]
   future: DubSegment[][]
+}
+
+/**
+ * Task #15 (Video Studio) Phase 1 — mirrors VideoProjectController's
+ * summarize() shape. `assets` is only present when fetched via
+ * fetchVideoProject() (the show() endpoint); listVideoProjects() (index())
+ * omits it, same asset_count-only-on-the-list-view pattern the audio
+ * Project/Script relationship already uses.
+ */
+export interface VideoProject {
+  id: string
+  name: string
+  status: 'draft' | 'rendering' | 'done' | 'failed'
+  error: string | null
+  duration_seconds: number | null
+  has_output: boolean
+  asset_count: number
+  created_at: string | null
+  updated_at: string | null
+  assets?: VideoProjectAsset[]
+}
+
+export interface VideoProjectAsset {
+  id: string
+  kind: 'video' | 'image' | 'audio'
+  source: 'upload' | 'dubbed' | 'extracted_audio' | 'synthesized_audio'
+  parent_asset_id: string | null
+  dubbing_job_id: string | null
+  original_filename: string | null
+  duration_seconds: number | null
+  status: 'processing' | 'ready' | 'failed'
+  created_at: string | null
 }
 
 

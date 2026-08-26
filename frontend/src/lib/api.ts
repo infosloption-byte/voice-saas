@@ -27,6 +27,7 @@ const LARAVEL_PATHS = [
   '/email', '/subscription', '/guest-limits',
   '/plan-limits', '/admin', '/synthesis', '/translation',
   '/engine', '/activity-logs', '/notifications', '/dubbing',
+  '/video-projects',
 ]
 
 function isLaravelPath(path: string): boolean {
@@ -322,9 +323,14 @@ class ApiClient {
   }
 
   // ── Video dubbing workspace ──────────────────────────────────────
-  /** List every dubbing job for the user, most recent first — the single poll target for the workspace. */
-  listDubbingJobs(): Promise<unknown> {
-    return this.get('/dubbing')
+  /**
+   * List dubbing jobs for the user, most recent first — the single poll
+   * target for the workspace. Pass videoProjectId (task #15 Phase 1) to
+   * scope the list to one project's bin instead of every job the user has
+   * ever submitted.
+   */
+  listDubbingJobs(videoProjectId?: string): Promise<unknown> {
+    return this.get(videoProjectId ? `/dubbing?video_project_id=${encodeURIComponent(videoProjectId)}` : '/dubbing')
   }
 
   /** Streams the original uploaded video (for before/after preview), as a Blob. */
@@ -385,6 +391,30 @@ class ApiClient {
   /** Merges two ADJACENT segments into one. Rejects non-adjacent pairs server-side. */
   mergeDubbingSegments(jobId: string, firstId: string, secondId: string): Promise<{ message: string; segments: unknown[] }> {
     return this.post(`/dubbing/${jobId}/segments/merge`, { first_id: firstId, second_id: secondId }) as Promise<{ message: string; segments: unknown[] }>
+  }
+
+  // ── Video Studio projects (task #15 Phase 1) ──────────────────────
+  /** List the user's video projects, most recently updated first. */
+  listVideoProjects(): Promise<{ projects: unknown[] }> {
+    return this.get('/video-projects') as Promise<{ projects: unknown[] }>
+  }
+
+  /** Creates a new (empty) video project. name is optional — defaults to "Untitled project" server-side. */
+  createVideoProject(name?: string): Promise<unknown> {
+    return this.post('/video-projects', name ? { name } : {})
+  }
+
+  /** Fetches one project plus its media-bin assets. */
+  fetchVideoProject(id: string): Promise<unknown> {
+    return this.get(`/video-projects/${id}`)
+  }
+
+  renameVideoProject(id: string, name: string): Promise<unknown> {
+    return this.patch(`/video-projects/${id}`, { name })
+  }
+
+  deleteVideoProject(id: string): Promise<unknown> {
+    return this.delete(`/video-projects/${id}`)
   }
 
 }

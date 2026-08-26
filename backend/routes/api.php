@@ -29,6 +29,7 @@ use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\SynthesisUsageController;
 use App\Http\Controllers\TranslationUsageController;
 use App\Http\Controllers\VideoDubbingController;
+use App\Http\Controllers\VideoProjectController;
 use App\Http\Controllers\VoiceProfileController;
 
 // ── Public auth routes ────────────────────────────────────────────────
@@ -158,6 +159,26 @@ Route::middleware('throttle:120,1')->group(function () {
 // Authenticated: queue a bulk synthesis job that runs server-side.
 Route::middleware(['auth:sanctum', 'throttle:10,1'])->group(function () {
     Route::post('/engine/synthesize/bulk-queue', [EngineSynthesisProxyController::class, 'queueBulk']);
+});
+
+// ── Video Studio projects (task #15 Phase 1, authenticated) ────────────
+// Project CRUD is cheap (no ffmpeg/GPU work, just DB rows), so it shares
+// the same throttle tiers as ProjectController's own routes rather than
+// the heavier per-request cost the /dubbing/* group below is gated for.
+Route::middleware(['auth:sanctum', 'throttle:20,1'])->group(function () {
+    Route::get(   '/video-projects',        [VideoProjectController::class, 'index']);
+    Route::post(  '/video-projects',        [VideoProjectController::class, 'store']);
+    Route::get(   '/video-projects/{id}',   [VideoProjectController::class, 'show'])
+        ->where('id', '[A-Za-z0-9\-]{1,64}');
+    Route::match(['put', 'patch'], '/video-projects/{id}', [VideoProjectController::class, 'update'])
+        ->where('id', '[A-Za-z0-9\-]{1,64}');
+});
+
+// Delete gets its own tier, same reasoning as /dubbing/{jobId}'s delete
+// group just below — destructive, not a read.
+Route::middleware(['auth:sanctum', 'throttle:15,1'])->group(function () {
+    Route::delete('/video-projects/{id}', [VideoProjectController::class, 'destroy'])
+        ->where('id', '[A-Za-z0-9\-]{1,64}');
 });
 
 // ── Video dubbing (task #6, authenticated, queued job) ─────────────────

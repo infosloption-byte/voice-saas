@@ -190,7 +190,14 @@ const ClapperIcon = (
 
 // ── Component ────────────────────────────────────────────────────
 
-export function DubbingStudioPage({ voiceProfiles, engineCaps }: { voiceProfiles: VoiceProfile[]; engineCaps?: EngineCaps }) {
+export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, onBackToProjects }: {
+  voiceProfiles: VoiceProfile[]
+  engineCaps?: EngineCaps
+  /** Task #15 (Video Studio) Phase 1 — scopes the media library to one project's bin and tags new uploads with it. Null/omitted falls back to the pre-Phase-1 flat "every job I've ever submitted" list, for any stale restored session predating this prop (see App.tsx's openVideoProject docblock). */
+  videoProjectId?: string | null
+  /** Task #15 Phase 1 — makes the "Video Projects /" breadcrumb a real link back to VideoProjectsPage instead of decorative text. Omitted in the same legacy/unscoped case as videoProjectId. */
+  onBackToProjects?: () => void
+}) {
   const caps: EngineCaps = engineCaps ?? { xtts: false, f5: false }
   const { engine, setEngine } = useTTSEngine()
 
@@ -201,14 +208,14 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps }: { voiceProfiles
 
   const refreshList = useCallback(async () => {
     try {
-      const res = await api.listDubbingJobs() as { jobs: JobRow[] }
+      const res = await api.listDubbingJobs(videoProjectId ?? undefined) as { jobs: JobRow[] }
       setJobs(res.jobs ?? [])
     } catch {
       // Transient network hiccup — next poll tick will retry.
     } finally {
       setListLoaded(true)
     }
-  }, [])
+  }, [videoProjectId])
 
   useEffect(() => {
     refreshList()
@@ -467,7 +474,13 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps }: { voiceProfiles
             {ClapperIcon}
           </button>
           <div className="ds-topbar__crumb">
-            <span className="ds-topbar__crumb-dim">Video Projects /</span>
+            {onBackToProjects ? (
+              <button className="ds-topbar__crumb-dim ds-topbar__crumb-link" onClick={onBackToProjects} type="button">
+                Video Projects /
+              </button>
+            ) : (
+              <span className="ds-topbar__crumb-dim">Video Projects /</span>
+            )}
             <span className="ds-topbar__crumb-name">{job ? (job.original_filename ?? 'Untitled') : 'No project'}</span>
           </div>
           {job && (
@@ -702,6 +715,7 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps }: { voiceProfiles
           engine={engine}
           setEngine={setEngine}
           engineCaps={caps}
+          videoProjectId={videoProjectId}
           onClose={() => setDialog(null)}
           onSubmitted={(jobId, poster) => {
             if (poster) setPosterImages(p => ({ ...p, [jobId]: poster }))
@@ -731,7 +745,7 @@ function captureFrame(video: HTMLVideoElement): string | null {
 }
 
 function NewDubDialog({
-  mode, retryJob, voiceProfiles, engine, setEngine, engineCaps, onClose, onSubmitted,
+  mode, retryJob, voiceProfiles, engine, setEngine, engineCaps, videoProjectId, onClose, onSubmitted,
 }: {
   mode: 'new' | 'retry'
   retryJob: JobRow | null
@@ -739,6 +753,8 @@ function NewDubDialog({
   engine: EngineId
   setEngine: (e: EngineId) => void
   engineCaps: EngineCaps
+  /** Task #15 (Video Studio) Phase 1 — tags a new upload with the current project (retries don't need this passed through; VideoDubbingController::retry() already carries the source job's project association forward server-side). */
+  videoProjectId?: string | null
   onClose: () => void
   onSubmitted: (jobId: string, poster: string | null) => void
 }) {
@@ -842,6 +858,7 @@ function NewDubDialog({
       if (sourceLang) fd.append('source_language', sourceLang)
       fd.append('voice_profile_id', effectiveProfileId)
       fd.append('engine', engine)
+      if (videoProjectId) fd.append('video_project_id', videoProjectId)
 
       const res = await api.postWithProgress('/dubbing/submit', fd, setUploadProgress) as { job_id?: string }
       toast.ok('Dubbing job queued.')

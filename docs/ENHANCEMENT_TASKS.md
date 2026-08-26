@@ -23,7 +23,7 @@
 | 12 | Design-tool integrations | P3 | Not started |
 | 13 | Voice marketplace | P3 | Not started |
 | 14 | Native mobile app | P3 | Not started |
-| 15 | Video Studio — dubbing becomes one feature of a full multi-asset video editor (media bin w/ video+image+audio, real multi-lane timeline, extract-audio→transcribe→clone-resynthesize, render) | P1 | 🔧 Phase 0 (rename + UI polish) done Aug 26, 2026 · Phases 1-6 planned below, not started |
+| 15 | Video Studio — dubbing becomes one feature of a full multi-asset video editor (media bin w/ video+image+audio, real multi-lane timeline, extract-audio→transcribe→clone-resynthesize, render) | P1 | 🔧 Phases 0-1 done Aug 26, 2026 (rename/UI polish + project data model/list page) · Phases 2-6 planned below, not started |
 
 ---
 
@@ -514,16 +514,15 @@ Picked up the two gaps this doc had explicitly flagged and left open: task #6's 
 - **Label-only rename**, everything else on the page left exactly as it is (per the explicit instruction to keep Dubbing Studio's current internals as-is): nav item "Dubbing Studio" → "Video Studio", topbar title, guest-mode fallback heading, and the page's own (still-decorative, not yet a real link) breadcrumb now say "Video Studio"/"Video Projects" respectively. The internal page key (`'dubbing-studio'`), component filename (`DubbingStudioPage.tsx`), and all current behavior are **unchanged** — this was a display-text-only pass so nothing about the real restructuring below had to be guessed at or built twice.
 - Verified: `tsc -b` and `vite build` both clean; `eslint` on touched files shows only the one pre-existing `set-state-in-effect` finding this doc has already noted and deliberately left alone (data-fetching effect, standard pattern).
 
-**Phase 1 — data model + Video Projects list page:**
-- New `video_projects` table (fresh design, not a restore of the deleted 6a migration): `id` (uuid), `user_id`, `name`, `timeline_json` (nullable longtext/array-cast — see Phase 5 for the actual shape), `status` (`draft`/`rendering`/`done`/`failed`), `error` (nullable), `duration_seconds` (nullable, set on render), timestamps.
-- New `video_project_assets` table (deliberately renamed from 6a's `video_project_clips` — assets aren't only clips anymore): `id`, `video_project_id`, `kind` (`video`/`image`/`audio`), `source` (`upload`/`dubbed`/`extracted_audio`/`synthesized_audio`), `parent_asset_id` (nullable, self-referencing — a dubbed video's parent is its source video; a synthesized audio clip's parent is the extracted-audio asset it was resynthesized from), `dubbing_job_id` (nullable FK into the existing `video_dubbing_jobs`, unchanged), `original_filename`, `storage_path`, `duration_seconds` (nullable for images), `status` (`processing`/`ready`/`failed`), timestamps.
-- `VideoProjectController`: `index`/`store`/`show`/`update`/`destroy`, plus `addAsset` (multipart upload; kind auto-detected from mimetype; video/audio get `ffprobe` duration via `DubbingPipelineHelpers::probeDuration`, images don't).
-- Frontend: new `VideoProjectsPage.tsx` — project-card grid (matches the app's existing `.project-card`/`.project-grid` convention, per 6a's own note on this), "+ New project" flow. **This is what the "Video Studio" nav item now loads** (today it jumps straight into the flat job list — that changes here). Clicking a card navigates into `DubbingStudioPage` scoped to that project id.
-- `DubbingStudioPage`'s media library switches from "all of the user's dubbing jobs" to "this project's `video_project_assets`" — the one real behavior change to the page in this phase; the editor UI itself (Phase 0's layout) doesn't change again.
-- **Explicit lesson applied from 6a:** run the migration against a real dev DB and confirm `video_projects`/`video_project_assets` actually exist before Phase 2 starts — 6a's biggest concrete failure was five phases built on a migration nobody ever ran.
+**Phase 1 — data model + Video Projects list page (✅ done Aug 26, 2026):**
+- `video_projects` / `video_project_assets` migrations, `VideoProject`/`VideoProjectAsset` models, `User::videoProjects()` relation, and `VideoProjectController` (index/store/show/update/destroy) shipped as planned below.
+- `VideoDubbingController::submit()`/`retry()`/`index()` extended to optionally accept/carry `video_project_id` — submitting a dub from inside a project tags the new job's bin asset; retry carries the project association forward automatically; the job list can be filtered to one project. A flagged (not fixed) known gap: deleting a job directly from the dubbing workspace (independent of any project) leaves an orphaned bin asset row behind, since `dubbing_job_id` is `nullOnDelete` — deliberately deferred to Phase 3, which is when "a job can be deleted independently of its bin entry" becomes a real product question rather than an edge case.
+- Frontend: new `VideoProjectsPage.tsx` (list/create/delete, reusing the audio Projects page's existing `.project-grid`/`.project-card` CSS) is now what the "Video Studio" nav item loads. `DubbingStudioPage` accepts an optional `videoProjectId`/`onBackToProjects` pair — when present, the media library is scoped to that project's jobs and new uploads are tagged with it; when absent (a stale pre-Phase-1 restored session), it falls back to the old flat "every job I've ever submitted" behavior so nothing breaks for an in-flight session.
+- **Verification, honestly stated:** every backend file passed a real `php -l` syntax check (PHP CLI was installed into this sandbox specifically to do this, rather than relying on manual brace-counting like earlier passes in this doc had to). What did **not** happen: actually running the migrations or booting Laravel — `composer install` needs `packagist.org`, which this sandbox's network allowlist blocks (`403 host_not_allowed`, confirmed directly). So the backend is syntax-verified only, not run-verified — the same category of gap task #6a's own retirement note called out, just caught and flagged this time instead of discovered five phases later. The frontend, by contrast, got a real `tsc -b` + `vite build` + `eslint` pass, since Node tooling doesn't hit the same network restriction.
+- **Next, before Phase 2 starts:** run `php artisan migrate` against a real dev DB and confirm both tables actually exist, then submit one real dub from inside a project end-to-end (create project → submit → confirm the bin asset row appears → confirm the media library shows only that project's job) — the exact live-test task #6a skipped.
 
 **Phase 2 — media bin: multi-type upload:**
-- Extend `addAsset` to genuinely accept image/audio, not just video (6a only ever built the video path).
+- Add `VideoProjectController::addAsset()` — Phase 1 shipped no general upload endpoint; it only wired `VideoDubbingController::submit()` to create a bin asset as a side effect of starting a dub. Phase 2's `addAsset()` is the first way to add a video/image/audio file to a project's bin *without* immediately dubbing it, which is what "dub this clip later" (Phase 3) actually requires existing for.
 - Media library card rendering grows an icon/placeholder per kind (image: real thumbnail same as today's video frame capture; audio: waveform/mic icon, no thumbnail).
 - Assets uploaded but not yet placed on the timeline sit in the bin, same interaction as today's job cards.
 
@@ -563,7 +562,7 @@ Picked up the two gaps this doc had explicitly flagged and left open: task #6's 
 5. Public API tier *(P1, medium)*
 6. System-health public status page *(P2, easy — can slot in anytime as a quick win)*
 7. Video dubbing MVP *(P1, medium–large)* — backend done, frontend pending
-7a. Video Studio expansion *(P1, large, phased — see task #15)* — Phase 0 (rename + UI polish) done; Phases 1-6 planned, not started
+7a. Video Studio expansion *(P1, large, phased — see task #15)* — Phases 0-1 (rename/UI polish + project data model/list page) done; Phases 2-6 planned, not started
 8. No-signup "try your voice" widget *(P2, medium)*
 9. SFX lane *(P2, medium)*
 10. Base model quality tier (proxy option first) *(P1, large but high-leverage)*

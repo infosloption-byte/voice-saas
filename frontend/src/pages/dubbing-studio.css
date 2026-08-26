@@ -48,6 +48,8 @@
 .ds-topbar__clap { display: none; }
 .ds-topbar__crumb { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .ds-topbar__crumb-dim { color: var(--text-3); font-size: 12.5px; flex: none; }
+.ds-topbar__crumb-link { background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; }
+.ds-topbar__crumb-link:hover { color: var(--text-2); text-decoration: underline; }
 .ds-topbar__crumb-name { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ds-lang-tag { font-size: 11.5px; color: var(--accent); background: var(--accent-lt); border: 1px solid var(--accent-mid); border-radius: 999px; padding: 3px 10px; flex: none; }
 .ds-topbar__spacer { flex: 1; }
