@@ -34,11 +34,16 @@ class VideoProjectAsset extends Model
     protected $fillable = [
         'id', 'video_project_id', 'kind', 'source',
         'parent_asset_id', 'dubbing_job_id',
-        'original_filename', 'storage_path', 'duration_seconds', 'status',
+        'original_filename', 'storage_path', 'duration_seconds', 'status', 'error',
+        'transcript_json',
     ];
 
     protected $casts = [
         'duration_seconds' => 'float',
+        // Same schemaless-JSON-blob choice as DubbingJob::segments_json —
+        // see the Phase 4 migration's docblock for why this isn't its own
+        // table. Only ever populated on an 'extracted_audio' asset.
+        'transcript_json'  => 'array',
     ];
 
     public function project(): BelongsTo

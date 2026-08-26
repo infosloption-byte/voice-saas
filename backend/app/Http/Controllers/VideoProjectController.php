@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\Concerns\DubbingPipelineHelpers;
+use App\Jobs\ExtractAudioAssetJob;
 use App\Jobs\PrepareDubbingJob;
+use App\Jobs\SynthesizeAudioAssetJob;
 use App\Models\ActivityLog;
 use App\Models\DubbingJob;
 use App\Models\VideoProject;
@@ -15,23 +17,23 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
- * Task #15 (Video Studio) Phases 1-3. See docs/ENHANCEMENT_TASKS.md task
- * #15 for the full phased plan. Phase 4's extract/resynthesize endpoints
- * and Phase 6's render()/outputFile() are NOT here yet — adding them as
- * stubs now would just be dead code to delete or rewrite once those
- * phases are actually designed.
+ * Task #15 (Video Studio) Phases 1-4. See docs/ENHANCEMENT_TASKS.md task
+ * #15 for the full phased plan. Phase 6's render()/outputFile() are NOT
+ * here yet — adding them as stubs now would just be dead code to delete
+ * or rewrite once that phase is actually designed.
  *
- * Quota gating (project count, asset uploads, renders, and now dubClip())
- * is deliberately NOT wired in here yet — see the "Open questions" in
- * task #15: there is no `video_project_limit` key in PlanLimits yet, and
- * calling PlanLimits::limit() with an unknown key silently resolves to
- * "unlimited" (see PlanLimits::limit()'s null-coalesce-to-0-means-
- * unlimited fallback) rather than actually enforcing anything — that
- * would look like enforcement in the code without being real
- * enforcement, which is worse than the honest gap this comment is
- * flagging instead. dubClip() rides on whatever PrepareDubbingJob/
- * FinalizeDubbingJob already enforce for translation/synthesis quota,
- * same as /dubbing/submit — no new gate was added or needed here.
+ * Quota gating (project count, asset uploads, renders, dubClip(),
+ * extractAudio(), resynthesize()) is deliberately NOT wired in here yet —
+ * see the "Open questions" in task #15: there is no `video_project_limit`
+ * key in PlanLimits yet, and calling PlanLimits::limit() with an unknown
+ * key silently resolves to "unlimited" (see PlanLimits::limit()'s
+ * null-coalesce-to-0-means-unlimited fallback) rather than actually
+ * enforcing anything — that would look like enforcement in the code
+ * without being real enforcement, which is worse than the honest gap
+ * this comment is flagging instead. dubClip() and resynthesize() ride on
+ * whatever PrepareDubbingJob/FinalizeDubbingJob/SynthesisQuota already
+ * enforce for translation/synthesis quota, same as /dubbing/submit — no
+ * new gate was added or needed here.
  */
 class VideoProjectController extends Controller
 {
@@ -333,6 +335,181 @@ class VideoProjectController extends Controller
     }
 
     /**
+     * POST /api/video-projects/{id}/assets/{assetId}/extract-audio —
+     * task #15 Phase 4, step 1. Starts pulling the audio track off a
+     * video bin asset (source OR dubbed, either is a fine source clip to
+     * extract from) and transcribing it into an editable segment list.
+     * Creates the 'extracted_audio' placeholder asset synchronously and
+     * dispatches ExtractAudioAssetJob to do the real (ffmpeg + Whisper)
+     * work — same immediate-placeholder-then-poll-on-read shape dubClip()
+     * already established for dubbed assets, except there's no separate
+     * DubbingJob row to poll here: the placeholder asset's own
+     * `status`/`error` ARE the job's state (see ExtractAudioAssetJob's
+     * docblock for why there's no ActivityLog/job-table layer for this).
+     */
+    public function extractAudio(Request $request, string $id, string $assetId)
+    {
+        $project = $request->user()->videoProjects()->find($id);
+        if (! $project) {
+            return response()->json(['message' => 'Video project not found.'], 404);
+        }
+
+        $source = $project->assets()->find($assetId);
+        if (! $source) {
+            return response()->json(['message' => 'Asset not found.'], 404);
+        }
+        if ($source->kind !== 'video') {
+            return response()->json(['message' => 'Audio can only be extracted from a video asset.'], 422);
+        }
+        if (! $source->storage_path || ! Storage::disk('video')->exists($source->storage_path)) {
+            return response()->json(['message' => 'This clip\'s file is missing or has expired — if it\'s still dubbing, wait for it to finish first.'], 410);
+        }
+
+        $placeholder = VideoProjectAsset::create([
+            'video_project_id'  => $project->id,
+            'kind'              => 'audio',
+            'source'            => 'extracted_audio',
+            'parent_asset_id'   => $source->id,
+            'original_filename' => trim(($source->original_filename ?: 'clip') . ' — extracted audio'),
+            'status'            => 'processing',
+        ]);
+        $project->touch();
+
+        ExtractAudioAssetJob::dispatch($placeholder->id, $source->id);
+
+        return response()->json(['asset_id' => $placeholder->id, 'status' => 'processing'], 201);
+    }
+
+    /**
+     * PATCH /api/video-projects/{id}/assets/{assetId}/transcript — task
+     * #15 Phase 4, review step. Lets the user fix transcription errors
+     * before spending synthesis quota. Only allowed on a 'ready'
+     * extracted_audio asset — same "original stays immutable, only text
+     * is editable, unknown ids silently dropped" guard
+     * VideoDubbingController::updateSegments() already uses for the
+     * (unrelated) dubbing review timeline, applied here to the simpler
+     * id/text-only shape this feature actually needs.
+     */
+    public function updateTranscript(Request $request, string $id, string $assetId)
+    {
+        $project = $request->user()->videoProjects()->find($id);
+        if (! $project) {
+            return response()->json(['message' => 'Video project not found.'], 404);
+        }
+
+        $asset = $project->assets()->find($assetId);
+        if (! $asset || $asset->source !== 'extracted_audio') {
+            return response()->json(['message' => 'Asset not found.'], 404);
+        }
+        if ($asset->status !== 'ready') {
+            return response()->json(['message' => 'This transcript is not ready to edit yet.', 'status' => $asset->status], 409);
+        }
+
+        $validated = $request->validate([
+            'segments'              => ['required', 'array', 'min:1'],
+            'segments.*.id'         => ['required', 'string'],
+            'segments.*.text'       => ['required', 'string'],
+        ]);
+
+        $existing = collect($asset->transcript_json ?? [])->keyBy('id');
+        $updated = false;
+        foreach ($validated['segments'] as $edit) {
+            if (! $existing->has($edit['id'])) {
+                continue; // Unknown id — same silent-drop guard updateSegments() uses.
+            }
+            $seg = $existing->get($edit['id']);
+            $seg['text'] = $edit['text'];
+            $existing->put($edit['id'], $seg);
+            $updated = true;
+        }
+        if (! $updated) {
+            return response()->json(['message' => 'No matching segments to update.'], 422);
+        }
+
+        $asset->update(['transcript_json' => $existing->values()->all()]);
+
+        return response()->json(['segments' => $asset->transcript_json]);
+    }
+
+    /**
+     * POST /api/video-projects/{id}/assets/{assetId}/resynthesize — task
+     * #15 Phase 4, step 2. `assetId` is the 'extracted_audio' asset whose
+     * (possibly just-edited) transcript_json gets synthesized. Creates a
+     * 'synthesized_audio' placeholder asset and dispatches
+     * SynthesizeAudioAssetJob — same immediate-placeholder pattern as
+     * extractAudio() and dubClip().
+     *
+     * No re-dub-style "already has a result" guard here (unlike
+     * dubClip()'s check on dubbing_job_id) — an extracted_audio asset can
+     * be resynthesized more than once (different voice, or after editing
+     * the transcript again), each producing its own independent
+     * synthesized_audio sibling. That's intentional, not an oversight:
+     * a user comparing two voices on the same transcript is a real,
+     * expected use of this feature.
+     */
+    public function resynthesize(Request $request, string $id, string $assetId)
+    {
+        $user = $request->user();
+        $project = $user->videoProjects()->find($id);
+        if (! $project) {
+            return response()->json(['message' => 'Video project not found.'], 404);
+        }
+
+        $source = $project->assets()->find($assetId);
+        if (! $source || $source->source !== 'extracted_audio') {
+            return response()->json(['message' => 'Asset not found.'], 404);
+        }
+        if ($source->status !== 'ready' || empty($source->transcript_json)) {
+            return response()->json(['message' => 'This transcript is not ready to synthesize yet.', 'status' => $source->status], 409);
+        }
+
+        $validated = $request->validate([
+            'voice_profile_id' => ['required', 'string', 'max:100'],
+            'engine'           => ['nullable', 'string', EngineResolver::engineValidationRule()],
+            // Defaults to English if omitted — unlike dubbing, there's no
+            // translation step here to infer a target language from; the
+            // source clip's spoken language IS the output language, and
+            // this app doesn't auto-detect-and-remember that anywhere yet
+            // (Whisper's own detected_language from ExtractAudioAssetJob's
+            // transcription isn't currently persisted — a reasonable
+            // Phase 4 follow-up, not solved here to keep this endpoint's
+            // scope to what it was asked to do).
+            'language'         => ['nullable', 'string', 'max:10'],
+        ]);
+
+        $profileId = $validated['voice_profile_id'];
+        if ($profileId !== '' && ! str_starts_with($profileId, 'builtin:')) {
+            $owned = VoiceProfile::where('user_id', $user->id)
+                ->where('profile_id', $profileId)
+                ->exists();
+            if (! $owned) {
+                return response()->json(['message' => 'Voice profile not found on your account.'], 422);
+            }
+        }
+
+        $placeholder = VideoProjectAsset::create([
+            'video_project_id'  => $project->id,
+            'kind'              => 'audio',
+            'source'            => 'synthesized_audio',
+            'parent_asset_id'   => $source->id,
+            'original_filename' => trim(($source->original_filename ?: 'clip') . ' — cloned voice'),
+            'status'            => 'processing',
+        ]);
+        $project->touch();
+
+        SynthesizeAudioAssetJob::dispatch(
+            $placeholder->id,
+            $source->id,
+            $user->id,
+            $profileId,
+            $validated['language'] ?? 'en',
+            $validated['engine'] ?? null,
+        );
+
+        return response()->json(['asset_id' => $placeholder->id, 'status' => 'processing'], 201);
+    }
+
+    /**
      * GET /api/video-projects/{id}/assets/{assetId}/file — streams a bin
      * asset's own file. For a plain (source) asset that's always been
      * its uploaded video/audio/image. For a 'dubbed' asset (task #15
@@ -344,7 +521,10 @@ class VideoProjectController extends Controller
      * source() via its dubbing_job_id (this endpoint doesn't proxy the
      * in-progress job at all — only a resolved file on this asset's own
      * storage_path), but once an asset is 'ready' either path serves the
-     * identical file. 404 (not a bare "file missing") when the asset doesn't
+     * identical file. 'extracted_audio'/'synthesized_audio' assets (Phase
+     * 4) have no separate job-backed endpoint at all — this IS their only
+     * file route, once ExtractAudioAssetJob/SynthesizeAudioAssetJob flips
+     * them to 'ready'. 404 (not a bare "file missing") when the asset doesn't
      * belong to this project/user, to avoid leaking asset-id existence
      * across accounts — same ownership-then-existence check order used
      * throughout this controller.
@@ -523,6 +703,13 @@ class VideoProjectController extends Controller
                 'original_filename'  => $a->original_filename,
                 'duration_seconds'   => $a->duration_seconds,
                 'status'             => $a->status,
+                // Task #15 Phase 4 — only ever non-null on an
+                // 'extracted_audio' asset. Included unconditionally
+                // (rather than a separate GET) since show() already
+                // fetches the whole project on every poll and this is
+                // small (a few KB of segment text at most).
+                'transcript_json'    => $a->transcript_json,
+                'error'              => $a->error,
                 'created_at'         => $a->created_at?->toIso8601String(),
             ]);
         }

@@ -152,6 +152,16 @@ export interface VideoProject {
   assets?: VideoProjectAsset[]
 }
 
+export interface VideoProjectAssetTranscriptSegment {
+  id: string
+  start: number
+  end: number
+  /** Original transcribed text — kept for reference, never edited by the client. */
+  original: string
+  /** Possibly user-edited text — what actually gets synthesized. */
+  text: string
+}
+
 export interface VideoProjectAsset {
   id: string
   kind: 'video' | 'image' | 'audio'
@@ -161,6 +171,10 @@ export interface VideoProjectAsset {
   original_filename: string | null
   duration_seconds: number | null
   status: 'processing' | 'ready' | 'failed'
+  /** Task #15 Phase 4 — only ever set on an 'extracted_audio' asset. */
+  transcript_json: VideoProjectAssetTranscriptSegment[] | null
+  /** Task #15 Phase 4 — extract/resynthesize failure reason; null otherwise. */
+  error: string | null
   created_at: string | null
 }
 

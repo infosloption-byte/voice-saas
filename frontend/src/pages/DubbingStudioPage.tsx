@@ -7,7 +7,7 @@ import { useTTSEngine } from '../hooks/useTTSEngine'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { EngineSwitcher } from '../components/EngineSwitcher'
 import { DubbingTimelineEditor } from '../components/DubbingTimelineEditor'
-import type { VoiceProfile, EngineCaps, VideoProjectAsset } from '../lib/types'
+import type { VoiceProfile, EngineCaps, VideoProjectAsset, VideoProjectAssetTranscriptSegment } from '../lib/types'
 import './dubbing-studio.css'
 
 /**
@@ -223,12 +223,15 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [refreshList])
 
-  // ── Bin assets — task #15 Phase 2. Plain (not-yet-dubbed) uploads live
-  // in video_project_assets, separate from the DubbingJob-backed cards
+  // ── Bin assets — task #15 Phase 2 (uploads) + Phase 4 (extract/
+  // resynthesize). Plain (not-yet-dubbed) uploads live in
+  // video_project_assets, separate from the DubbingJob-backed cards
   // above. Only meaningful with a project open (assets are inherently
-  // project-scoped — see the migration); no polling here, unlike jobs,
-  // since Phase 2's addAsset() is synchronous (no background processing
-  // status to watch) — a plain refetch after each upload/delete is enough.
+  // project-scoped — see the migration). Phase 2's addAsset() is
+  // synchronous so didn't need polling on its own, but Phase 4's
+  // extractAudio()/resynthesize() run as background jobs — see the
+  // separate poll effect below for why refreshAssets() now DOES get
+  // polled, unlike when this comment was first written.
   const [assets, setAssets] = useState<VideoProjectAsset[]>([])
 
   const refreshAssets = useCallback(async () => {
@@ -242,6 +245,16 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
   }, [videoProjectId])
 
   useEffect(() => { refreshAssets() }, [refreshAssets])
+
+  // Task #15 Phase 4 — poll only while something is actually in flight
+  // (an extracted_audio/synthesized_audio asset still 'processing'); an
+  // all-ready/failed bin has nothing left to watch for, so this doesn't
+  // run a second permanent interval alongside the jobs list's.
+  useEffect(() => {
+    if (!assets.some(a => a.status === 'processing')) return
+    const id = setInterval(refreshAssets, LIST_POLL_MS)
+    return () => clearInterval(id)
+  }, [assets, refreshAssets])
 
   // Assets not already represented by a job card above (a dubbed/dubbing
   // asset shows through its DubbingJob card instead — see the jobs list;
@@ -288,6 +301,28 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
       setDeletingAssetId(null)
     }
   }
+
+  // Task #15 Phase 4, step 1 — "Extract audio & clone voice". No dialog
+  // needed for this step (unlike dubClip()'s 'dub' mode) — extraction
+  // takes no parameters, it's the resynthesize step afterward that needs
+  // a voice/language picker, once there's a transcript to review.
+  const [extractingAssetId, setExtractingAssetId] = useState<string | null>(null)
+  async function extractAudio(assetId: string) {
+    if (!videoProjectId) return
+    setExtractingAssetId(assetId)
+    try {
+      await api.extractVideoProjectAudio(videoProjectId, assetId)
+      refreshAssets()
+    } catch (e) {
+      toast.err(e instanceof ApiError ? e.message : 'Failed to start audio extraction.')
+    } finally {
+      setExtractingAssetId(null)
+    }
+  }
+
+  // Task #15 Phase 4, review step — which extracted_audio asset's
+  // transcript is currently open in TranscriptReviewDialog, if any.
+  const [transcriptAssetId, setTranscriptAssetId] = useState<string | null>(null)
 
   // Lazily backfill real thumbnails for any job that doesn't already have
   // a client-captured poster (i.e. everything from before this page load).
@@ -694,20 +729,58 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
                   </div>
                   <div className="ds-card__meta">
                     <span className="ds-card__name">{a.original_filename ?? 'Untitled'}</span>
-                    {/* Task #15 Phase 3 — "Dub this clip" only makes sense for
-                        a video asset; audio/image bin assets stay "Not dubbed"
-                        text-only until Phase 4 (resynthesize) / Phase 5
-                        (timeline) give them their own bin actions. */}
-                    {a.kind === 'video' ? (
-                      <button
-                        type="button"
-                        className="btn btn--ghost ds-card__dubbtn"
-                        onClick={e => { e.stopPropagation(); setDialog({ mode: 'dub', dubAssetId: a.id }) }}
-                      >
-                        Dub this clip
-                      </button>
-                    ) : (
-                      <span className="ds-card__langs">Not dubbed</span>
+                    {/* Task #15 Phase 3/4 — a plain video asset gets both
+                        "Dub this clip" and "Extract audio & clone voice";
+                        audio/image assets get their own status/action
+                        below instead. */}
+                    {a.kind === 'video' && (
+                      <div className="ds-card__btnrow">
+                        <button
+                          type="button"
+                          className="btn btn--ghost ds-card__dubbtn"
+                          onClick={e => { e.stopPropagation(); setDialog({ mode: 'dub', dubAssetId: a.id }) }}
+                        >
+                          Dub this clip
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn--ghost ds-card__dubbtn"
+                          onClick={e => { e.stopPropagation(); extractAudio(a.id) }}
+                          disabled={extractingAssetId === a.id}
+                        >
+                          {extractingAssetId === a.id ? 'Starting…' : 'Clone voice'}
+                        </button>
+                      </div>
+                    )}
+                    {a.kind === 'audio' && a.source === 'extracted_audio' && (
+                      a.status === 'processing' ? (
+                        <span className="ds-card__langs">Transcribing…</span>
+                      ) : a.status === 'failed' ? (
+                        <span className="ds-card__langs" title={a.error ?? undefined}>Failed — {a.error ? a.error.slice(0, 40) : 'try again'}</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn--ghost ds-card__dubbtn"
+                          onClick={e => { e.stopPropagation(); setTranscriptAssetId(a.id) }}
+                        >
+                          Review & clone voice
+                        </button>
+                      )
+                    )}
+                    {a.kind === 'audio' && a.source === 'synthesized_audio' && (
+                      a.status === 'processing' ? (
+                        <span className="ds-card__langs">Synthesizing…</span>
+                      ) : a.status === 'failed' ? (
+                        <span className="ds-card__langs" title={a.error ?? undefined}>Failed — {a.error ? a.error.slice(0, 40) : 'try again'}</span>
+                      ) : (
+                        <span className="ds-card__langs">Cloned voice</span>
+                      )
+                    )}
+                    {a.kind === 'audio' && a.source === 'upload' && (
+                      <span className="ds-card__langs">Audio</span>
+                    )}
+                    {a.kind === 'image' && (
+                      <span className="ds-card__langs">Image</span>
                     )}
                   </div>
                 </div>

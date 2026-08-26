@@ -455,6 +455,43 @@ class ApiClient {
     return this.post(`/video-projects/${projectId}/assets/${assetId}/dub`, payload) as Promise<{ job_id: string; asset_id: string; status: string }>
   }
 
+  /**
+   * Task #15 Phase 4, step 1 — "Extract audio & clone voice". Starts
+   * pulling the audio track off a video bin asset and transcribing it;
+   * returns the new 'extracted_audio' placeholder asset id. No params —
+   * unlike dubVideoProjectAsset() there's no target language/voice to
+   * choose yet at this step (that's resynthesizeVideoProjectAsset(),
+   * once the transcript is ready to review).
+   */
+  extractVideoProjectAudio(projectId: string, assetId: string): Promise<{ asset_id: string; status: string }> {
+    return this.post(`/video-projects/${projectId}/assets/${assetId}/extract-audio`) as Promise<{ asset_id: string; status: string }>
+  }
+
+  /**
+   * Task #15 Phase 4, review step — saves edited transcript segment text
+   * before resynthesis. `assetId` is the 'extracted_audio' asset;
+   * segments are matched by id, unknown ids are dropped server-side.
+   */
+  updateVideoProjectAssetTranscript(projectId: string, assetId: string, segments: { id: string; text: string }[]): Promise<{ segments: { id: string; start: number; end: number; original: string; text: string }[] }> {
+    return this.patch(`/video-projects/${projectId}/assets/${assetId}/transcript`, { segments }) as Promise<{ segments: { id: string; start: number; end: number; original: string; text: string }[] }>
+  }
+
+  /**
+   * Task #15 Phase 4, step 2 — synthesizes an 'extracted_audio' asset's
+   * (possibly just-edited) transcript into a new 'synthesized_audio'
+   * asset in the chosen cloned voice. Can be called more than once on the
+   * same extracted_audio asset (different voice, or after another edit)
+   * — see VideoProjectController::resynthesize()'s docblock for why
+   * that's intentional, not guarded against.
+   */
+  resynthesizeVideoProjectAsset(projectId: string, assetId: string, payload: {
+    voice_profile_id: string
+    engine?: string
+    language?: string
+  }): Promise<{ asset_id: string; status: string }> {
+    return this.post(`/video-projects/${projectId}/assets/${assetId}/resynthesize`, payload) as Promise<{ asset_id: string; status: string }>
+  }
+
 }
 
 export const api = new ApiClient()

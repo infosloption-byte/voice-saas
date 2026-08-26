@@ -213,6 +213,22 @@ Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
         ->where(['id' => '[A-Za-z0-9\-]{1,64}', 'assetId' => '[A-Za-z0-9\-]{1,64}']);
 });
 
+// Task #15 Phase 4 — extract audio → transcribe → clone-resynthesize.
+// extractAudio()/resynthesize() both dispatch a real queued job, same
+// heavier tier as dubClip() just above. updateTranscript() is cheap
+// project-CRUD (a DB row edit, no job dispatched) — same tier as
+// addAsset()'s sibling endpoints, not this heavier one.
+Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
+    Route::post('/video-projects/{id}/assets/{assetId}/extract-audio', [VideoProjectController::class, 'extractAudio'])
+        ->where(['id' => '[A-Za-z0-9\-]{1,64}', 'assetId' => '[A-Za-z0-9\-]{1,64}']);
+    Route::post('/video-projects/{id}/assets/{assetId}/resynthesize', [VideoProjectController::class, 'resynthesize'])
+        ->where(['id' => '[A-Za-z0-9\-]{1,64}', 'assetId' => '[A-Za-z0-9\-]{1,64}']);
+});
+Route::middleware(['auth:sanctum', 'throttle:30,1'])->group(function () {
+    Route::patch('/video-projects/{id}/assets/{assetId}/transcript', [VideoProjectController::class, 'updateTranscript'])
+        ->where(['id' => '[A-Za-z0-9\-]{1,64}', 'assetId' => '[A-Za-z0-9\-]{1,64}']);
+});
+
 // ── Video dubbing (task #6, authenticated, queued job) ─────────────────
 // No guest tier: unlike clone-voice/translate, a dubbing job consumes both
 // translation AND synthesis quota plus real ffmpeg/GPU time per video, so
