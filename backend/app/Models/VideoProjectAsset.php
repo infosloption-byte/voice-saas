@@ -35,7 +35,7 @@ class VideoProjectAsset extends Model
         'id', 'video_project_id', 'kind', 'source',
         'parent_asset_id', 'dubbing_job_id',
         'original_filename', 'storage_path', 'duration_seconds', 'status', 'error',
-        'transcript_json',
+        'transcript_json', 'detected_language',
     ];
 
     protected $casts = [

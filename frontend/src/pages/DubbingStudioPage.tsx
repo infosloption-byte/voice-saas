@@ -1269,7 +1269,17 @@ function TranscriptReviewDialog({
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [profileId, setProfileId] = useState(voiceProfiles[0]?.profile_id ?? '')
-  const [targetLang, setTargetLang] = useState('en')
+  // Task #15 Phase 4 follow-up — pre-fill from Whisper's own detected
+  // source language when it's one of this picker's options; falls back to
+  // English the same way the backend's own resynthesize() default does
+  // when detected_language is unset or unrecognized (e.g. a code outside
+  // LANGUAGES, or an extracted_audio asset from before this column
+  // existed). The user can still change it before cloning.
+  const [targetLang, setTargetLang] = useState(
+    (asset.detected_language && LANGUAGES.some(l => l.code === asset.detected_language))
+      ? asset.detected_language
+      : 'en'
+  )
   const [submitting, setSubmitting] = useState(false)
 
   function editSegment(id: string, text: string) {
@@ -1367,6 +1377,9 @@ function TranscriptReviewDialog({
           <select value={targetLang} onChange={e => setTargetLang(e.target.value)}>
             {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
           </select>
+          {asset.detected_language && LANGUAGES.some(l => l.code === asset.detected_language) && (
+            <span className="ds-inspector__hint">Detected from the clip — change it if that's wrong.</span>
+          )}
         </label>
 
         <div className="ds-transcript__actions">

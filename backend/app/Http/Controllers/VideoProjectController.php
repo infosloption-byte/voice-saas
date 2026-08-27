@@ -22,18 +22,20 @@ use Illuminate\Support\Str;
  * here yet — adding them as stubs now would just be dead code to delete
  * or rewrite once that phase is actually designed.
  *
- * Quota gating (project count, asset uploads, renders, dubClip(),
- * extractAudio(), resynthesize()) is deliberately NOT wired in here yet —
- * see the "Open questions" in task #15: there is no `video_project_limit`
- * key in PlanLimits yet, and calling PlanLimits::limit() with an unknown
- * key silently resolves to "unlimited" (see PlanLimits::limit()'s
- * null-coalesce-to-0-means-unlimited fallback) rather than actually
- * enforcing anything — that would look like enforcement in the code
- * without being real enforcement, which is worse than the honest gap
- * this comment is flagging instead. dubClip() and resynthesize() ride on
- * whatever PrepareDubbingJob/FinalizeDubbingJob/SynthesisQuota already
- * enforce for translation/synthesis quota, same as /dubbing/submit — no
- * new gate was added or needed here.
+ * Quota gating on project count, asset uploads, and renders is
+ * deliberately NOT wired in here yet — see the "Open questions" in task
+ * #15: there is no `video_project_limit` key in PlanLimits yet, and
+ * calling PlanLimits::limit() with an unknown key silently resolves to
+ * "unlimited" (see PlanLimits::limit()'s null-coalesce-to-0-means-
+ * unlimited fallback) rather than actually enforcing anything — that
+ * would look like enforcement in the code without being real enforcement,
+ * which is worse than the honest gap this comment is flagging instead.
+ * dubClip(), extractAudio(), and resynthesize() DO ride on quota, but via
+ * whatever their dispatched job already enforces (PrepareDubbingJob/
+ * FinalizeDubbingJob/SynthesisQuota, same as /dubbing/submit; and as of
+ * Aug 27, 2026, ExtractAudioAssetJob's own TranslationQuota check — see
+ * that job's docblock for why translation quota, not a dedicated
+ * transcription bucket) rather than a gate added in this controller.
  */
 class VideoProjectController extends Controller
 {
@@ -375,7 +377,7 @@ class VideoProjectController extends Controller
         ]);
         $project->touch();
 
-        ExtractAudioAssetJob::dispatch($placeholder->id, $source->id);
+        ExtractAudioAssetJob::dispatch($placeholder->id, $source->id, $request->user()->id);
 
         return response()->json(['asset_id' => $placeholder->id, 'status' => 'processing'], 201);
     }
@@ -466,14 +468,14 @@ class VideoProjectController extends Controller
         $validated = $request->validate([
             'voice_profile_id' => ['required', 'string', 'max:100'],
             'engine'           => ['nullable', 'string', EngineResolver::engineValidationRule()],
-            // Defaults to English if omitted — unlike dubbing, there's no
-            // translation step here to infer a target language from; the
-            // source clip's spoken language IS the output language, and
-            // this app doesn't auto-detect-and-remember that anywhere yet
-            // (Whisper's own detected_language from ExtractAudioAssetJob's
-            // transcription isn't currently persisted — a reasonable
-            // Phase 4 follow-up, not solved here to keep this endpoint's
-            // scope to what it was asked to do).
+            // Unlike dubbing, there's no translation step here to infer a
+            // target language from — the source clip's spoken language IS
+            // the output language. Defaults below to
+            // $source->detected_language (Whisper's own detected language,
+            // persisted by ExtractAudioAssetJob) when the caller omits
+            // this, falling back to English only if that's also unset
+            // (e.g. an extracted_audio asset from before this column
+            // existed). The client can still override it explicitly.
             'language'         => ['nullable', 'string', 'max:10'],
         ]);
 
@@ -502,7 +504,7 @@ class VideoProjectController extends Controller
             $source->id,
             $user->id,
             $profileId,
-            $validated['language'] ?? 'en',
+            $validated['language'] ?? $source->detected_language ?? 'en',
             $validated['engine'] ?? null,
         );
 
@@ -709,6 +711,12 @@ class VideoProjectController extends Controller
                 // fetches the whole project on every poll and this is
                 // small (a few KB of segment text at most).
                 'transcript_json'    => $a->transcript_json,
+                // Task #15 Phase 4 follow-up — only ever set on an
+                // 'extracted_audio' asset, once ExtractAudioAssetJob's
+                // transcription finishes. Lets the frontend pre-select
+                // this language in resynthesize()'s picker instead of
+                // always defaulting to English.
+                'detected_language'  => $a->detected_language,
                 'error'              => $a->error,
                 'created_at'         => $a->created_at?->toIso8601String(),
             ]);

@@ -173,6 +173,8 @@ export interface VideoProjectAsset {
   status: 'processing' | 'ready' | 'failed'
   /** Task #15 Phase 4 — only ever set on an 'extracted_audio' asset. */
   transcript_json: VideoProjectAssetTranscriptSegment[] | null
+  /** Task #15 Phase 4 follow-up — Whisper's detected source language (e.g. 'es'), only ever set on an 'extracted_audio' asset. Not guaranteed to be one of LANGUAGES' codes. */
+  detected_language: string | null
   /** Task #15 Phase 4 — extract/resynthesize failure reason; null otherwise. */
   error: string | null
   created_at: string | null
