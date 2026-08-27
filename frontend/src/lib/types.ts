@@ -150,7 +150,42 @@ export interface VideoProject {
   created_at: string | null
   updated_at: string | null
   assets?: VideoProjectAsset[]
+  /** Task #15 Phase 5 — only present on the show() (fetchVideoProject) response, same asset_count-only-on-the-list-view pattern as `assets` above. Empty array on a project with no arrangement yet, never null. */
+  timeline_json?: VideoTimelineClip[]
 }
+
+// ── Video Studio multi-lane timeline (task #15 Phase 5) ────────────
+// Deliberately its own type, not a reuse of TimelineClip (Assembly,
+// audio-only) or DubSegment (single-lane dubbing review) — see
+// VideoProject's migration docblock on the backend for why this shape
+// exists: independent `lane`/`start_time` per clip (real multi-lane,
+// clips in different lanes can overlap in time — that's the whole
+// point of lanes), `trim_in`/`trim_out` instead of TimelineClip's
+// start/dur/trimStart/trimEnd/rawDur (simpler here since there's no
+// waveform-peak/fade/volume mixing to carry), and `kind` carried
+// per-clip (not derived) so the editor and backend agree on it without
+// a join back to the asset on every read.
+export interface VideoTimelineClip {
+  id: string
+  asset_id: string
+  lane: number
+  start_time: number
+  trim_in: number
+  trim_out: number
+  kind: 'video' | 'image' | 'audio'
+}
+
+export type VideoTimelineAction =
+  | { type: 'SET'; clips: VideoTimelineClip[] }
+  | { type: 'UNDO' }
+  | { type: 'REDO' }
+
+export interface VideoTimelineHistory {
+  past: VideoTimelineClip[][]
+  present: VideoTimelineClip[]
+  future: VideoTimelineClip[][]
+}
+
 
 export interface VideoProjectAssetTranscriptSegment {
   id: string
