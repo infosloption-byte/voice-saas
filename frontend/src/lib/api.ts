@@ -492,6 +492,20 @@ class ApiClient {
     return this.post(`/video-projects/${projectId}/assets/${assetId}/resynthesize`, payload) as Promise<{ asset_id: string; status: string }>
   }
 
+  /**
+   * Task #15 Phase 5 — saves the multi-lane arrangement. Shares the
+   * rename endpoint (PATCH /video-projects/{id}) rather than a
+   * dedicated route — VideoProjectController::update() accepts `name`
+   * and/or `timeline_json` independently, see its docblock. Typed as
+   * `unknown[]` rather than importing VideoTimelineClip here, matching
+   * this file's existing no-type-imports convention (every other
+   * VideoProject* method below is `unknown`/`unknown[]` too) — the
+   * caller already has the real type from lib/types.ts.
+   */
+  updateVideoProjectTimeline(projectId: string, clips: unknown[]): Promise<unknown> {
+    return this.patch(`/video-projects/${projectId}`, { timeline_json: clips })
+  }
+
 }
 
 export const api = new ApiClient()

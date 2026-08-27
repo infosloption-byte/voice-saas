@@ -7,6 +7,7 @@ import { useTTSEngine } from '../hooks/useTTSEngine'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { EngineSwitcher } from '../components/EngineSwitcher'
 import { DubbingTimelineEditor } from '../components/DubbingTimelineEditor'
+import { VideoTimelineEditor } from '../components/VideoTimelineEditor'
 import type { VoiceProfile, EngineCaps, VideoProjectAsset, VideoProjectAssetTranscriptSegment } from '../lib/types'
 import './dubbing-studio.css'
 
@@ -364,6 +365,11 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
   const [libFilter, setLibFilter] = useState<LibFilter>('all')
   const [search, setSearch] = useState('')
   const [mobileLibOpen, setMobileLibOpen] = useState(false)
+  // Task #15 Phase 5 — toggles the multi-lane timeline panel in place of
+  // the monitor/transport. Only meaningful with a project open (the
+  // timeline is inherently project-scoped, same as the bin — see
+  // VideoTimelineEditor's own videoProjectId prop).
+  const [timelineOpen, setTimelineOpen] = useState(false)
   const [dialog, setDialog] = useState<{ mode: 'new' | 'retry' | 'dub'; retryJobId?: string; dubAssetId?: string } | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -591,6 +597,16 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
           <div className="ds-topbar__spacer" />
           {job && isJobRunning(job) && (
             <span className="ds-topbar__progress">{job.progress ?? STAGE_META[job.status].pct}%</span>
+          )}
+          {videoProjectId && (
+            <button
+              className="ds-icon-btn"
+              title={timelineOpen ? 'Hide timeline' : 'Show timeline'}
+              style={timelineOpen ? { background: 'var(--surface-2)', color: 'var(--text-1)' } : undefined}
+              onClick={() => setTimelineOpen(o => !o)}
+            >
+              {icons.layers}
+            </button>
           )}
           <button
             className="btn btn--primary ds-topbar__export"
@@ -820,6 +836,20 @@ export function DubbingStudioPage({ voiceProfiles, engineCaps, videoProjectId, o
                 jobId={job.job_id}
                 targetLanguage={job.target_language}
                 onFinalized={refreshList}
+              />
+            </div>
+          ) : timelineOpen && videoProjectId ? (
+            // Task #15 Phase 5 — the multi-lane timeline takes this same
+            // main-panel slot as the ready_for_review review editor above;
+            // a job mid-review still wins (see the branch above) since
+            // that's an active, time-sensitive workflow step, but
+            // otherwise toggling "Timeline" replaces the monitor/transport
+            // with the real arrangement editor.
+            <div className="ds-review-panel">
+              <VideoTimelineEditor
+                key={videoProjectId}
+                videoProjectId={videoProjectId}
+                onClose={() => setTimelineOpen(false)}
               />
             </div>
           ) : (

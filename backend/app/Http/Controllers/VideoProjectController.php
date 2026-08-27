@@ -108,7 +108,16 @@ class VideoProjectController extends Controller
         return response()->json($this->summarize($project, includeAssets: true));
     }
 
-    /** PATCH/PUT /api/video-projects/{id} — rename only for now (timeline_json lands in Phase 5). */
+    /**
+     * PATCH/PUT /api/video-projects/{id} — rename and/or save the
+     * multi-lane arrangement (task #15 Phase 5). Both fields are
+     * optional and independent: the timeline editor's "Save" autosaves
+     * `timeline_json` alone (no rename UI wired to it yet — see
+     * VideoProjectsPage's docblock on that gap), while a future rename
+     * affordance would send `name` alone. At least one of the two must
+     * be present, or this is a no-op PATCH that's almost certainly a
+     * client bug.
+     */
     public function update(Request $request, string $id)
     {
         $project = $request->user()->videoProjects()->find($id);
@@ -117,8 +126,35 @@ class VideoProjectController extends Controller
         }
 
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
+            'name'                    => ['sometimes', 'required', 'string', 'max:255'],
+            'timeline_json'           => ['sometimes', 'array'],
+            'timeline_json.*.id'         => ['required', 'string', 'max:64'],
+            'timeline_json.*.asset_id'   => ['required', 'string'],
+            'timeline_json.*.lane'       => ['required', 'integer', 'min:0', 'max:63'],
+            'timeline_json.*.start_time' => ['required', 'numeric', 'min:0'],
+            'timeline_json.*.trim_in'    => ['required', 'numeric', 'min:0'],
+            'timeline_json.*.trim_out'   => ['required', 'numeric', 'gt:timeline_json.*.trim_in'],
+            'timeline_json.*.kind'       => ['required', 'string', 'in:video,image,audio'],
         ]);
+
+        if (! array_key_exists('name', $validated) && ! array_key_exists('timeline_json', $validated)) {
+            return response()->json(['message' => 'Nothing to update — provide name and/or timeline_json.'], 422);
+        }
+
+        if (array_key_exists('timeline_json', $validated)) {
+            // Drop any clip referencing an asset that isn't (or is no
+            // longer) actually in this project's bin — same defensive
+            // "unknown ids are silently dropped rather than trusted"
+            // stance updateTranscript() already takes for segment ids,
+            // so a stale client (an asset deleted in another tab since
+            // the editor loaded) can't smuggle a dangling reference into
+            // the saved arrangement.
+            $validAssetIds = $project->assets()->pluck('id')->all();
+            $validated['timeline_json'] = array_values(array_filter(
+                $validated['timeline_json'],
+                fn(array $clip) => in_array($clip['asset_id'], $validAssetIds, true)
+            ));
+        }
 
         $project->update($validated);
 
@@ -696,6 +732,14 @@ class VideoProjectController extends Controller
         ];
 
         if ($includeAssets) {
+            // Task #15 Phase 5 — only ever populated on the show()
+            // (fetchVideoProject) response, same "only on the detail
+            // view, not the list" scoping `assets` itself already uses.
+            // Never null on a fetched row (defaults to [] at creation —
+            // see store()), but the ?? [] guards a project created
+            // before this column existed, if any survive in a dev DB.
+            $out['timeline_json'] = $p->timeline_json ?? [];
+
             $out['assets'] = $p->assets->map(fn($a) => [
                 'id'                 => $a->id,
                 'kind'               => $a->kind,
