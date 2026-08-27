@@ -207,8 +207,15 @@ Route::middleware(['auth:sanctum', 'throttle:15,1'])->group(function () {
 // Task #15 Phase 3 — "Dub this clip". Same throttle tier as addAsset:
 // this dispatches a real queued job (PrepareDubbingJob), not just a DB
 // row, so it belongs with the heavier action tier rather than the cheap
-// project-CRUD tier above.
-Route::middleware(['auth:sanctum', 'throttle:5,1'])->group(function () {
+// project-CRUD tier above. Bumped 5→10/min (Aug 27) — 5/min turned out
+// too tight even for a single real user: opening the dialog, picking a
+// voice, hitting Start, and retrying once or twice after fixing a
+// validation issue burns the whole budget in under a minute and then
+// locks out further attempts for the rest of that window. 10/min still
+// caps runaway/scripted abuse (10 real ffmpeg+GPU job dispatches/min is
+// still a deliberate ceiling) while giving normal iterative use enough
+// headroom.
+Route::middleware(['auth:sanctum', 'throttle:10,1'])->group(function () {
     Route::post('/video-projects/{id}/assets/{assetId}/dub', [VideoProjectController::class, 'dubClip'])
         ->where(['id' => '[A-Za-z0-9\-]{1,64}', 'assetId' => '[A-Za-z0-9\-]{1,64}']);
 });
